@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anamnese Empresarial - {{empresa_nome}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 60px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+
+        .header {
+            text-align: center;
+            border-bottom: 4px solid #2563eb;
+            padding-bottom: 30px;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #1e40af;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header .subtitle {
+            font-size: 1.2rem;
+            color: #64748b;
+            font-weight: 400;
+        }
+
+        .header .company-name {
+            font-size: 1.8rem;
+            color: #2563eb;
+            font-weight: 600;
+            margin-top: 20px;
+        }
+
+        .section {
+            margin-bottom: 50px;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            color: #1e40af;
+            margin-bottom: 25px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 6px;
+            height: 30px;
+            background: linear-gradient(to bottom, #2563eb, #3b82f6);
+            border-radius: 3px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #475569;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .info-value {
+            font-size: 1.1rem;
+            color: #1e293b;
+            font-weight: 500;
+        }
+
+        .list-section {
+            background: #f8fafc;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .list-section h3 {
+            color: #1e40af;
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .list-section ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .list-section li {
+            padding: 12px 0;
+            padding-left: 30px;
+            position: relative;
+            color: #334155;
+            font-size: 1.05rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .list-section li:last-child {
+            border-bottom: none;
+        }
+
+        .list-section li::before {
+            content: '▸';
+            position: absolute;
+            left: 8px;
+            color: #3b82f6;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .footer {
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.95rem;
+        }
+
+        .footer .date {
+            font-weight: 600;
+            color: #475569;
+            margin-top: 10px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 14px;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 10px;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                padding: 40px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 30px;
+            }
+            .header h1 {
+                font-size: 2rem;
+            }
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 Anamnese Empresarial</h1>
+            <div class="subtitle">Diagnóstico Inicial Completo</div>
+            <div class="company-name">{{empresa_nome}}</div>
+            <span class="badge">Proceda Consultor IA</span>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">👤 Perfil do Responsável</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Nome</div>
+                    <div class="info-value">{{nome_usuario}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Cargo</div>
+                    <div class="info-value">{{cargo}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Experiência</div>
+                    <div class="info-value">{{experiencia}}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">🏢 Perfil da Empresa</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Segmento</div>
+                    <div class="info-value">{{segmento}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Porte</div>
+                    <div class="info-value">{{porte}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Tempo de Mercado</div>
+                    <div class="info-value">{{tempo_mercado}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Faturamento</div>
+                    <div class="info-value">{{faturamento}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Tamanho da Equipe</div>
+                    <div class="info-value">{{tamanho_equipe}}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">🎯 Expectativas e Objetivos</h2>
+
+            <div class="list-section">
+                <h3>🚨 Desafios Principais</h3>
+                <ul>
+                    {{#desafios_principais}}
+                    <li>{{.}}</li>
+                    {{/desafios_principais}}
+                </ul>
+            </div>
+
+            <div class="list-section">
+                <h3>📅 Metas de Curto Prazo (3-6 meses)</h3>
+                <ul>
+                    {{#metas_curto_prazo}}
+                    <li>{{.}}</li>
+                    {{/metas_curto_prazo}}
+                </ul>
+            </div>
+
+            <div class="list-section">
+                <h3>📈 Metas de Médio Prazo (6-12 meses)</h3>
+                <ul>
+                    {{#metas_medio_prazo}}
+                    <li>{{.}}</li>
+                    {{/metas_medio_prazo}}
+                </ul>
+            </div>
+
+            <div class="list-section">
+                <h3>🏆 Metas de Longo Prazo (1-3 anos)</h3>
+                <ul>
+                    {{#metas_longo_prazo}}
+                    <li>{{.}}</li>
+                    {{/metas_longo_prazo}}
+                </ul>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>Proceda Consultor IA</strong> - Transformação Empresarial Inteligente</p>
+            <p class="date">Documento gerado em: {{data_geracao}}</p>
+        </div>
+    </div>
+</body>
+</html>

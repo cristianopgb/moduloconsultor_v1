@@ -1,0 +1,17 @@
+{
+  "name": "generate-document",
+  "version": "1.0.0",
+  "description": "Generate real DOCX, XLSX, PPTX documents",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "deno run --allow-net --allow-read --allow-env index.ts"
+  },
+  "dependencies": {
+    "npm:docx": "^8.5.0",
+    "npm:exceljs": "^4.4.0",
+    "npm:pptxgenjs": "^3.12.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

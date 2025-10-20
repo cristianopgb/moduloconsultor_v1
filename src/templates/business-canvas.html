@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Model Canvas - {{empresa_nome}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.5;
+            color: #333;
+            background: #f5f5f5;
+            padding: 30px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            color: #1e40af;
+            margin-bottom: 10px;
+        }
+
+        .header .company {
+            font-size: 1.5rem;
+            color: #2563eb;
+            font-weight: 600;
+        }
+
+        .canvas-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: auto auto;
+            gap: 2px;
+            background: #cbd5e1;
+            border: 2px solid #cbd5e1;
+        }
+
+        .canvas-block {
+            background: white;
+            padding: 20px;
+            min-height: 250px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .canvas-block.tall {
+            grid-row: span 2;
+        }
+
+        .canvas-block.wide {
+            grid-column: span 2;
+        }
+
+        .block-header {
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 3px solid;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .block-content {
+            flex: 1;
+            font-size: 0.95rem;
+            color: #475569;
+        }
+
+        .block-content ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .block-content li {
+            padding: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .block-content li::before {
+            content: '•';
+            position: absolute;
+            left: 5px;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        /* Color coding for different blocks */
+        .partners { border-color: #f59e0b; }
+        .partners .block-header { color: #f59e0b; border-color: #f59e0b; }
+        .partners .block-content li::before { color: #f59e0b; }
+
+        .activities { border-color: #ec4899; }
+        .activities .block-header { color: #ec4899; border-color: #ec4899; }
+        .activities .block-content li::before { color: #ec4899; }
+
+        .resources { border-color: #8b5cf6; }
+        .resources .block-header { color: #8b5cf6; border-color: #8b5cf6; }
+        .resources .block-content li::before { color: #8b5cf6; }
+
+        .value-proposition { border-color: #10b981; }
+        .value-proposition .block-header { color: #10b981; border-color: #10b981; }
+        .value-proposition .block-content li::before { color: #10b981; }
+
+        .customer-relationships { border-color: #06b6d4; }
+        .customer-relationships .block-header { color: #06b6d4; border-color: #06b6d4; }
+        .customer-relationships .block-content li::before { color: #06b6d4; }
+
+        .channels { border-color: #3b82f6; }
+        .channels .block-header { color: #3b82f6; border-color: #3b82f6; }
+        .channels .block-content li::before { color: #3b82f6; }
+
+        .customer-segments { border-color: #ef4444; }
+        .customer-segments .block-header { color: #ef4444; border-color: #ef4444; }
+        .customer-segments .block-content li::before { color: #ef4444; }
+
+        .cost-structure { border-color: #dc2626; }
+        .cost-structure .block-header { color: #dc2626; border-color: #dc2626; }
+        .cost-structure .block-content li::before { color: #dc2626; }
+
+        .revenue-streams { border-color: #059669; }
+        .revenue-streams .block-header { color: #059669; border-color: #059669; }
+        .revenue-streams .block-content li::before { color: #059669; }
+
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; padding: 20px; }
+            .canvas-block { min-height: 200px; }
+        }
+
+        @media (max-width: 1200px) {
+            .canvas-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto;
+            }
+            .canvas-block.tall, .canvas-block.wide {
+                grid-row: auto;
+                grid-column: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Business Model Canvas</h1>
+            <div class="company">{{empresa_nome}}</div>
+        </div>
+
+        <div class="canvas-grid">
+            <!-- Row 1 - Top blocks -->
+            <div class="canvas-block partners">
+                <div class="block-header">
+                    <span>🤝</span>
+                    <span>Parceiros-Chave</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#parceiros}}
+                        <li>{{.}}</li>
+                        {{/parceiros}}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="canvas-block activities">
+                <div class="block-header">
+                    <span>⚙️</span>
+                    <span>Atividades-Chave</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#atividades}}
+                        <li>{{.}}</li>
+                        {{/atividades}}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="canvas-block value-proposition tall">
+                <div class="block-header">
+                    <span>💎</span>
+                    <span>Proposta de Valor</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#proposta_valor}}
+                        <li>{{.}}</li>
+                        {{/proposta_valor}}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="canvas-block customer-relationships">
+                <div class="block-header">
+                    <span>💬</span>
+                    <span>Relacionamento com Clientes</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#relacionamento}}
+                        <li>{{.}}</li>
+                        {{/relacionamento}}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="canvas-block customer-segments tall">
+                <div class="block-header">
+                    <span>👥</span>
+                    <span>Segmentos de Clientes</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#segmentos_clientes}}
+                        <li>{{.}}</li>
+                        {{/segmentos_clientes}}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Row 2 - Bottom blocks -->
+            <div class="canvas-block resources">
+                <div class="block-header">
+                    <span>🔧</span>
+                    <span>Recursos-Chave</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#recursos}}
+                        <li>{{.}}</li>
+                        {{/recursos}}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="canvas-block channels">
+                <div class="block-header">
+                    <span>📡</span>
+                    <span>Canais</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#canais}}
+                        <li>{{.}}</li>
+                        {{/canais}}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Row 3 - Bottom wide blocks -->
+            <div class="canvas-block cost-structure wide">
+                <div class="block-header">
+                    <span>💸</span>
+                    <span>Estrutura de Custos</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#custos}}
+                        <li>{{.}}</li>
+                        {{/custos}}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="canvas-block revenue-streams wide">
+                <div class="block-header">
+                    <span>💰</span>
+                    <span>Fontes de Receita</span>
+                </div>
+                <div class="block-content">
+                    <ul>
+                        {{#receitas}}
+                        <li>{{.}}</li>
+                        {{/receitas}}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>Proceda Consultor IA</strong> - Business Model Canvas</p>
+            <p>Gerado em: {{data_geracao}}</p>
+        </div>
+    </div>
+</body>
+</html>

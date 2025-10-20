@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plano de Ação 5W2H - {{area_nome}} - {{empresa_nome}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 30px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 50px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 4px solid #2563eb;
+            padding-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.4rem;
+            color: #1e40af;
+            margin-bottom: 10px;
+        }
+
+        .header .area {
+            font-size: 1.8rem;
+            color: #2563eb;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .header .company {
+            font-size: 1.2rem;
+            color: #64748b;
+            margin-top: 8px;
+        }
+
+        .intro {
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            border-left: 6px solid #3b82f6;
+            padding: 25px;
+            margin-bottom: 40px;
+            border-radius: 8px;
+        }
+
+        .intro p {
+            font-size: 1.05rem;
+            color: #1e293b;
+            line-height: 1.8;
+        }
+
+        .action-item {
+            margin-bottom: 40px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+
+        .action-item:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.15);
+        }
+
+        .action-header {
+            background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+            color: white;
+            padding: 20px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .action-number {
+            font-size: 2rem;
+            font-weight: 700;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .action-title {
+            flex: 1;
+            padding: 0 20px;
+        }
+
+        .action-title h3 {
+            font-size: 1.4rem;
+            margin-bottom: 5px;
+        }
+
+        .action-priority {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .priority-alta {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 2px solid #fca5a5;
+        }
+
+        .priority-media {
+            background: #fffbeb;
+            color: #92400e;
+            border: 2px solid #fde68a;
+        }
+
+        .priority-baixa {
+            background: #f0fdf4;
+            color: #14532d;
+            border: 2px solid #86efac;
+        }
+
+        .action-body {
+            padding: 30px 25px;
+            background: #f8fafc;
+        }
+
+        .w5h2-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .w5h2-item {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 18px;
+            transition: all 0.2s;
+        }
+
+        .w5h2-item:hover {
+            border-color: #3b82f6;
+        }
+
+        .w5h2-label {
+            font-weight: 700;
+            color: #1e40af;
+            font-size: 0.95rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .w5h2-icon {
+            font-size: 1.2rem;
+        }
+
+        .w5h2-content {
+            color: #475569;
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+
+        .w5h2-steps {
+            padding-left: 20px;
+        }
+
+        .w5h2-steps li {
+            margin-bottom: 8px;
+        }
+
+        .status-bar {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e5e7eb;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #64748b;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: #e5e7eb;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+            border-radius: 6px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: right;
+            margin-top: 5px;
+            font-size: 0.85rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        .kpi-section {
+            margin-top: 40px;
+            padding: 25px;
+            background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+            border: 2px solid #fbbf24;
+            border-radius: 8px;
+        }
+
+        .kpi-section h3 {
+            color: #b45309;
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .kpi-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+            border: 2px solid #fde68a;
+        }
+
+        .kpi-metric {
+            font-size: 0.85rem;
+            color: #78350f;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .summary {
+            margin-top: 50px;
+            padding: 30px;
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            border-left: 6px solid #10b981;
+            border-radius: 8px;
+        }
+
+        .summary h2 {
+            color: #15803d;
+            font-size: 1.6rem;
+            margin-bottom: 20px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .summary-stat {
+            text-align: center;
+        }
+
+        .summary-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .summary-label {
+            font-size: 0.9rem;
+            color: #15803d;
+            text-transform: uppercase;
+        }
+
+        .footer {
+            margin-top: 50px;
+            padding-top: 25px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; }
+            .action-item { page-break-inside: avoid; }
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 30px; }
+            .w5h2-grid, .kpi-grid, .summary-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 Plano de Ação 5W2H</h1>
+            <div class="area">{{area_nome}}</div>
+            <div class="company">{{empresa_nome}}</div>
+        </div>
+
+        <div class="intro">
+            <p><strong>Metodologia 5W2H:</strong> Sistema estruturado de planejamento que responde 7 perguntas fundamentais para cada ação: O QUÊ (What), POR QUÊ (Why), ONDE (Where), QUANDO (When), QUEM (Who), COMO (How) e QUANTO (How Much). Garante clareza, responsabilidade e rastreabilidade na execução.</p>
+        </div>
+
+        {{#acoes}}
+        <div class="action-item">
+            <div class="action-header">
+                <div class="action-number">{{numero}}</div>
+                <div class="action-title">
+                    <h3>{{what}}</h3>
+                </div>
+                <div class="action-priority priority-{{prioridade}}">
+                    {{prioridade_label}}
+                </div>
+            </div>
+
+            <div class="action-body">
+                <div class="w5h2-grid">
+                    <div class="w5h2-item">
+                        <div class="w5h2-label">
+                            <span class="w5h2-icon">❓</span>
+                            <span>O QUÊ (What)</span>
+                        </div>
+                        <div class="w5h2-content">{{what}}</div>
+                    </div>
+
+                    <div class="w5h2-item">
+                        <div class="w5h2-label">
+                            <span class="w5h2-icon">💡</span>
+                            <span>POR QUÊ (Why)</span>
+                        </div>
+                        <div class="w5h2-content">{{why}}</div>
+                    </div>
+
+                    <div class="w5h2-item">
+                        <div class="w5h2-label">
+                            <span class="w5h2-icon">📍</span>
+                            <span>ONDE (Where)</span>
+                        </div>
+                        <div class="w5h2-content">{{where}}</div>
+                    </div>
+
+                    <div class="w5h2-item">
+                        <div class="w5h2-label">
+                            <span class="w5h2-icon">📅</span>
+                            <span>QUANDO (When)</span>
+                        </div>
+                        <div class="w5h2-content">
+                            <p><strong>Início:</strong> {{when_inicio}}</p>
+                            <p><strong>Prazo:</strong> {{when_prazo}}</p>
+                        </div>
+                    </div>
+
+                    <div class="w5h2-item">
+                        <div class="w5h2-label">
+                            <span class="w5h2-icon">👤</span>
+                            <span>QUEM (Who)</span>
+                        </div>
+                        <div class="w5h2-content">{{who}}</div>
+                    </div>
+
+                    <div class="w5h2-item">
+                        <div class="w5h2-label">
+                            <span class="w5h2-icon">💰</span>
+                            <span>QUANTO (How Much)</span>
+                        </div>
+                        <div class="w5h2-content">{{how_much}}</div>
+                    </div>
+                </div>
+
+                <div class="w5h2-item" style="margin-top: 20px; grid-column: 1/-1;">
+                    <div class="w5h2-label">
+                        <span class="w5h2-icon">⚙️</span>
+                        <span>COMO (How) - Passo a Passo</span>
+                    </div>
+                    <div class="w5h2-content">
+                        <ol class="w5h2-steps">
+                            {{#how_steps}}
+                            <li>{{.}}</li>
+                            {{/how_steps}}
+                        </ol>
+                    </div>
+                </div>
+
+                {{#metricas_sucesso}}
+                <div class="kpi-section">
+                    <h3>📊 Métricas de Sucesso</h3>
+                    <div class="kpi-grid">
+                        {{#metricas}}
+                        <div class="kpi-card">
+                            <div class="kpi-metric">{{nome}}</div>
+                        </div>
+                        {{/metricas}}
+                    </div>
+                </div>
+                {{/metricas_sucesso}}
+
+                <div class="status-bar">
+                    <div class="status-label">Progresso da Ação</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{progresso}}%;"></div>
+                    </div>
+                    <div class="progress-text">{{progresso}}% concluído</div>
+                </div>
+            </div>
+        </div>
+        {{/acoes}}
+
+        <div class="summary">
+            <h2>📈 Resumo do Plano</h2>
+            <div class="summary-grid">
+                <div class="summary-stat">
+                    <div class="summary-number">{{total_acoes}}</div>
+                    <div class="summary-label">Ações Totais</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">{{acoes_alta_prioridade}}</div>
+                    <div class="summary-label">Alta Prioridade</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">{{prazo_estimado}}</div>
+                    <div class="summary-label">Prazo Estimado</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">{{investimento_total}}</div>
+                    <div class="summary-label">Investimento</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>Proceda Consultor IA</strong> - Plano de Ação Estruturado</p>
+            <p>Gerado em: {{data_geracao}}</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+
+    <title>proceda.ia - Sistema de Autenticação</title>
+    <meta
+      name="description"
+      content="Sistema de autenticação do proceda.ia - Inteligência Artificial para Processos"
+    />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="color-scheme" content="dark light" />
+
+    <!-- Manifest (extensão correta .webmanifest) -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="anonymous" />
+
+    <!-- Favicon / Ícones reais (PNG) -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-180.png" />
+
+    <!-- iOS / Windows -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="proceda.ia" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="msapplication-TileColor" content="#2563eb" />
+    <meta name="msapplication-tap-highlight" content="no" />
+  </head>
+
+  <body class="dark">
+    <div id="root"></div>
+
+    <!-- Canvas Confetti for gamification celebrations -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+
+    <!-- App -->
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Service Worker: desativado em StackBlitz/WebContainer; ativo em HTTPS/localhost -->
+    <script>
+      (function () {
+        const isStackBlitz = location.hostname.includes('webcontainer-api.io') || location.hostname.includes('stackblitz');
+        const isLocalhost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+        const isHttps = location.protocol === "https:";
+        // Flag global opcional p/ app
+        window.__PWA_DISABLED__ = !!isStackBlitz;
+
+        if (isStackBlitz) {
+          // Remove manifest para evitar erro de ícone
+          const m = document.querySelector('link[rel="manifest"]');
+          if (m && m.parentElement) m.parentElement.removeChild(m);
+          // Unregister qualquer SW registrado
+          if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.getRegistrations && navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (r) { r.unregister(); });
+            });
+          }
+          return; // NÃO registra SW aqui
+        }
+
+        if (!("serviceWorker" in navigator)) return;
+        if (!(isLocalhost || isHttps)) return;
+
+        var swUrl = "/sw.js";
+        window.addEventListener("load", function () {
+          // Verifica se o arquivo existe antes de registrar
+          fetch(swUrl, { method: "HEAD" })
+            .then(function (res) {
+              if (res.ok) {
+                navigator.serviceWorker.register(swUrl).catch(function (err) {
+                  console.warn("SW registration failed:", err);
+                });
+              } else {
+                console.warn("SW not found:", swUrl);
+              }
+            })
+            .catch(function () {
+              console.warn("SW HEAD check failed");
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>
+

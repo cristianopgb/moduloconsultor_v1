@@ -1,0 +1,9 @@
+{
+  "name": "content-planner",
+  "version": "1.0.0",
+  "description": "Generates canonical JSON content for documents based on user request and templates.",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4"
+  }
+}

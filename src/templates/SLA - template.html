@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SLA - template</title>
+    <style>
+        body {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 25%, #667eea 50%, #764ba2 75%, #f093fb 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        /* Ocultar blocos vazios */
+        .field:empty,
+        .section:not(:has(.field:not(:empty))),
+        .kpi-card:not(:has(.field:not(:empty))),
+        .delivery-row:not(:has(.field:not(:empty))) {
+            display: none !important;
+        }
+
+        /* Blobs orgânicos de fundo */
+        .blob {
+            position: fixed;
+            filter: blur(40px);
+            opacity: 0.2;
+            z-index: -1;
+            border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+            animation: morphBlob 10s ease-in-out infinite;
+        }
+
+        .blob-1 {
+            width: 400px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, rgba(30,60,114,0.1) 100%);
+            top: 5%;
+            left: 5%;
+        }
+
+        .blob-2 {
+            width: 350px;
+            height: 250px;
+            background: radial-gradient(circle, rgba(102,126,234,0.3) 0%, rgba(118,75,162,0.1) 100%);
+            top: 50%;
+            right: 10%;
+            animation-delay: -5s;
+        }
+
+        @keyframes morphBlob {
+            0%, 100% { 
+                transform: translateY(0px) rotate(0deg) scale(1);
+                border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+            }
+            50% { 
+                transform: translateY(-30px) rotate(8deg) scale(1.1);
+                border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+            }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.8rem;
+            font-weight: 900;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-bottom: 2rem;
+        }
+
+        /* Filtros */
+        .filters {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            align-items: end;
+        }
+
+        .filter-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-field label {
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .filter-field select,
+        .filter-field input {
+            padding: 0.75rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .filter-field select:focus,
+        .filter-field input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* KPIs Dashboard */
+        .kpis-section {
+            margin-bottom: 2rem;
+        }
+
+        .kpis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .kpi-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+
+        .kpi-card.success::before {
+            background: linear-gradient(90deg, #10b981, #059669);
+        }
+
+        .kpi-card.warning::before {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+        }
+
+        .kpi-card.danger::before {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+        }
+
+        .kpi-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            opacity: 0.8;
+        }
+
+        .kpi-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            color: #1f2937;
+        }
+
+        .kpi-label {
+            font-size: 1rem;
+            color: #6b7280;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .kpi-trend {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .kpi-trend.up {
+            color: #10b981;
+        }
+
+        .kpi-trend.down {
+            color: #ef4444;
+        }
+
+        .kpi-trend.stable {
+            color: #6b7280;
+        }
+
+        /* Gráficos */
+        .charts-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .chart-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .chart-placeholder {
+            height: 300px;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-weight: 600;
+            border: 2px dashed #cbd5e1;
+        }
+
+        /* Tabela de Entregas */
+        .deliveries-section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .deliveries-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .deliveries-table th {
+            background: #f8fafc;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .deliveries-table td {
+            padding: 1rem;
+            border-bottom: 1px solid #e5e7eb;
+            color: #4b5563;
+        }
+
+        .deliveries-table tr:hover {
+            background: #f9fafb;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-align: center;
+            min-width: 80px;
+            display: inline-block;
+        }
+
+        .status-ontime {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-late {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-atrisk {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-delivered {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        /* Alertas */
+        .alerts-section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .alert-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 4px solid;
+        }
+
+        .alert-item.critical {
+            background: #fef2f2;
+            border-left-color: #ef4444;
+        }
+
+        .alert-item.warning {
+            background: #fffbeb;
+            border-left-color: #f59e0b;
+        }
+
+        .alert-item.info {
+            background: #eff6ff;
+            border-left-color: #3b82f6;
+        }
+
+        .alert-icon {
+            font-size: 1.5rem;
+        }
+
+        .alert-content {
+            flex: 1;
+        }
+
+        .alert-title {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.25rem;
+        }
+
+        .alert-description {
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+
+        /* Botões de Ação */
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(16, 185, 129, 0.4);
+        }
+
+        /* Imagens responsivas */
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+
+        /* Responsivo */
+        @media (max-width: 1024px) {
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .filters-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .kpis-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .deliveries-table {
+                font-size: 0.9rem;
+            }
+
+            .deliveries-table th,
+            .deliveries-table td {
+                padding: 0.5rem;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn {
+                width: 100%;
+                max-width: 300px;
+                justify-content: center;
+            }
+        }
+    </style>
+<style>
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { max-width: 100%; overflow-x: hidden; }
+        img, svg, video, canvas { max-width: 100%; height: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        pre, code { overflow: auto; }
+        #__preview_wrap__ { margin: 0 auto; padding: 24px; }
+        .__page { background: white; color: #111; box-shadow: 0 6px 24px rgba(0,0,0,.1); margin: 24px auto; }
+        .__slides169 { width: min(1280px, 96vw); aspect-ratio: 16 / 9; padding: min(48px, 4vw); }
+        .__a4 { width: min(800px, 96vw); aspect-ratio: 210 / 297; padding: min(40px, 4vw); }
+        .__selectable:hover { outline: 2px dashed rgba(99,102,241,.6); cursor: pointer; }
+        .__selected { outline: 3px solid rgba(99,102,241,.9) !important; }
+        @media print {
+          body { margin: 0; }
+          #__preview_toolbar__ { display:none !important; }
+          .__page { box-shadow:none; margin:0; width:100%; aspect-ratio:auto; padding:0; }
+        }
+      </style></head>
+<body><div id="__preview_wrap__"><div class="__page __a4">
+    <div class="blob blob-1 __selectable"></div>
+    <div class="blob blob-2 __selectable"></div>
+
+    <div class="container __selectable">
+        <div class="header __selectable">
+            <h1><span class="field" data-field="titulo_sla">Apresentação de SLA - TT Importados</span></h1>
+            <p class="__selectable"><span class="field" data-field="subtitulo_sla">Indicadores de Performance</span></p>
+        </div>
+
+        <!-- Filtros -->
+        <div class="filters __selectable">
+            <div class="filters-grid __selectable">
+                <div class="filter-field __selectable">
+                    <label><span class="field" data-field="label_periodo">Período:</span></label>
+                    <select id="period-filter">
+                        <option value="7d"><span class="field" data-field="opcao_7dias">Últimos 7 dias</span></option>
+                        <option value="30d"><span class="field" data-field="opcao_30dias">Últimos 30 dias</span></option>
+                        <option value="90d"><span class="field" data-field="opcao_90dias">Últimos 90 dias</span></option>
+                    </select>
+                </div>
+                <div class="filter-field __selectable">
+                    <label><span class="field" data-field="label_cliente">Cliente:</span></label>
+                    <select id="client-filter">
+                        <option value="all"><span class="field" data-field="opcao_todos_clientes">Todos os Clientes</span></option>
+                        <option value="cliente1"><span class="field" data-field="nome_cliente1">TT Importados</span></option>
+                        <option value="cliente2"><span class="field" data-field="nome_cliente2"></span></option>
+                        <option value="cliente3"><span class="field" data-field="nome_cliente3"></span></option>
+                    </select>
+                </div>
+                <div class="filter-field __selectable">
+                    <label><span class="field" data-field="label_status">Status:</span></label>
+                    <select id="status-filter">
+                        <option value="all"><span class="field" data-field="opcao_todos_status">Todos os Status</span></option>
+                        <option value="ontime"><span class="field" data-field="opcao_no_prazo">No Prazo</span></option>
+                        <option value="late"><span class="field" data-field="opcao_atrasado">Atrasado</span></option>
+                        <option value="atrisk"><span class="field" data-field="opcao_em_risco">Em Risco</span></option>
+                    </select>
+                </div>
+                <div class="filter-field __selectable">
+                    <button class="btn btn-primary" onclick="applyFilters()">
+                        <span class="field" data-field="btn_aplicar_filtros">Aplicar Filtros</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPIs Dashboard -->
+        <div class="kpis-section __selectable">
+            <div class="kpis-grid __selectable">
+                <div class="kpi-card warning">
+                    <div class="kpi-icon __selectable"><span class="field" data-field="icone_otif">📦</span></div>
+                    <div class="kpi-value __selectable" id="otif-rate">99%</div>
+                    <div class="kpi-label __selectable"><span class="field" data-field="label_otif">OTIF (On Time In Full)</span></div>
+                    <div class="kpi-trend up __selectable">
+                        <span class="field" data-field="icone_tendencia_otif">📈</span>
+                        <span class="field" data-field="tendencia_otif">↑ +1,8 p.p. vs. mês anterior</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card __selectable">
+                    <div class="kpi-icon __selectable"><span class="field" data-field="icone_entregas_totais">📊</span></div>
+                    <div class="kpi-value __selectable" id="total-deliveries">1020</div>
+                    <div class="kpi-label __selectable"><span class="field" data-field="label_entregas_totais">Entregas Totais</span></div>
+                    <div class="kpi-trend stable __selectable">
+                        <span class="field" data-field="icone_tendencia_entregas">📈</span>
+                        <span class="field" data-field="tendencia_entregas">↑ +6,3%</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card warning __selectable">
+                    <div class="kpi-icon __selectable"><span class="field" data-field="icone_tempo_medio">⏱️</span></div>
+                    <div class="kpi-value __selectable" id="avg-delivery-time">4 dias</div>
+                    <div class="kpi-label __selectable"><span class="field" data-field="label_tempo_medio">Tempo Médio de Entrega</span></div>
+                    <div class="kpi-trend down __selectable">
+                        <span class="field" data-field="icone_tendencia_tempo">📉</span>
+                        <span class="field" data-field="tendencia_tempo">↓ −0,3 dia</span>
+                    </div>
+                </div>
+
+                <div class="kpi-card danger __selectable">
+                    <div class="kpi-icon __selectable"><span class="field" data-field="icone_atrasos">⚠️</span></div>
+                    <div class="kpi-value __selectable" id="late-deliveries">40</div>
+                    <div class="kpi-label __selectable"><span class="field" data-field="label_atrasos">Atrasos</span></div>
+                    <div class="kpi-trend up __selectable">
+                        <span class="field" data-field="icone_tendencia_atrasos">📉</span>
+                        <span class="field" data-field="tendencia_atrasos">↓ −12,3%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gráficos -->
+        <div class="charts-section __selectable">
+            <div class="chart-card __selectable">
+                <div class="chart-title __selectable"><span class="field" data-field="titulo_grafico_performance">Gráfico de Performance</span></div>
+                <div class="chart-placeholder __selectable">
+                    <span class="field" data-field="placeholder_grafico_performance">Gráfico de performance ainda não disponível.</span>
+                </div>
+            </div>
+            <div class="chart-card __selectable">
+                <div class="chart-title __selectable"><span class="field" data-field="titulo_grafico_clientes">Gráfico de Clientes</span></div>
+                <div class="chart-placeholder __selectable">
+                    <span class="field" data-field="placeholder_grafico_clientes">Gráfico de clientes ainda não disponível.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alertas -->
+        <div class="alerts-section __selectable">
+            <div class="section-title __selectable">
+                <span class="field" data-field="icone_alertas">🚨</span>
+                <span class="field" data-field="titulo_alertas">Alertas</span>
+            </div>
+
+            <div class="alert-item critical __selectable">
+                <div class="alert-icon __selectable"><span class="field" data-field="icone_alerta_critico">❗</span></div>
+                <div class="alert-content __selectable">
+                    <div class="alert-title __selectable"><span class="field" data-field="titulo_alerta_critico">Alertas Críticos</span></div>
+                    <div class="alert-description __selectable"><span class="field" data-field="descricao_alerta_critico">Pico de atrasos na rota SP–ABC na 2ª semana; 18 pedidos com atraso &gt; 48h; indisponibilidade de fornecedor de embalagens por 36h.</span></div>
+                </div>
+            </div>
+
+            <div class="alert-item warning __selectable">
+                <div class="alert-icon __selectable"><span class="field" data-field="icone_alerta_aviso">⚠️</span></div>
+                <div class="alert-content __selectable">
+                    <div class="alert-title __selectable"><span class="field" data-field="titulo_alerta_aviso">Avisos</span></div>
+                    <div class="alert-description __selectable"><span class="field" data-field="descricao_alerta_aviso">Reentrega 4,1% (meta 3%); aumento de 5% no tempo de doca às sextas-feiras.</span></div>
+                </div>
+            </div>
+
+            <div class="alert-item info __selectable">
+                <div class="alert-icon __selectable"><span class="field" data-field="icone_alerta_info">ℹ️</span></div>
+                <div class="alert-content __selectable">
+                    <div class="alert-title __selectable"><span class="field" data-field="titulo_alerta_info">Informações</span></div>
+                    <div class="alert-description __selectable"><span class="field" data-field="descricao_alerta_info">Nova base de cross-docking em Campinas ativada; revisão de janelas de coleta concluída.</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabela de Entregas -->
+        <div class="deliveries-section __selectable">
+            <div class="section-title __selectable">
+                <span class="field" data-field="icone_entregas">📦</span>
+                <span class="field" data-field="titulo_tabela_entregas">Tabela de Entregas</span>
+            </div>
+
+            <table class="deliveries-table">
+                <thead>
+                    <tr>
+                        <th><span class="field" data-field="coluna_pedido">Pedido</span></th>
+                        <th><span class="field" data-field="coluna_cliente">Cliente</span></th>
+                        <th><span class="field" data-field="coluna_produto">Produto</span></th>
+                        <th><span class="field" data-field="coluna_data_prometida">Data Prometida</span></th>
+                        <th><span class="field" data-field="coluna_data_entrega">Data Entrega</span></th>
+                        <th><span class="field" data-field="coluna_status">Status</span></th>
+                        <th><span class="field" data-field="coluna_sla">SLA</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="delivery-row">
+                        <td><span class="field" data-field="pedido1_numero">1</span></td>
+                        <td><span class="field" data-field="pedido1_cliente">TT Importados</span></td>
+                        <td><span class="field" data-field="pedido1_produto">Produto 1</span></td>
+                        <td><span class="field" data-field="pedido1_data_prometida">02/09/2025</span></td>
+                        <td><span class="field" data-field="pedido1_data_entrega">02/09/2025</span></td>
+                        <td><span class="status-badge status-ontime"><span class="field" data-field="pedido1_status">Entregue</span></span></td>
+                        <td><span class="field" data-field="pedido1_sla">Dentro</span></td>
+                    </tr>
+                    <tr class="delivery-row">
+                        <td><span class="field" data-field="pedido2_numero">2</span></td>
+                        <td><span class="field" data-field="pedido2_cliente">TT Importados</span></td>
+                        <td><span class="field" data-field="pedido2_produto">Produto 2</span></td>
+                        <td><span class="field" data-field="pedido2_data_prometida">03/09/2025</span></td>
+                        <td><span class="field" data-field="pedido2_data_entrega">04/09/2025</span></td>
+                        <td><span class="status-badge status-late"><span class="field" data-field="pedido2_status">Entregue (Atraso)</span></span></td>
+                        <td><span class="field" data-field="pedido2_sla">Fora</span></td>
+                    </tr>
+                    <tr class="delivery-row">
+                        <td><span class="field" data-field="pedido3_numero">3</span></td>
+                        <td><span class="field" data-field="pedido3_cliente">TT Importados</span></td>
+                        <td><span class="field" data-field="pedido3_produto">Produto 3</span></td>
+                        <td><span class="field" data-field="pedido3_data_prometida">05/09/2025</span></td>
+                        <td><span class="field" data-field="pedido3_data_entrega">05/09/2025</span></td>
+                        <td><span class="status-badge status-atrisk"><span class="field" data-field="pedido3_status">Entregue</span></span></td>
+                        <td><span class="field" data-field="pedido3_sla">Dentro</span></td>
+                    </tr>
+                    <tr class="delivery-row">
+                        <td><span class="field" data-field="pedido4_numero">4</span></td>
+                        <td><span class="field" data-field="pedido4_cliente">TT Importados</span></td>
+                        <td><span class="field" data-field="pedido4_produto">Produto 4</span></td>
+                        <td><span class="field" data-field="pedido4_data_prometida">07/09/2025</span></td>
+                        <td><span class="field" data-field="pedido4_data_entrega">—</span></td>
+                        <td><span class="status-badge status-delivered"><span class="field" data-field="pedido4_status">Em Transporte</span></span></td>
+                        <td><span class="field" data-field="pedido4_sla">A Monitorar</span></td>
+                    </tr>
+                    <tr class="delivery-row">
+                        <td><span class="field" data-field="pedido5_numero">5</span></td>
+                        <td><span class="field" data-field="pedido5_cliente">TT Importados</span></td>
+                        <td><span class="field" data-field="pedido5_produto">Produto 5</span></td>
+                        <td><span class="field" data-field="pedido5_data_prometida">09/09/2025</span></td>
+                        <td><span class="field" data-field="pedido5_data_entrega">08/09/2025</span></td>
+                        <td><span class="status-badge status-ontime"><span class="field" data-field="pedido5_status">Entregue (Antecip.)</span></span></td>
+                        <td><span class="field" data-field="pedido5_sla">Dentro</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Botões de Ação -->
+        <div class="action-buttons __selectable">
+            <button class="btn btn-primary" onclick="exportReport('pdf')">
+                <span class="field" data-field="icone_pdf">📄</span>
+                <span class="field" data-field="btn_exportar_pdf">Exportar PDF</span>
+            </button>
+            <button class="btn btn-success" onclick="exportReport('excel')">
+                <span class="field" data-field="icone_excel">📊</span>
+                <span class="field" data-field="btn_exportar_excel">Exportar Excel</span>
+            </button>
+            <button class="btn btn-secondary" onclick="refreshData()">
+                <span class="field" data-field="icone_atualizar">🔄</span>
+                <span class="field" data-field="btn_atualizar">Atualizar</span>
+            </button>
+            <button class="btn btn-secondary" onclick="sendAlert()">
+                <span class="field" data-field="icone_notificar">🔔</span>
+                <span class="field" data-field="btn_notificar">Notificar</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function applyFilters() {
+            const period = document.getElementById('period-filter').value;
+            const client = document.getElementById('client-filter').value;
+            const status = document.getElementById('status-filter').value;
+            
+            // Simular aplicação de filtros
+            console.log('Aplicando filtros:', { period, client, status });
+            
+            // Aqui seria implementada a lógica de filtros
+            updateDashboard();
+            
+            alert('Filtros aplicados com sucesso!');
+        }
+
+        function updateDashboard() {
+            // Simular atualização dos KPIs
+            const otifRate = Math.floor(Math.random() * 20) + 80; // 80-100%
+            const totalDeliveries = Math.floor(Math.random() * 500) + 1000; // 1000-1500
+            const avgTime = Math.floor(Math.random() * 5) + 2; // 2-7 dias
+            const lateDeliveries = Math.floor(Math.random() * 50) + 10; // 10-60
+            
+            document.getElementById('otif-rate').textContent = otifRate + '%';
+            document.getElementById('total-deliveries').textContent = totalDeliveries.toLocaleString();
+            document.getElementById('avg-delivery-time').textContent = avgTime + ' dias';
+            document.getElementById('late-deliveries').textContent = lateDeliveries;
+            
+            // Atualizar classes dos KPIs baseado nos valores
+            const otifCard = document.querySelector('.kpi-card.success');
+            if (otifRate < 85) {
+                otifCard.className = 'kpi-card warning';
+            } else if (otifRate < 90) {
+                otifCard.className = 'kpi-card';
+            } else {
+                otifCard.className = 'kpi-card success';
+            }
+        }
+
+        function exportReport(format) {
+            if (format === 'pdf') {
+                // Simular exportação PDF
+                const reportData = generateReportData();
+                const blob = new Blob([reportData], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `SLA_OTIF_Report_${new Date().toISOString().split('T')[0]}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                alert('Relatório PDF exportado com sucesso!');
+            } else if (format === 'excel') {
+                // Simular exportação Excel
+                const csvData = generateCSVData();
+                const blob = new Blob([csvData], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `SLA_OTIF_Data_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                alert('Dados Excel exportados com sucesso!');
+            }
+        }
+
+        function generateReportData() {
+            const otifRate = document.getElementById('otif-rate').textContent;
+            const totalDeliveries = document.getElementById('total-deliveries').textContent;
+            const avgTime = document.getElementById('avg-delivery-time').textContent;
+            const lateDeliveries = document.getElementById('late-deliveries').textContent;
+            
+            return `RELATÓRIO SLA & OTIF
+=====================================
+
+RESUMO EXECUTIVO:
+- Taxa OTIF: ${otifRate}
+- Total de Entregas: ${totalDeliveries}
+- Tempo Médio de Entrega: ${avgTime}
+- Entregas Atrasadas: ${lateDeliveries}
+
+ANÁLISE DE PERFORMANCE:
+- Performance geral dentro dos padrões estabelecidos
+- Oportunidades de melhoria identificadas em clientes específicos
+- Recomendações para otimização do processo de entrega
+
+Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
+        }
+
+        function generateCSVData() {
+            return `Pedido,Cliente,Produto,Data Prometida,Data Entrega,Status,SLA
+PED001,Cliente A,Produto X,2024-01-15,2024-01-14,No Prazo,98%
+PED002,Cliente B,Produto Y,2024-01-16,2024-01-18,Atrasado,85%
+PED003,Cliente C,Produto Z,2024-01-17,2024-01-17,No Prazo,100%
+PED004,Cliente A,Produto W,2024-01-18,2024-01-19,Em Risco,92%
+PED005,Cliente D,Produto V,2024-01-19,2024-01-18,Entregue,105%`;
+        }
+
+        function refreshData() {
+            // Simular atualização dos dados
+            updateDashboard();
+            
+            // Adicionar efeito visual de carregamento
+            const buttons = document.querySelectorAll('.btn');
+            buttons.forEach(btn => {
+                btn.style.opacity = '0.6';
+                btn.disabled = true;
+            });
+            
+            setTimeout(() => {
+                buttons.forEach(btn => {
+                    btn.style.opacity = '1';
+                    btn.disabled = false;
+                });
+                alert('Dados atualizados com sucesso!');
+            }, 2000);
+        }
+
+        function sendAlert() {
+            const criticalAlerts = document.querySelectorAll('.alert-item.critical').length;
+            const warningAlerts = document.querySelectorAll('.alert-item.warning').length;
+            
+            if (criticalAlerts > 0 || warningAlerts > 0) {
+                alert(`Notificação enviada!\n\nAlertas críticos: ${criticalAlerts}\nAlertas de aviso: ${warningAlerts}\n\nEquipe responsável foi notificada.`);
+            } else {
+                alert('Nenhum alerta crítico encontrado. Sistema funcionando normalmente.');
+            }
+        }
+
+        // Inicializar dashboard
+        window.addEventListener('load', function() {
+            updateDashboard();
+            
+            // Simular dados em tempo real
+            setInterval(updateDashboard, 30000); // Atualizar a cada 30 segundos
+        });
+
+        // Adicionar interatividade aos filtros
+        document.getElementById('period-filter').addEventListener('change', function() {
+            // Auto-aplicar filtro quando mudança de período
+            setTimeout(applyFilters, 500);
+        });
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'989741f1f27662a1',t:'MTc1OTYwNzk0NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><iframe height="1" width="1" style="position: absolute; top: 0px; left: 0px; border: none; visibility: hidden;"></iframe>
+<script>
+(function(){
+  // ======== Handshake de autenticação com a janela mãe ========
+  const AUTH = { token:null, supabaseUrl:null, userId:"bf19980f-c9b1-4684-85ad-f0a9055d5521", conversationId:"11716570-f879-4856-84bc-0c90ab1fca89", title:document.title||'documento' };
+
+  function receiveAuth(e){
+    try{
+      const d = e.data || {};
+      if (d && d.type === 'preview:auth') {
+        AUTH.token = d.token || null;
+        AUTH.supabaseUrl = d.supabaseUrl || null;
+        if (d.userId) AUTH.userId = d.userId;
+        if (d.conversationId) AUTH.conversationId = d.conversationId;
+        if (d.title) AUTH.title = d.title;
+        window.removeEventListener('message', receiveAuth);
+      }
+    }catch{}
+  }
+  window.addEventListener('message', receiveAuth);
+  try { window.opener && window.opener.postMessage({ type:'preview:hello' }, '*'); } catch {}
+
+  function onReady(fn){ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded', fn);} else {fn();} }
+
+  onReady(function(){
+    try{
+      // ====== CSS dos formatos e resets ======
+      const style = document.createElement('style');
+      style.textContent = `
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { max-width: 100%; overflow-x: hidden; }
+        img, svg, video, canvas { max-width: 100%; height: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        pre, code { overflow: auto; }
+        #__preview_wrap__ { margin: 0 auto; padding: 24px; }
+        .__page { background: white; color: #111; box-shadow: 0 6px 24px rgba(0,0,0,.1); margin: 24px auto; }
+        .__slides169 { width: min(1280px, 96vw); aspect-ratio: 16 / 9; padding: min(48px, 4vw); }
+        .__a4 { width: min(800px, 96vw); aspect-ratio: 210 / 297; padding: min(40px, 4vw); }
+        .__selectable:hover { outline: 2px dashed rgba(99,102,241,.6); cursor: pointer; }
+        .__selected { outline: 3px solid rgba(99,102,241,.9) !important; }
+        @media print {
+          body { margin: 0; }
+          #__preview_toolbar__ { display:none !important; }
+          .__page { box-shadow:none; margin:0; width:100%; aspect-ratio:auto; padding:0; }
+        }
+      `;
+      document.head.appendChild(style);
+
+      // ==== wrap ====
+      const wrap = document.createElement('div');
+      wrap.id = '__preview_wrap__';
+      while (document.body.firstChild) wrap.appendChild(document.body.firstChild);
+      document.body.appendChild(wrap);
+
+      // detecta/gera container de página
+      let page = wrap.querySelector('.__page');
+      if (!page) {
+        page = document.createElement('div');
+        page.className = '__page __a4';
+        while (wrap.firstChild) page.appendChild(wrap.firstChild);
+        wrap.appendChild(page);
+      }
+
+      // heurística de blocos selecionáveis
+      Array.from(page.querySelectorAll('section, article, div, p, li, figure, header, footer')).forEach(el=>{
+        if (el.id === '__preview_toolbar__') return;
+        el.classList.add('__selectable');
+      });
+
+      // ===== Toolbar =====
+      const bar = document.createElement('div');
+      bar.id = '__preview_toolbar__';
+      bar.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;display:flex;flex-wrap:wrap;gap:8px;background:#0f172a;box-shadow:0 6px 20px rgba(0,0,0,.25);border-radius:12px;padding:8px 10px;color:#e2e8f0;font:600 13px/1.2 system-ui';
+      const spacer = ()=>{ const s=document.createElement('span'); s.style.cssText='width:8px'; return s; }
+
+      function btn(label){
+        const b=document.createElement('button');
+        b.textContent=label;
+        b.style.cssText='border:0;border-radius:10px;padding:8px 10px;background:#111827;color:#fff;cursor:pointer';
+        b.onmouseenter=()=>b.style.background='#1f2937';
+        b.onmouseleave=()=>b.style.background='#111827';
+        return b;
+      }
+
+      // ===== Formato (Slides 16:9 / A4) =====
+      const b169 = btn('Slides 16:9');
+      b169.onclick = () => { page.classList.remove('__a4'); page.classList.add('__slides169'); };
+      const bA4 = btn('Documento A4');
+      bA4.onclick = () => { page.classList.remove('__slides169'); page.classList.add('__a4'); };
+      bar.appendChild(b169); bar.appendChild(bA4); bar.appendChild(spacer());
+
+      // ===== Editar =====
+      let editable = false;
+      const bEdit = btn('Editar');
+      bEdit.onclick = ()=> {
+        editable = !editable;
+        page.contentEditable = editable ? 'true' : 'false';
+        (page).style.outline = editable ? '2px dashed rgba(99,102,241,.6)' : '';
+        bEdit.textContent = editable ? 'Bloquear' : 'Editar';
+      };
+      bar.appendChild(bEdit);
+
+      // ===== Selecionar/Excluir bloco =====
+      let selectedEl = null;
+      function clearSelection(){
+        document.querySelectorAll('.__selected').forEach(n=>n.classList.remove('__selected'));
+        selectedEl = null;
+      }
+      let selectMode = false;
+      wrap.addEventListener('click', (e)=>{
+        if (!selectMode) return;
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        if (!page.contains(target)) return;
+        const el = target.closest('.__selectable');
+        if (el && el !== page) {
+          clearSelection();
+          el.classList.add('__selected');
+          selectedEl = el;
+          e.preventDefault(); e.stopPropagation();
+        }
+      }, true);
+
+      const bSelect = btn('Selecionar');
+      bSelect.onclick = () => {
+        selectMode = !selectMode;
+        if (!selectMode) clearSelection();
+        bSelect.textContent = selectMode ? 'Selecionando…' : 'Selecionar';
+      };
+      const bDelete = btn('Excluir bloco');
+      bDelete.onclick = () => {
+        if (selectedEl && page.contains(selectedEl)) { selectedEl.remove(); clearSelection(); }
+      };
+      bar.appendChild(bSelect); bar.appendChild(bDelete); bar.appendChild(spacer());
+
+      // ===== Inserir imagem =====
+      const bImg = btn('Inserir imagem');
+      bImg.onclick = async ()=>{
+        const input = document.createElement('input');
+        input.type='file'; input.accept='image/*';
+        input.onchange = async () => {
+          const file = input.files && input.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = document.createElement('img');
+            img.src = String(reader.result);
+            img.style.maxWidth = '100%';
+            if (selectedEl && page.contains(selectedEl)) selectedEl.appendChild(img);
+            else page.appendChild(img);
+          };
+          reader.readAsDataURL(file);
+        };
+        input.click();
+      };
+      bar.appendChild(bImg);
+
+      // ===== Zoom =====
+      const bZoomOut = btn('-');
+      const zoomLabel = document.createElement('span');
+      zoomLabel.textContent = '100%';
+      zoomLabel.style.cssText='padding:8px 10px;background:#0b1220;border-radius:10px;display:inline-block;min-width:52px;text-align:center';
+      const bZoomIn = btn('+');
+      function setZoom(n){
+        (page).style.zoom = String(n);
+        zoomLabel.textContent = Math.round(n*100)+'%';
+      }
+      bZoomOut.onclick = ()=>{ const z=Number((page).style.zoom||'1'); setZoom(Math.max(0.5, z-0.1)); };
+      bZoomIn.onclick  = ()=>{ const z=Number((page).style.zoom||'1'); setZoom(Math.min(2,   z+0.1)); };
+      bar.appendChild(bZoomOut); bar.appendChild(zoomLabel); bar.appendChild(bZoomIn); bar.appendChild(spacer());
+
+      // ===== Util: consolidar edições antes de serializar =====
+      function commitEdits(){
+        try {
+          const ae = document.activeElement;
+          if (ae && 'blur' in ae) { (ae).blur(); }
+        } catch {}
+        return new Promise(requestAnimationFrame);
+      }
+      function serializeHtml(){
+        const dt = document.doctype;
+        const doctype = dt ? '<!DOCTYPE '+(dt.name||'html')+'>' : '<!DOCTYPE html>';
+        return doctype + '\n' + document.documentElement.outerHTML;
+      }
+
+      // ===== Salvar (via Edge Function com token) =====
+      const bSave = btn('Salvar');
+      bSave.onclick = async ()=>{
+        try{
+          bSave.textContent = 'Salvando…';
+          await commitEdits();
+          const html = serializeHtml();
+
+          if (AUTH && AUTH.token && AUTH.supabaseUrl) {
+            const payload = {
+              html,
+              title: AUTH.title || document.title || 'documento',
+              conversation_id: AUTH.conversationId || undefined,
+              user_id: AUTH.userId || undefined,
+            };
+            const resp = await fetch(AUTH.supabaseUrl + '/functions/v1/save-preview', {
+              method:'POST',
+              headers: { 'Authorization': 'Bearer ' + AUTH.token, 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (resp.ok) {
+              bSave.textContent = 'Salvo!';
+              setTimeout(()=> bSave.textContent = 'Salvar', 1500);
+              return;
+            }
+          }
+          // fallback: download local
+          const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = (document.title || 'documento') + '-edited.html';
+          document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},0);
+          bSave.textContent = 'Baixado';
+          setTimeout(()=> bSave.textContent = 'Salvar', 1500);
+        }catch(e){ console.error(e); bSave.textContent='Erro'; setTimeout(()=> bSave.textContent='Salvar', 1500); }
+      };
+      bar.appendChild(bSave);
+
+      // ===== Copiar / Baixar / Imprimir =====
+      const bCopy = btn('Copiar HTML');
+      bCopy.onclick = async ()=> {
+        try { await commitEdits(); const html = serializeHtml();
+          await navigator.clipboard.writeText(html);
+          bCopy.textContent = 'Copiado!'; setTimeout(()=> bCopy.textContent='Copiar HTML', 1200);
+        } catch (e) { console.error(e); }
+      };
+      const bDownload = btn('Baixar');
+      bDownload.onclick = async ()=>{
+        await commitEdits();
+        const html = serializeHtml();
+        const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = (document.title || 'documento') + '.html';
+        document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(url); a.remove();}, 0);
+      };
+      const bPrint = btn('Imprimir'); bPrint.onclick = ()=> window.print();
+      bar.appendChild(bCopy); bar.appendChild(bDownload); bar.appendChild(bPrint); bar.appendChild(spacer());
+
+      // ===== Voltar ao chat =====
+      const bBack = btn('Voltar ao chat');
+      bBack.onclick = ()=>{
+        try { window.opener && window.opener.postMessage({ type:'preview:close', action:'back_to_chat' }, '*'); } catch {}
+        window.close();
+      };
+      bar.appendChild(bBack);
+
+      document.body.appendChild(bar);
+      document.title = "SLA - template";
+    }catch(e){ console.error('[preview] toolbar error:', e); }
+  });
+})();
+</script>
+
+</div></div><div id="__preview_toolbar__" style="position: fixed; top: 12px; right: 12px; z-index: 2147483647; display: flex; flex-wrap: wrap; gap: 8px; background: rgb(15, 23, 42); box-shadow: rgba(0, 0, 0, 0.25) 0px 6px 20px; border-radius: 12px; padding: 8px 10px; color: rgb(226, 232, 240); font: 600 13px / 1.2 system-ui;"><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Slides 16:9</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Documento A4</button><span style="width: 8px;"></span><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Editar</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Selecionar</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Excluir bloco</button><span style="width: 8px;"></span><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Inserir imagem</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">-</button><span style="padding: 8px 10px; background: rgb(11, 18, 32); border-radius: 10px; display: inline-block; min-width: 52px; text-align: center;">100%</span><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">+</button><span style="width: 8px;"></span><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Salvar</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Copiar HTML</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(31, 41, 55); color: rgb(255, 255, 255); cursor: pointer;">Baixar</button><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Imprimir</button><span style="width: 8px;"></span><button style="border: 0px; border-radius: 10px; padding: 8px 10px; background: rgb(17, 24, 39); color: rgb(255, 255, 255); cursor: pointer;">Voltar ao chat</button></div></body></html>

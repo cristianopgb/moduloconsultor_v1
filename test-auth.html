@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Teste de Autenticação Supabase</title>
+</head>
+<body>
+  <h1>Teste de Autenticação</h1>
+  <div id="result"></div>
+
+  <script type="module">
+    // Verificar se há sessão no localStorage
+    const keys = Object.keys(localStorage);
+    const supabaseKeys = keys.filter(k => k.includes('supabase') || k.includes('proceidaia'));
+
+    console.log('🔍 Chaves no localStorage:', supabaseKeys);
+
+    supabaseKeys.forEach(key => {
+      const value = localStorage.getItem(key);
+      console.log(`📦 ${key}:`, value ? JSON.parse(value) : null);
+    });
+
+    const result = document.getElementById('result');
+    result.innerHTML = `
+      <h2>Chaves encontradas:</h2>
+      <ul>
+        ${supabaseKeys.map(k => `<li>${k}</li>`).join('')}
+      </ul>
+      <p>Veja o console para detalhes</p>
+    `;
+  </script>
+</body>
+</html>

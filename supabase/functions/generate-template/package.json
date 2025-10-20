@@ -1,0 +1,17 @@
+{
+  "name": "generate-template",
+  "version": "1.0.0",
+  "description": "Generate template documents from JSON definitions",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "deno run --allow-net --allow-read --allow-env index.ts"
+  },
+  "dependencies": {
+    "npm:docx": "^8.5.0",
+    "npm:exceljs": "^4.4.0",
+    "npm:pptxgenjs": "^3.12.0"
+  },
+  "keywords": ["template", "document", "generation"],
+  "author": "proceda.ia",
+  "license": "ISC"
+}

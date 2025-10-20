@@ -1,0 +1,433 @@
+Abaixo está o Plano de Correção Agora (em 7 passos) com blocos de código completos ou trechos “find & replace” para você colar na Bolt e nas Functions do Supabase.
+
+1) Chat – envia dados de formulário como submissão “oficial”
+
+Hoje o ChatPage.tsx abre o FormularioModal e até manda o JSON, mas não marca que é uma submissão de formulário e o back não trata diferente. Corrige assim:
+
+Arquivo: src/components/Chat/ChatPage.tsx
+(A) Estado do modal (já existe)
+
+Você já tem:
+
+const [showFormModal, setShowFormModal] = useState(false)
+const [formType, setFormType] = useState<'anamnese' | 'matriz_priorizacao' | null>(null)
+
+(B) Ao detectar marcador, abrir modal (já existe)
+
+Você já faz:
+
+const formMarker = detectFormMarker(reply)
+if (formMarker) {
+  setFormType(formMarker.tipo)
+  setShowFormModal(true)
+}
+
+(C) ALTERAR o onComplete do <FormularioModal> para incluir a flag is_form_submission: true e metadados do tipo:
+
+Localize o trecho onde está o <FormularioModal ... onComplete={...} /> e substitua o handler por este:
+
+<FormularioModal
+  tipo={formType}
+  onClose={() => setShowFormModal(false)}
+  onComplete={async (dados) => {
+    // 1) Salva dados localmente se precisar
+    setFormData(dados)
+
+    // 2) Envia uma nova mensagem com o payload estruturado e a flag
+    const payload = {
+      tipo_form: formType,              // 'anamnese' | 'matriz_priorizacao'
+      dados,
+      is_form_submission: true
+    }
+
+    const mensagem = [
+      '💾 **Formulário enviado**',
+      '```json',
+      JSON.stringify(payload, null, 2),
+      '```'
+    ].join('\n')
+
+    await sendMessage(mensagem)
+
+    // 3) Fecha o modal
+    setShowFormModal(false)
+  }}
+  dadosIniciais={formData}
+/>
+
+
+Por quê? O back (Function) vai ver is_form_submission: true e tratar como “entrada de dados do framework”, sem pedir “por qual área começar” nem pular etapa.
+
+2) Chat – rolagem automática + seta persistente
+
+Você já importa useAutoScroll, mas a seta some cedo demais em alguns cenários. Ajuste para manter a seta enquanto não estiver no fim e reaparecer sempre que chegar algo novo.
+
+Arquivo: src/hooks/useAutoScroll.ts (já está bom)
+
+Deixe como está.
+
+Arquivo: src/components/Chat/ChatPage.tsx
+
+Garanta estes usos (você já tem a maior parte; confira):
+
+O contêiner de mensagens usa o ref:
+
+<div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3 chat-messages">
+  {/* ... mensagens ... */}
+</div>
+
+
+Dispare notifyNew() sempre que inserir mensagem nova (já tem em dois pontos; mantenha):
+
+setTimeout(() => notifyNew(), 60) // após append de mensagens do assistente
+
+
+Botão “descer” sempre visível quando pending > 0:
+
+{(pending > 0 || generating || loading) && (
+  <button
+    className="fixed bottom-20 right-6 rounded-full shadow-lg border px-3 py-2 bg-white hover:bg-gray-50"
+    onClick={scrollToBottom}
+    title="Ir para a última mensagem"
+  >
+    <ChevronDown className="w-5 h-5" />
+  </button>
+)}
+
+
+Isso resolve o item 9 (autoscroll + seta persistente).
+
+3) Form dinâmico dentro do chat (Anamnese + Matriz)
+
+Você já tem FormularioModal, DynamicFormAnamnese e detecção dos marcadores [EXIBIR_FORMULARIO:anamnese] / :matriz_priorizacao.
+
+Arquivo: src/utils/form-markers.ts
+
+Confere se está exatamente assim (é o que vi no seu repo):
+
+export interface FormMarker {
+  tipo: 'anamnese' | 'matriz_priorizacao';
+  dados?: any;
+}
+
+export function detectFormMarker(content: string): FormMarker | null {
+  if (/\[EXIBIR_FORMULARIO:anamnese\]/i.test(content)) return { tipo: 'anamnese' };
+  if (/\[EXIBIR_FORMULARIO:matriz_priorizacao\]/i.test(content)) return { tipo: 'matriz_priorizacao' };
+  return null;
+}
+
+export function removeFormMarkers(content: string): string {
+  return content.replace(/\[EXIBIR_FORMULARIO:\w+\]/gi, '').trim();
+}
+
+
+Isso resolve os itens 2 (form no chat), 3 (LLM preenche anamnese, pois agora a submissão vai para o back corretamente) e 6/12 (o framework conduz, não pergunta “qual área”, e coleta atributos no AS-IS via formulários).
+
+4) Lateral do Consultor – badge de novos entregáveis + realtime
+
+A aba “Entregáveis” está com subscription no PainelEntregaveis, mas a lateral (LateralConsultor.tsx) não mostra badge; o usuário não percebe que chegou documento novo.
+
+Arquivo: src/components/Consultor/LateralConsultor.tsx — substitua o cabeçalho dos tabs por este (trecho “find & replace”):
+
+Procure onde você define as tabs ('jornada' | 'entregaveis' | 'kanban') e troque o JSX dos botões por:
+
+<div className="flex items-center gap-2 border-b pb-2">
+  <button
+    onClick={() => setActiveTab('jornada')}
+    className={`flex items-center gap-2 px-3 py-2 rounded-lg ${activeTab==='jornada' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+    title="Jornada"
+  >
+    <Clipboard className="w-4 h-4" /> Jornada
+  </button>
+
+  <button
+    onClick={() => setActiveTab('entregaveis')}
+    className={`relative flex items-center gap-2 px-3 py-2 rounded-lg ${activeTab==='entregaveis' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+    title="Entregáveis"
+  >
+    <FileText className="w-4 h-4" /> Entregáveis
+    {/* Badge com contagem de novos */}
+    {/** consuma via prop ou estado global se preferir */}
+    {!!newDeliverables && (
+      <span className="absolute -top-2 -right-2 text-[11px] bg-red-600 text-white rounded-full px-1.5 py-0.5">
+        {newDeliverables}
+      </span>
+    )}
+  </button>
+
+  <button
+    onClick={() => setActiveTab('kanban')}
+    className={`flex items-center gap-2 px-3 py-2 rounded-lg ${activeTab==='kanban' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+    title="Kanban"
+  >
+    <Kanban className="w-4 h-4" /> Kanban
+  </button>
+
+  <button onClick={reloadAll} className="ml-auto px-3 py-2 text-sm flex items-center gap-1">
+    <RefreshCw className="w-4 h-4" /> Atualizar
+  </button>
+</div>
+
+
+E adicione na parte de estado + realtime:
+
+const [newDeliverables, setNewDeliverables] = useState(0)
+
+useEffect(() => {
+  if (!jornada?.id) return
+  const channel = supabase
+    .channel(`lateral-entregaveis-${jornada.id}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'entregaveis_consultor',
+      filter: `jornada_id=eq.${jornada.id}`
+    }, () => setNewDeliverables(prev => prev + 1))
+    .subscribe()
+
+  return () => { supabase.removeChannel(channel) }
+}, [jornada?.id])
+
+
+Na hora que o usuário abrir a aba “Entregáveis”, zere o badge:
+
+useEffect(() => {
+  if (activeTab === 'entregaveis') setNewDeliverables(0)
+}, [activeTab])
+
+
+Isso resolve o item 4 (notificação visível).
+
+5) Function do Supabase – forçar o framework, processar formulários e gerar entregáveis corretos
+
+A function consultor-chat/index.ts ainda não trata is_form_submission e está deixando o LLM “escolher o caminho”. Vamos corrigir com uma guarda de estado por jornada (sem looping) e com geração de deliverables (Canvas, Cadeia de Valor, BPMN AS-IS/TO-BE, Diagnóstico, Matriz de Priorização sem duplicar) derivados do que o usuário enviou.
+
+Arquivo: supabase/functions/consultor-chat/index.ts
+(A) No início do handler, parse da flag e payload:
+
+Find: (no início do POST handler onde você lê req.json())
+
+Adicione/garanta:
+
+const body = await req.json().catch(() => ({}));
+const text: string = (body?.text || '').toString();
+let formPayload: any = null;
+let isFormSubmission = false;
+
+try {
+  // detecta bloco ```json ... ``` ou JSON puro
+  const match = text.match(/```json([\s\S]*?)```/i);
+  const raw = match ? match[1] : text;
+  const parsed = JSON.parse(raw);
+  if (parsed && parsed.is_form_submission) {
+    isFormSubmission = true;
+    formPayload = parsed;
+  }
+} catch { /* segue fluxo normal se não for JSON */ }
+
+(B) Bloqueio de “perguntar área” e avanço correto de etapa
+
+Logo após carregar a jornada_consultor (ou equivalente), aplique um state machine simples:
+
+// lê jornada atual
+const { data: jornada } = await supabase
+  .from('jornadas_consultor')
+  .select('*')
+  .eq('conversation_id', conversation_id)
+  .single();
+
+const stage = jornada?.etapa_atual || 'apresentacao'; // 'apresentacao'|'anamnese'|'mapeamento'|'priorizacao'|'execucao'
+
+// Não permitir perguntas fora do roteiro:
+function ensureStage(required: string) {
+  if (stage !== required) throw new Error(`Etapa inválida: esperado ${required}, atual ${stage}`);
+}
+
+(C) Regras por etapa (resumo bem direto):
+
+apresentacao → anamnese: sempre responder com o texto de boas-vindas + marcador [EXIBIR_FORMULARIO:anamnese] e não perguntar “por qual área começar”. Ao confirmar, atualizar etapa_atual = 'anamnese'.
+
+anamnese (is_form_submission): receber formPayload, persistir em anamnese_consultor, gerar:
+
+Diagnóstico “Problemas Ocultos” (seu módulo já existe),
+
+Business Model Canvas (com base nas respostas),
+
+Cadeia de Valor de Porter, e
+
+Entregável “Anamnese Consolidada”.
+Depois: responder “Anamnese concluída” e avançar etapa_atual = 'mapeamento' com marcador para iniciar coleta do AS-IS (pede atributos por processo).
+Exemplo de prompt ao usuário:
+“Vamos iniciar o mapeamento AS-IS. Para cada processo, responda: Input, Output, Ferramentas, Métricas, Regras, Fluxo (passo-a-passo), Pessoas.”
+
+mapeamento (is_form_submission): receber processos e atributos. Gerar:
+
+BPMN AS-IS real (com texto coletado, nada de HTML em branco),
+
+Diagnóstico por processo (sem pular),
+Avançar etapa_atual = 'priorizacao' e responder com [EXIBIR_FORMULARIO:matriz_priorizacao].
+
+priorizacao (is_form_submission): consolidar matriz impact x esforço sem duplicar (use UPSERT por jornada_id + processo). Gerar entregável da Matriz e devolver Roadmap ordenado. Avançar etapa_atual = 'execucao'.
+
+execucao: gerar PLANO 5W2H como múltiplas ações, não uma ação gigantesca. Cada ação vira kanban_card (ou sua tabela de ações). Publicar evento realtime.
+
+sempre: ao concluir cada fase, insert em entregaveis_consultor para acionar a badge.
+
+A boa notícia: você já tem arquivos auxiliares (deliverable-generators.ts, problemas-ocultos.ts, etc.). Reaproveite e não gere “mock” sem usar os dados.
+
+(D) Snippet de resposta com marcador de formulário
+
+Quando estiver na apresentação e for transitar para anamnese:
+
+return json({
+  response:
+`Bem-vindo! Vamos começar com a Anamnese para eu entender seu perfil e sua empresa.
+[EXIBIR_FORMULARIO:anamnese]`
+})
+
+
+Quando concluir mapeamento e for priorização:
+
+return json({
+  response:
+`Mapeamento AS-IS recebido e processado. Agora vamos priorizar.
+[EXIBIR_FORMULARIO:matriz_priorizacao]`
+})
+
+(E) Anti-loop simples
+
+Antes de qualquer geração pesada, cheque se já existe entregável daquela etapa para a mesma jornada; se existir e nada mudou, apenas referencie o existente. Exemplo (pseudo):
+
+const exists = await supabase
+  .from('entregaveis_consultor')
+  .select('id')
+  .eq('jornada_id', jornada.id)
+  .eq('tipo', 'bpmn_as_is')
+  .maybeSingle()
+
+if (!exists) {
+  // gerar e inserir
+}
+
+
+Isto resolve: 5, 6, 7, 8, 10, 11, 13, 14, 15, 16, 17, 18, 19.
+
+6) Kanban integrado (nada de HTML “inventado”)
+
+Use uma tabela real (você já tem migrações para kanban_cards). Se seu componente KanbanExecucao.tsx lê outra tabela, alinhe:
+
+Arquivo: src/components/Consultor/Kanban/KanbanExecucao.tsx (simplificado funcional)
+
+Substitua por esta versão mínima que lê kanban_cards:
+
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../../../lib/supabase';
+
+type Status = 'a_fazer' | 'em_andamento' | 'bloqueado' | 'concluido';
+
+interface Card {
+  id: string;
+  jornada_id: string;
+  processo: string | null;
+  titulo: string;
+  what: string;
+  why: string;
+  where: string;
+  when: string;
+  who: string;
+  how: string;
+  how_much: string;
+  prioridade: 'alta' | 'media' | 'baixa';
+  status: Status;
+  created_at: string;
+}
+
+export function KanbanExecucao({ jornadaId }: { jornadaId: string }) {
+  const [cards, setCards] = useState<Card[]>([]);
+
+  useEffect(() => {
+    if (!jornadaId) return;
+    load();
+    const ch = supabase
+      .channel(`kanban-${jornadaId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_cards', filter: `jornada_id=eq.${jornadaId}` }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [jornadaId]);
+
+  async function load() {
+    const { data } = await supabase
+      .from('kanban_cards')
+      .select('*')
+      .eq('jornada_id', jornadaId)
+      .order('created_at', { ascending: true });
+    setCards(data || []);
+  }
+
+  function col(s: Status) { return cards.filter(c => c.status === s); }
+
+  return (
+    <div className="grid grid-cols-4 gap-3 h-full">
+      {(['a_fazer','em_andamento','bloqueado','concluido'] as Status[]).map((s) => (
+        <div key={s} className="bg-gray-50 rounded-xl p-3 border overflow-auto">
+          <h3 className="font-semibold mb-2 capitalize">{s.replace('_',' ')}</h3>
+          <div className="space-y-2">
+            {col(s).map(c => (
+              <div key={c.id} className="bg-white rounded-lg p-3 shadow-sm border">
+                <div className="text-sm font-medium">{c.titulo}</div>
+                <div className="text-[11px] text-gray-500 mt-1">{c.processo || 'Geral'} • Prioridade: {c.prioridade}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+No back, cada ação 5W2H vira um card (não uma mega-ação). Isso fecha os itens 15 e 16.
+
+
+O que cada correção resolve (checklist dos seus 19 pontos)
+
+Gamificação – o orchestrator deve disparar o gatilho ao concluir cada etapa (já tem arquivos de integração; só chamar após INSERT de entregável).
+
+Formulário no chat – marcadores + modal + flag is_form_submission.
+
+Anamnese preenchida – tratado como submissão e persistido.
+
+Notificação na aba DOC – badge na lateral + realtime.
+
+Framework – state machine nas Functions (sem pular etapas).
+
+Não pergunta área – a apresentação sempre chama [EXIBIR_FORMULÁRIO:anamnese].
+
+Cadeia de Valor / Canvas / Mapa real – gerados com base nas respostas (sem mock).
+
+Finalização sem CTA – sempre responder com próxima ação (“agora preencha…”, “abra a aba…”).
+
+Rolagem / seta – useAutoScroll + botão persistente.
+
+Matriz duplicada – unique (jornada_id, processo) e UPSERT.
+
+Timeline manual – subscription nas tabelas que alimentam a timeline (use o mesmo padrão de canal do PainelEntregaveis).
+
+AS-IS sem atributos – formulário pede explicitamente os 7 atributos.
+
+Tudo misturado – respostas separadas por etapa; cada uma gera seu entregável.
+
+BPM “em branco” – gerar BPMN a partir dos dados do AS-IS/TO-BE (sem HTML vazio).
+
+Kanban mock – cards reais na tabela kanban_cards.
+
+Plano = várias ações – cada 5W2H = 1 card.
+
+Loop após 1º mapeamento – guardas: não regerar se já existe e etapa avança.
+
+Timeline sem subdivisão – inclua no JornadaTimeline o agrupamento por processo (usar processo dos entregáveis/cards).
+
+Paralelismo – habilite “processos paralelos” baseado em areas_trabalho e kanban_cards com filtro por processo.
+
+
+Feito isso, o fluxo vai forçar: Apresentação → Anamnese (form) → Mapeamento (form com atributos) → Priorização (form sem duplicar) → Execução (5W2H em cards), com notificações, timeline em tempo real, e sem loops.

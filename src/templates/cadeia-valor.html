@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cadeia de Valor - {{empresa_nome}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 30px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 4px solid #2563eb;
+            padding-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            color: #1e40af;
+            margin-bottom: 10px;
+        }
+
+        .header .company {
+            font-size: 1.5rem;
+            color: #2563eb;
+            font-weight: 600;
+        }
+
+        .value-chain {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .chain-section {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .section-header {
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: white;
+            padding: 20px 25px;
+            font-size: 1.4rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section-content {
+            padding: 25px;
+            background: #f8fafc;
+        }
+
+        .process-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .process-card {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .process-card:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        }
+
+        .process-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .process-description {
+            font-size: 0.95rem;
+            color: #475569;
+            margin-bottom: 15px;
+        }
+
+        .process-details {
+            font-size: 0.85rem;
+            color: #64748b;
+            background: #f1f5f9;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .support-section .section-header {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+        }
+
+        .support-section .process-card {
+            border-color: #c4b5fd;
+        }
+
+        .support-section .process-card:hover {
+            border-color: #8b5cf6;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
+        }
+
+        .support-section .process-title {
+            color: #6d28d9;
+        }
+
+        .support-section .process-details {
+            border-left-color: #8b5cf6;
+        }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .flow-box {
+            flex: 1;
+            text-align: center;
+            padding: 15px;
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            font-weight: 600;
+            color: #1e40af;
+        }
+
+        .flow-arrow {
+            font-size: 2rem;
+            color: #3b82f6;
+            margin: 0 10px;
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 25px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; }
+        }
+
+        @media (max-width: 768px) {
+            .process-grid {
+                grid-template-columns: 1fr;
+            }
+            .flow-diagram {
+                flex-direction: column;
+            }
+            .flow-arrow {
+                transform: rotate(90deg);
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⛓️ Cadeia de Valor</h1>
+            <div class="company">{{empresa_nome}}</div>
+        </div>
+
+        <!-- Fluxo de Valor -->
+        <div class="flow-diagram">
+            <div class="flow-box">📥 INPUTS</div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box">⚙️ PROCESSOS</div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box">📤 OUTPUTS</div>
+        </div>
+
+        <div class="value-chain">
+            <!-- Processos Primários -->
+            <div class="chain-section primary-section">
+                <div class="section-header">
+                    <span>🎯</span>
+                    <span>Processos Finalísticos (Primários)</span>
+                </div>
+                <div class="section-content">
+                    <div class="process-grid">
+                        {{#processos_finalisticos}}
+                        <div class="process-card">
+                            <div class="process-title">
+                                <span>▸</span>
+                                <span>{{nome}}</span>
+                            </div>
+                            <div class="process-description">{{descricao}}</div>
+                            <div class="process-details">
+                                <strong>Responsável:</strong> {{responsavel}}<br>
+                                <strong>Ferramentas:</strong> {{ferramentas}}
+                            </div>
+                        </div>
+                        {{/processos_finalisticos}}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processos de Gestão -->
+            <div class="chain-section management-section">
+                <div class="section-header">
+                    <span>📊</span>
+                    <span>Processos de Gestão (Governança)</span>
+                </div>
+                <div class="section-content">
+                    <div class="process-grid">
+                        {{#processos_gestao}}
+                        <div class="process-card">
+                            <div class="process-title">
+                                <span>▸</span>
+                                <span>{{nome}}</span>
+                            </div>
+                            <div class="process-description">{{descricao}}</div>
+                            <div class="process-details">
+                                <strong>Responsável:</strong> {{responsavel}}<br>
+                                <strong>Ferramentas:</strong> {{ferramentas}}
+                            </div>
+                        </div>
+                        {{/processos_gestao}}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processos de Apoio -->
+            <div class="chain-section support-section">
+                <div class="section-header">
+                    <span>🔧</span>
+                    <span>Processos de Apoio (Suporte)</span>
+                </div>
+                <div class="section-content">
+                    <div class="process-grid">
+                        {{#processos_apoio}}
+                        <div class="process-card">
+                            <div class="process-title">
+                                <span>▸</span>
+                                <span>{{nome}}</span>
+                            </div>
+                            <div class="process-description">{{descricao}}</div>
+                            <div class="process-details">
+                                <strong>Responsável:</strong> {{responsavel}}<br>
+                                <strong>Ferramentas:</strong> {{ferramentas}}
+                            </div>
+                        </div>
+                        {{/processos_apoio}}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>Proceda Consultor IA</strong> - Cadeia de Valor Empresarial</p>
+            <p>Gerado em: {{data_geracao}}</p>
+        </div>
+    </div>
+</body>
+</html>
