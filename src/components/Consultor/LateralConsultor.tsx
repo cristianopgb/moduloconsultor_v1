@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Clipboard, FileText, Kanban } from 'lucide-react'
 import { JornadaTimeline } from './Timeline/JornadaTimeline'
 import { PainelEntregaveis } from './Entregaveis/PainelEntregaveis'
@@ -22,6 +22,9 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const [newDeliverablesCount, setNewDeliverablesCount] = useState(0)
+  // Conversa-level gamification (xp por conversa)
+  const [convXpTotal, setConvXpTotal] = useState<number | null>(null)
+  const [convNivel, setConvNivel] = useState<number | null>(null)
 
   // Um único canal com múltiplas escutas
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -101,13 +104,24 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
         // Sincroniza contagem inicial de docs para badge persistente
         const jId = (data as any)?.id || (await fetchExistingByConversation()).data?.id
         if (jId) {
-          const { count } = await supabase
-            .from('entregaveis_consultor')
-            .select('*', { count: 'exact', head: true })
-            .eq('jornada_id', jId)
-          const curr = count || 0
-          const stored = getStoredDocCount()
-          if (stored !== curr) setStoredDocCount(curr)
+            const { count } = await supabase
+              .from('entregaveis_consultor')
+              .select('*', { count: 'exact', head: true })
+              .eq('jornada_id', jId)
+            const curr = count || 0
+            const stored = getStoredDocCount()
+            if (stored !== curr) setStoredDocCount(curr)
+            // also initialize unread (not visualized) count for the badge
+            try {
+              const { count: unread } = await supabase
+                .from('entregaveis_consultor')
+                .select('*', { count: 'exact', head: true })
+                .eq('jornada_id', jId)
+                .is('visualizado', false)
+              setNewDeliverablesCount(unread || 0)
+            } catch (e) {
+              // ignore if count query fails
+            }
         }
       } catch (err) {
         console.error('[LateralConsultor] Erro ao carregar jornada:', err)
@@ -122,13 +136,48 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
   useEffect(() => {
     resetIfNewConversation()
     void loadJornada()
+    function onDocViewed(e: any) {
+      try {
+        const jd = e?.detail?.jornadaId
+        if (!jd || jd !== conversationId) {
+          // if event references different conversation, still reload to be safe
+        }
+        void loadJornada(false)
+      } catch {}
+    }
+    window.addEventListener('entregavel:visualizado', onDocViewed as any)
     return () => {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
         channelRef.current = null
       }
+      window.removeEventListener('entregavel:visualizado', onDocViewed as any)
     }
   }, [conversationId, user?.id, resetIfNewConversation, loadJornada])
+
+  // Global event to refresh gamification when chat triggers poll-based update
+  useEffect(() => {
+    function onGamUpdate(e: any) {
+      try {
+        const cid = e?.detail?.conversationId
+        if (cid === conversationId) {
+          // reload gamificacao
+          (async () => {
+            try {
+              const { data } = await supabase.from('gamificacao_conversa').select('*').eq('conversation_id', conversationId).maybeSingle();
+              if (data) {
+                setConvXpTotal(data.xp_total ?? null)
+                setConvNivel(data.nivel ?? null)
+                setLastUpdate(new Date())
+              }
+            } catch (err) {}
+          })()
+        }
+      } catch {}
+    }
+    window.addEventListener('gamification:updated', onGamUpdate as any)
+    return () => window.removeEventListener('gamification:updated', onGamUpdate as any)
+  }, [conversationId])
 
   // ===== Realtime: só após termos a jornada (id) =====
   useEffect(() => {
@@ -139,8 +188,41 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
       channelRef.current = null
     }
 
+    // Inicializa valores de gamificação por conversa
+    ;(async () => {
+      try {
+        const { data: gamData } = await supabase
+          .from('gamificacao_conversa')
+          .select('*')
+          .eq('conversation_id', conversationId)
+          .maybeSingle()
+        if (gamData) {
+          setConvXpTotal(gamData.xp_total ?? 0)
+          setConvNivel(gamData.nivel ?? 1)
+        }
+      } catch (e) {
+        // não fatal
+        // console.warn('[LateralConsultor] falha ao buscar gamificacao_conversa', e)
+      }
+    })()
+
     const ch = supabase
       .channel(`consultor:${conversationId}:${jornada.id}`)
+      // Conversa-level gamification updates (para atualizar o painel lateral)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'gamificacao_conversa', filter: `conversation_id=eq.${conversationId}` },
+        (payload) => {
+          try {
+            const newData = payload.new as any
+            setConvXpTotal(newData.xp_total ?? null)
+            setConvNivel(newData.nivel ?? null)
+            setLastUpdate(new Date())
+          } catch (err) {
+            // ignore
+          }
+        }
+      )
       // Jornada atualizada
       .on(
         'postgres_changes',
@@ -177,6 +259,30 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
           }
         }
       )
+      // Atualização em entregáveis (ex: visualizado = true) -> recalcula não visualizados
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'entregaveis_consultor', filter: `jornada_id=eq.${jornada.id}` },
+        async () => {
+          try {
+            // recalc unread (visualizado = false)
+            const { count: unread } = await supabase
+              .from('entregaveis_consultor')
+              .select('*', { count: 'exact', head: true })
+              .eq('jornada_id', jornada.id)
+              .is('visualizado', false)
+            setNewDeliverablesCount(unread || 0)
+            // update stored total count as well
+            const { count: total } = await supabase
+              .from('entregaveis_consultor')
+              .select('*', { count: 'exact', head: true })
+              .eq('jornada_id', jornada.id)
+            setStoredDocCount(total || 0)
+          } catch (e) {
+            // ignore
+          }
+        }
+      )
       .subscribe()
 
     channelRef.current = ch
@@ -208,9 +314,10 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
             className="w-2 h-2 rounded-full bg-green-500 animate-pulse"
             title="Sincronização em tempo real ativa"
           />
-          <span className="text-xs text-gray-400">
-            Atualizado {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-xs text-gray-400">Atualizado {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="text-xs text-amber-400">XP: {convXpTotal ?? 0} • Nível: {convNivel ?? '-'}</span>
+          </div>
         </div>
         <div className="text-[11px] text-gray-500">Auto</div>
       </div>
@@ -233,17 +340,22 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
 
         <button
           onClick={() => {
-            setActiveTab('entregaveis')
-            setNewDeliverablesCount(0)
-            if (jornada?.id) {
-              supabase
-                .from('entregaveis_consultor')
-                .select('*', { count: 'exact', head: true })
-                .eq('jornada_id', jornada.id)
-                .then(({ count }) => setStoredDocCount(count || 0))
-                .catch(() => void 0)
-            }
-          }}
+              setActiveTab('entregaveis')
+              setNewDeliverablesCount(0)
+              if (jornada?.id) {
+                (async () => {
+                  try {
+                    const { count } = await supabase
+                      .from('entregaveis_consultor')
+                      .select('*', { count: 'exact', head: true })
+                      .eq('jornada_id', jornada.id)
+                    setStoredDocCount(count || 0)
+                  } catch {
+                    // ignore
+                  }
+                })()
+              }
+            }}
           className={`
             relative flex-1 px-3 py-3 text-xs font-medium transition-colors flex items-center justify-center gap-1.5
             ${activeTab === 'entregaveis'
@@ -291,7 +403,7 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
         ) : activeTab === 'jornada' ? (
           <JornadaTimeline jornada={jornada} />
         ) : activeTab === 'entregaveis' ? (
-          <PainelEntregaveis jornadaId={jornada?.id} />
+          <PainelEntregaveis jornadaId={jornada?.id} onRefresh={() => void loadJornada(false)} />
         ) : jornada?.id ? (
           <KanbanExecucao jornadaId={jornada.id} />
         ) : (

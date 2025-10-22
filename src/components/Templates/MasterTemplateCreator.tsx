@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { Upload, Brain, Download, Save, X, Image, FileText, Table, Presentation, Send, Trash2, AlertTriangle, CheckCircle, MessageSquare, CreditCard as Edit, Copy, ImagePlus, BarChart3 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { callEdgeFunction } from '../../lib/functionsClient'
 import { useAuth } from '../../contexts/AuthContext'
 import { TagInput } from './TagInput'
 
@@ -110,21 +111,8 @@ export function MasterTemplateCreator({ onTemplateSaved, onClose, editingTemplat
       const token = session?.access_token
       if (!token) throw new Error('Usuário não autenticado. Faça login novamente.')
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/template-creator`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `Erro ${response.status}`)
-      }
-
-      const aiResponse = await response.json()
+      const { data: aiResponse, error: fnErr } = await callEdgeFunction('template-creator', requestData)
+      if (fnErr) throw fnErr
       console.log('✅ Resposta do Template Creator:', aiResponse)
 
       const assistantMessage: ChatMessage = {
@@ -180,21 +168,8 @@ export function MasterTemplateCreator({ onTemplateSaved, onClose, editingTemplat
 
       const parsedJson = JSON.parse(templateJson)
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-template`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ template_json: parsedJson })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `Erro ${response.status}`)
-      }
-
-      const result = await response.json()
+      const { data: result, error: fnErr } = await callEdgeFunction('generate-template', { template_json: parsedJson })
+      if (fnErr) throw fnErr
 
       // baixa o arquivo
       const byteCharacters = atob(result.content)

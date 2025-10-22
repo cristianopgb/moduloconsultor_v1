@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { callEdgeFunction } from '../../lib/functionsClient'
 import { Play, AlertCircle, CheckCircle, Clock, Code } from 'lucide-react'
 import type { QueryDSL, QueryExecutionResult } from '../../types/query-dsl'
 
@@ -45,28 +46,9 @@ export function DatasetQueryBuilder({ datasetId, hasQueryableData, onQueryExecut
     setResult(null)
 
     try {
-      // Call plan-query function
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/plan-query`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            dataset_id: datasetId,
-            question: question.trim()
-          })
-        }
-      )
-
-      const data = await response.json()
-
-      if (!data.success) {
-        throw new Error(data.error || 'Falha ao planejar query')
-      }
-
+      const { data, error } = await callEdgeFunction('plan-query', { dataset_id: datasetId, question: question.trim() })
+      if (error) throw error
+      if (!data?.success) throw new Error(data?.error || 'Falha ao planejar query')
       setDsl(data.dsl)
       console.log('[DEBUG] DSL generated:', data.dsl)
 
@@ -89,25 +71,9 @@ export function DatasetQueryBuilder({ datasetId, hasQueryableData, onQueryExecut
     setResult(null)
 
     try {
-      // Call query-dataset function
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/query-dataset`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ dsl })
-        }
-      )
-
-      const data = await response.json()
-
-      if (!data.success) {
-        throw new Error(data.error || 'Falha ao executar query')
-      }
-
+      const { data, error } = await callEdgeFunction('query-dataset', { dsl })
+      if (error) throw error
+      if (!data?.success) throw new Error(data?.error || 'Falha ao executar query')
       setResult(data.result)
       onQueryExecuted?.(data.result)
       console.log('[SUCCESS] Query executed:', data.result)

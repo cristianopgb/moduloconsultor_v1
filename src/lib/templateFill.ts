@@ -1,6 +1,7 @@
 // /src/lib/templateFill.ts
 // SIMPLIFICADO: apenas para compatibilidade com exports de arquivos
 import { supabase } from './supabase'
+import { callEdgeFunction } from './functionsClient'
 
 type Args = {
   storagePath: string            // ex.: "mockups/1759....pptx"
@@ -47,24 +48,8 @@ export async function fillAndSaveTemplate({
 
   console.log('[DEBUG][templateFill] Enviando para template-fill:', payload)
 
-  const resp = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/template-fill`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(payload),
-    }
-  )
-
-  if (!resp.ok) {
-    const txt = await resp.text()
-    throw new Error(`template-fill HTTP ${resp.status}: ${txt}`)
-  }
-
-  const json = await resp.json()
+  const { data: json, error } = await callEdgeFunction('template-fill', payload)
+  if (error) throw error
   console.log('[DEBUG][templateFill] Resposta recebida:', json)
   
   // a função retorna filename / path / publicUrl

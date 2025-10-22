@@ -55,51 +55,28 @@ export function DatasetAnalyzer({ dataset, onAnalysisCompleted, onClose }: Datas
     try {
       console.log('[DEBUG] Iniciando análise para dataset:', dataset.id)
 
-      // Obter token da sessão
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-      if (!token) {
-        throw new Error('Usuário não autenticado. Faça login novamente.')
+      // Use helper to call edge function (it will attempt supabase.functions.invoke then fetch with token)
+      console.log('[DEBUG] Chamando analyze-data via helper...')
+      const { data: result, error: fnErr } = await (await import('../../lib/functionsClient')).callEdgeFunction('analyze-data', {
+        dataset_id: dataset.id,
+        analysis_request: analysisRequest.trim()
+      });
+
+      if (fnErr) {
+        // Mapear erros comuns retornados pelo helper
+        const errObj = fnErr || {};
+        const code = (errObj as any).status || (errObj as any).statusCode || null;
+        let userMessage = (errObj as any).error || 'Erro ao analisar dataset';
+        if (code === 403) userMessage = '🔒 Erro de permissão: Não foi possível acessar os dados.';
+        if (code === 400) userMessage = `❌ Solicitação inválida: ${(errObj as any).error || 'Verifique sua pergunta'}`;
+        if (code === 546) userMessage = '💥 Análise muito complexa. Tente simplificar sua pergunta.';
+        if (code >= 500) userMessage = '🔧 Erro no servidor. Tente novamente em alguns instantes.';
+        throw new Error(userMessage);
       }
 
-      console.log('[DEBUG] Chamando analyze-data Edge Function...')
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-data`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          dataset_id: dataset.id,
-          analysis_request: analysisRequest.trim()
-        })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-
-        // Mapear erros específicos para mensagens user-friendly
-        let userMessage = errorData.error || `Erro ${response.status}`
-
-        if (response.status === 403) {
-          userMessage = '🔒 Erro de permissão: Não foi possível acessar os dados. Verifique sua conexão e tente novamente.'
-        } else if (response.status === 400) {
-          userMessage = `❌ Solicitação inválida: ${errorData.error || 'Verifique sua pergunta e tente novamente'}`
-        } else if (response.status === 546) {
-          userMessage = '💥 Análise muito complexa. Tente simplificar sua pergunta ou use um dataset menor.'
-        } else if (response.status >= 500) {
-          userMessage = '🔧 Erro no servidor. Tente novamente em alguns instantes.'
-        }
-
-        throw new Error(userMessage)
-      }
-
-      const result = await response.json()
-      console.log('[DEBUG] Análise concluída:', result)
-
-      if (!result.success) {
-        throw new Error(result.error || 'Falha na análise')
+      console.log('[DEBUG] Análise concluída via helper:', result)
+      if (!result || !result.success) {
+        throw new Error(result?.error || 'Falha na análise')
       }
 
       setAnalysisResult(result.result)

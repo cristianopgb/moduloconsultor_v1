@@ -1,12 +1,13 @@
 // web/src/components/Chat/ChatPage.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, Plus, X, MessageSquare, FileText, Eye, Sparkles,
   Bot, User, Loader2, AlertCircle, Trash2, Pencil, Check, XCircle,
-  Search, Filter, ChevronDown, Link as LinkIcon, BarChart3, Wand2
+  ChevronDown, Link as LinkIcon, BarChart3, Wand2
 } from 'lucide-react'
 
 import { supabase, Conversation, Message, Model, ChatMode } from '../../lib/supabase'
+import { callEdgeFunction } from '../../lib/functionsClient'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { detectAndParseCSV, getDelimiterName } from '../../utils/csvDetector'
@@ -232,14 +233,13 @@ function ChatPage() {
   const [editingConvId, setEditingConvId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
 
-  const [canGenerate, setCanGenerate] = useState(false)
   const [readyReason, setReadyReason] = useState('')
 
   const [attachedRefs, setAttachedRefs] = useState<CreatedRef[]>([])
   const [justAttachedBlink, setJustAttachedBlink] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
 
-  const [hadAnalysis, setHadAnalysis] = useState(false)
+  // hadAnalysis state removed (was unused)
 
   const [chatMode, setChatMode] = useState<ChatMode>('analytics')
 
@@ -249,6 +249,7 @@ function ChatPage() {
   const [dialogueStateId, setDialogueStateId] = useState<string | null>(null)
   const [lastAnalysisData, setLastAnalysisData] = useState<any>(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [pendingConsultorActions, setPendingConsultorActions] = useState<any[] | null>(null)
 
   // Formulário dinâmico — ADICIONADO 'atributos_processo' no union
   const [showFormModal, setShowFormModal] = useState(false)
@@ -256,10 +257,53 @@ function ChatPage() {
     'anamnese' | 'canvas' | 'cadeia_valor' | 'matriz_priorizacao' | 'processo_as_is' | 'atributos_processo' | null
   >(null)
   const [formData, setFormData] = useState<any>(null)
+  const [formInitialProcesso, setFormInitialProcesso] = useState<any | null>(null)
+  // modalJornadaId removed (we only keep modalProcessos)
+  const [modalProcessos, setModalProcessos] = useState<any[] | null>(null)
+  const [modalJornadaId, setModalJornadaId] = useState<string | null>(null)
 
   // Gamificação - Popup de XP
   const [showXPCelebration, setShowXPCelebration] = useState(false)
   const [xpCelebrationData, setXPCelebrationData] = useState<{ xpGanho: number; xpTotal: number; nivel: number; motivo: string } | null>(null)
+  const lastKnownXpRef = useRef<number | null>(null)
+
+  // Poller seguro para gamificacao_conversa: tenta algumas vezes com backoff curto
+  async function pollGamification(retries = 4, delayMs = 600) {
+    if (!current?.id) return false
+    for (let i = 0; i < retries; i++) {
+      try {
+        const { data: gamData, error: gamErr } = await supabase
+          .from('gamificacao_conversa')
+          .select('*')
+          .eq('conversation_id', current.id)
+          .maybeSingle()
+        if (gamErr) {
+          console.warn('[GAMIFICATION] poll fetch erro:', gamErr)
+        } else if (gamData) {
+          const nowXp = gamData.xp_total ?? 0
+          const last = lastKnownXpRef.current ?? 0
+          if (nowXp > last) {
+            const xpGanho = nowXp - last
+            console.log('[GAMIFICATION] poll detectou ganho de XP:', xpGanho, '->', nowXp)
+            setXPCelebrationData({ xpGanho, xpTotal: nowXp, nivel: gamData.nivel ?? 1, motivo: 'Progresso na jornada!' })
+            setShowXPCelebration(true)
+            lastKnownXpRef.current = nowXp
+            // notify other UI parts (lateral) to refresh
+            try { window.dispatchEvent(new CustomEvent('gamification:updated', { detail: { conversationId: current.id, xpTotal: nowXp } })) } catch(e){}
+            return true
+          }
+          // Atualiza último XP conhecido mesmo sem ganho para comparar depois
+          lastKnownXpRef.current = nowXp
+        }
+      } catch (e) {
+        console.warn('[GAMIFICATION] poll erro:', e)
+      }
+      // esperar antes da próxima tentativa
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(r => setTimeout(r, delayMs))
+    }
+    return false
+  }
 
   const { ref: listRef, notifyNew, scrollToBottom, pending } = useAutoScroll<HTMLDivElement>()
   const formatTime = (s: string) => new Date(s).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -295,9 +339,9 @@ function ChatPage() {
 
   function resetForConversation() {
     setMessages([]); setInput(''); setErr('')
-    setGeneratedHtml(''); setGenerating(false); setGenLog([]); generatingLock.current = false
-    setCanGenerate(false); setReadyReason(''); rawHtmlRef.current = ''
-    setAttachedRefs([]); setSelectedTemplate(null); setHadAnalysis(false)
+  setGeneratedHtml(''); setGenerating(false); setGenLog([]); generatingLock.current = false
+  setReadyReason(''); rawHtmlRef.current = ''
+  setAttachedRefs([]); setSelectedTemplate(null)
     setChatMode('analytics')
     // Reset dialogue states
     setAnalysisState('idle')
@@ -322,22 +366,32 @@ function ChatPage() {
           filter: `conversation_id=eq.${current.id}`
         },
         (payload) => {
-          const newData = payload.new as any
-          const oldData = payload.old as any
+          try {
+            console.log('[GAMIFICATION] realtime payload:', payload)
+            const newData = payload.new as any
+            const oldData = payload.old as any
 
-          if (newData.xp_total > oldData.xp_total) {
-            const xpGanho = newData.xp_total - oldData.xp_total
-            setXPCelebrationData({
-              xpGanho,
-              xpTotal: newData.xp_total,
-              nivel: newData.nivel,
-              motivo: 'Progresso na jornada!'
-            })
-            setShowXPCelebration(true)
+            // Guardar último XP conhecido
+            lastKnownXpRef.current = newData.xp_total ?? lastKnownXpRef.current
+
+            if ((newData.xp_total ?? 0) > (oldData.xp_total ?? 0)) {
+              const xpGanho = (newData.xp_total ?? 0) - (oldData.xp_total ?? 0)
+              setXPCelebrationData({
+                xpGanho,
+                xpTotal: newData.xp_total,
+                nivel: newData.nivel,
+                motivo: 'Progresso na jornada!'
+              })
+              setShowXPCelebration(true)
+            }
+          } catch (err) {
+            console.error('[GAMIFICATION] erro ao processar payload realtime:', err)
           }
         }
       )
       .subscribe()
+
+    console.log('[GAMIFICATION] subscribed to channel:', `gamification-${current.id}`)
 
     return () => {
       supabase.removeChannel(channel)
@@ -348,6 +402,20 @@ function ChatPage() {
     if (!current?.id) { resetForConversation(); return }
     resetForConversation()
     ;(async () => {
+      // Inicializa lastKnownXpRef consultando gamificacao_conversa para esta conversa
+      try {
+        const { data: gamData } = await supabase
+          .from('gamificacao_conversa')
+          .select('*')
+          .eq('conversation_id', current.id)
+          .maybeSingle()
+        if (gamData && typeof gamData.xp_total === 'number') {
+          lastKnownXpRef.current = gamData.xp_total
+          console.log('[GAMIFICATION] initial xp for conversation', current.id, lastKnownXpRef.current)
+        }
+      } catch (e) {
+        console.warn('[GAMIFICATION] failed to init xp for conversation', e)
+      }
       setLoadingAnalyses(true)
       const { data, error } = await supabase
         .from('messages')
@@ -356,8 +424,7 @@ function ChatPage() {
         .order('created_at', { ascending: true })
       if (error) { setErr('Falha ao carregar mensagens.'); setLoadingAnalyses(false); return }
 
-      const messagesWithAnalysis: MessageWithAnalysis[] = []
-      let anyAnalysis = false
+  const messagesWithAnalysis: MessageWithAnalysis[] = []
       for (const msg of (data || [])) {
         if (msg.analysis_id) {
           try {
@@ -370,7 +437,7 @@ function ChatPage() {
                 analysisData: row.interpretation || row.charts_config,
                 analysis_id: msg.analysis_id
               })
-              anyAnalysis = true
+              // analysis loaded
             } else {
               messagesWithAnalysis.push({ ...msg, analysis_id: msg.analysis_id })
             }
@@ -383,8 +450,7 @@ function ChatPage() {
         }
       }
 
-      setMessages(messagesWithAnalysis)
-      setHadAnalysis(anyAnalysis)
+    setMessages(messagesWithAnalysis)
       setLoadingAnalyses(false)
       setTimeout(() => notifyNew(), 80)
 
@@ -406,10 +472,7 @@ function ChatPage() {
       const lastAssistant = [...messagesWithAnalysis].reverse().find(m => m.role !== 'user')
       if (lastAssistant?.content) {
         const endsLikeDraft = !/[\?\!]\s*$/.test(lastAssistant.content.trim())
-        if (endsLikeDraft) {
-          setCanGenerate(true)
-          setReadyReason('histórico: draft')
-        }
+        if (endsLikeDraft) setReadyReason('histórico: draft')
       }
     })()
   }, [current?.id])
@@ -482,18 +545,11 @@ function ChatPage() {
         reader.readAsDataURL(file)
         const content_base64 = await base64Promise
 
-        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-reference`
-        const uploadResponse = await fetch(functionUrl, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, content_base64, bucket }),
-        })
-        if (!uploadResponse.ok) {
-          const errorData = await uploadResponse.json().catch(()=> ({}))
-          throw new Error(`Upload failed: ${errorData.error || 'Unknown error'}`)
+        const { data: uploadResult, error: uploadErr } = await callEdgeFunction('upload-reference', { filename: file.name, content_base64, bucket })
+        if (uploadErr) {
+          throw uploadErr
         }
-        const uploadResult = await uploadResponse.json()
-        const path = uploadResult.path
+        const path = uploadResult?.path
 
         // extração local (rápido, só para contexto)
         let text = ''
@@ -676,6 +732,7 @@ function ChatPage() {
         role: 'assistant',
         content: summary,
         created_at: new Date().toISOString(),
+        message_type: 'analysis_result',
         analysis_id: analysis_id,
         analysisData: result,
       };
@@ -689,7 +746,7 @@ function ChatPage() {
         message_type: 'analysis_result',
       });
 
-      setHadAnalysis(true);
+  // hadAnalysis flag removed - no-op
     } catch (error: any) {
       console.error('[ChatPage] Erro ao processar resposta:', error);
       setErr('Erro ao processar resposta: ' + error.message);
@@ -773,12 +830,13 @@ function ChatPage() {
       const { result, analysis_id } = analysisResponse;
       const summary = result?.summary || 'Análise concluída com dados disponíveis.';
 
-      const assistantMessage: MessageWithAnalysis = {
+        const assistantMessage: MessageWithAnalysis = {
         id: `temp-assistant-${Date.now()}`,
         conversation_id: current.id,
         role: 'assistant',
         content: summary,
         created_at: new Date().toISOString(),
+          message_type: 'analysis_result',
         analysis_id: analysis_id,
         analysisData: result,
       };
@@ -792,7 +850,7 @@ function ChatPage() {
         message_type: 'analysis_result',
       });
 
-      setHadAnalysis(true);
+  // hadAnalysis flag removed - no-op
     } catch (error: any) {
       console.error('[ChatPage] Erro ao pular diálogo:', error);
       setErr('Erro ao analisar: ' + error.message);
@@ -859,6 +917,7 @@ function ChatPage() {
       role: 'user',
       content: text,
       created_at: new Date().toISOString(),
+      message_type: 'text'
     };
     setMessages(prev => [...prev, userMessage]);
 
@@ -886,6 +945,34 @@ function ChatPage() {
         const etapaAtual = consultorData?.etapa_atual;
         const jornadaId = consultorData?.jornada_id;
         const actions = consultorData?.actions || [];
+  // store actions temporarily so UI can render CTAs (e.g., Validar Priorização)
+  setPendingConsultorActions(actions || null);
+
+        // If backend returned jornada_id, fetch its contexto_coleta to use for modal processes
+        if (jornadaId) {
+          try {
+            const { data: jornadaRow } = await supabase.from('jornadas_consultor').select('contexto_coleta').eq('id', jornadaId).single();
+            const ctx = jornadaRow?.contexto_coleta || {};
+            const procs = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || null;
+            setModalProcessos(procs);
+            setModalJornadaId(jornadaId);
+          } catch (e) {
+            console.warn('[ChatPage] falha ao buscar contexto da jornada para modal:', e);
+            setModalProcessos(null);
+          }
+        } else {
+            setModalProcessos(null);
+        }
+
+        // Fallback: tentar detectar ganho de XP com polling seguro
+        try {
+          if (!consultorData?.gamification && current?.id) {
+            // pollGamification atualiza lastKnownXpRef e dispara popup se detectar ganho
+            void pollGamification(4, 600)
+          }
+        } catch (e) {
+          console.warn('[GAMIFICATION] fallback poll erro:', e)
+        }
 
         // Log para debug
         console.log('[CONSULTOR MODE] Resposta recebida:', {
@@ -905,21 +992,7 @@ function ChatPage() {
           formAction = undefined;
         }
 
-        if (formAction && formAction.params?.tipo) {
-          console.log('[FORMULARIO] ✅ Action detectada do backend:', formAction.params.tipo);
-          setFormType(formAction.params.tipo as any);
-          setShowFormModal(true);
-        } else {
-          // FALLBACK: Try to detect marker in text (in case backend didn't process it)
-          const formMarker = detectFormMarker(reply);
-          if (formMarker && formMarker.tipo !== 'matriz_priorizacao') {
-            console.log('[FORMULARIO] ⚠️ Marcador detectado no texto (fallback):', formMarker.tipo);
-            setFormType(formMarker.tipo as any);
-            setShowFormModal(true);
-          } else {
-            console.log('[FORMULARIO] ❌ Nenhum formulário detectado');
-          }
-        }
+        // We'll append the assistant message first, then open any form modal after a short delay
 
         // Remover marcadores da mensagem exibida (APÓS detecção)
         const cleanReply = removeFormMarkers(reply);
@@ -930,10 +1003,36 @@ function ChatPage() {
           role: 'assistant',
           content: cleanReply,
           created_at: new Date().toISOString(),
+          message_type: 'text'
         };
 
         setMessages(prev => [...prev, assistantMessage]);
         setLoading(false);
+
+        // open modal after rendering assistant message so user reads it before the form appears
+        setTimeout(() => {
+          if (formAction && formAction.params?.tipo && formAction.params?.tipo !== 'matriz_priorizacao') {
+            console.log('[FORMULARIO] ✅ Action detectada do backend (post-render):', formAction.params.tipo);
+              setFormType(formAction.params.tipo as any);
+              // If backend included processo param, propagate to modal
+              if (formAction.params?.processo) setFormInitialProcesso(formAction.params.processo);
+              else setFormInitialProcesso(null);
+              setShowFormModal(true);
+            return;
+          }
+
+          const formMarker = detectFormMarker(reply);
+          if (formMarker && formMarker.tipo !== 'matriz_priorizacao') {
+            console.log('[FORMULARIO] ⚠️ Marcador detectado no texto (fallback, post-render):', formMarker.tipo);
+            setFormType(formMarker.tipo as any);
+            setShowFormModal(true);
+          } else {
+            console.log('[FORMULARIO] ❌ Nenhum formulário detectado (post-render)');
+          }
+        }, 120);
+
+  // limpa ações pendentes após alguns segundos (se não usadas)
+  setTimeout(() => setPendingConsultorActions(null), 45_000);
 
       } else if (isAnalyticsMode && hasDataFiles) {
         console.log('[ANALYTICS MODE - NEW] Iniciando fluxo simplificado de análise...');
@@ -1016,6 +1115,7 @@ function ChatPage() {
           created_at: new Date().toISOString(),
           analysis_id: analysis_id,
           analysisData: result,
+          message_type: 'analysis_result'
         };
 
         setMessages(prev => [...prev, assistantMessage]);
@@ -1027,7 +1127,7 @@ function ChatPage() {
           message_type: 'analysis_result',
         });
 
-        setHadAnalysis(true)
+  // hadAnalysis flag removed - no-op
       } else {
         console.log('[PRESENTATION/DEFAULT MODE] Usando chat-assistant...');
         const reference_ids = attachedRefs.map(r => r.id);
@@ -1049,7 +1149,7 @@ function ChatPage() {
           const cleaned = cleanGeneratedHtml(reply)
           rawHtmlRef.current = cleaned
           setGeneratedHtml(cleaned)
-          setCanGenerate(true)
+          // canGenerate removed - rely on generatedHtml state
           setReadyReason('IA devolveu HTML no chat')
           const shortMsg = '📄 **Documento rascunho preparado.** Use **Gerar** para finalizar e **Preview** para visualizar/editar.'
           await supabase.from('messages').insert([{ conversation_id: current.id, role: 'assistant', content: shortMsg, message_type: 'presentation' }])
@@ -1071,6 +1171,7 @@ function ChatPage() {
           role: 'assistant',
           content: reply,
           created_at: new Date().toISOString(),
+          message_type: 'text'
         };
         setMessages(prev => [...prev, assistantMessage]);
         await supabase.from('messages').insert({ conversation_id: current.id, role: 'assistant', content: reply, message_type: 'text' });
@@ -1115,6 +1216,7 @@ function ChatPage() {
         role: 'assistant',
         content: '❌ ' + userFriendlyMessage,
         created_at: new Date().toISOString(),
+        message_type: 'text'
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
@@ -1340,6 +1442,40 @@ function ChatPage() {
             <Eye className="w-4 h-4" />
             <span>Ver documento</span>
           </button>
+        )}
+        {/* CTA para validação enviada pelo backend (ex: SET_VALIDACAO:priorizacao) */}
+        {isLastAssistant && pendingConsultorActions && pendingConsultorActions.some((a:any)=> a.type==='set_validacao') && (
+          <div className="flex items-center gap-2">
+            {pendingConsultorActions.filter((a:any)=> a.type==='set_validacao').map((act:any, idx:number) => (
+              <button
+                key={idx}
+                onClick={async () => {
+                  try {
+                    const tipo = act.params?.tipo || 'priorizacao'
+                    setLoading(true)
+                    const { data, error } = await supabase.functions.invoke('consultor-chat', {
+                      body: { message: `[SET_VALIDACAO:${tipo}]`, conversation_id: current?.id, user_id: user?.id }
+                    })
+                    if (error) throw error
+                    // refresh conversation/jornada state
+                    try {
+                      const { data: convs } = await supabase.from('conversations').select('*').eq('user_id', user?.id).order('updated_at', { ascending: false })
+                      setConversations(convs || [])
+                    } catch (e) {}
+                  } catch (e:any) {
+                    console.error('Erro ao enviar validação:', e)
+                    alert('Falha ao enviar validação: ' + (e?.message || e))
+                  } finally {
+                    setLoading(false)
+                    setPendingConsultorActions(null)
+                  }
+                }}
+                className="px-3 py-2 rounded-xl text-white bg-amber-500 hover:bg-amber-600"
+              >
+                Validar Priorização
+              </button>
+            ))}
+          </div>
         )}
       </div>
     )
@@ -1705,22 +1841,39 @@ function ChatPage() {
       {/* Modal de Formulário Dinâmico */}
       {showFormModal && formType && (
         <FormularioModal
-          tipo={formType}
-          onClose={() => {
+          tipo={formType as any}
+            onClose={() => {
             setShowFormModal(false);
             setFormType(null);
+            setFormInitialProcesso(null);
+            setModalJornadaId(null);
           }}
           onComplete={async (dados) => {
             console.log('[FORMULARIO] Dados coletados:', dados);
             setFormData(dados);
             setShowFormModal(false);
             setFormType(null);
+            setFormInitialProcesso(null);
 
             // Send form data directly to backend via consultor-chat
             if (!current?.id || !user?.id) return;
 
             setLoading(true);
             try {
+              // Persistir uma mensagem de usuário com resumo do formulário para que
+              // o ConversationHistory do backend inclua essa informação
+              try {
+                await supabase.from('messages').insert({
+                  conversation_id: current.id,
+                  role: 'user',
+                  content: `Formulário submetido (${String(formType || 'generico')}): ${JSON.stringify(dados)}`,
+                  user_id: user.id,
+                  message_type: 'form_submission'
+                });
+              } catch (e) {
+                console.warn('[FORMULARIO] falha ao persistir mensagem de form:', e);
+              }
+
               const { data: consultorData, error: consultorError } = await supabase.functions.invoke('consultor-chat', {
                 body: {
                   message: `Formulário ${formType} preenchido`,
@@ -1743,6 +1896,7 @@ function ChatPage() {
                 role: 'user',
                 content: `✅ Formulário ${formType} preenchido`,
                 created_at: new Date().toISOString(),
+                message_type: 'text'
               };
 
               const assistantMessage: Message = {
@@ -1751,16 +1905,22 @@ function ChatPage() {
                 role: 'assistant',
                 content: cleanReply,
                 created_at: new Date().toISOString(),
+                message_type: 'text'
               };
 
               setMessages(prev => [...prev, userMessage, assistantMessage]);
 
+              // Tentar detectar prêmio/XP via polling (caso backend não retorne gamification no response)
+              try { void pollGamification(4, 600) } catch (e) { console.warn('[GAMIFICATION] poll after form erro:', e) }
+
               // Check for new form actions
               const actions = consultorData?.actions || [];
               const formAction = actions.find((a: any) => a.type === 'exibir_formulario' && a.params?.tipo !== 'matriz_priorizacao');
-              if (formAction && formAction.params?.tipo) {
+                if (formAction && formAction.params?.tipo) {
                 console.log('[FORMULARIO] Novo formulário detectado:', formAction.params.tipo);
                 setFormType(formAction.params.tipo as any);
+                if (formAction.params?.processo) setFormInitialProcesso(formAction.params.processo);
+                else setFormInitialProcesso(null);
                 setShowFormModal(true);
               }
             } catch (error: any) {
@@ -1771,6 +1931,15 @@ function ChatPage() {
             }
           }}
           dadosIniciais={formData}
+          processos={modalProcessos || undefined}
+          processoInicial={formInitialProcesso || undefined}
+          // pass ids so the inner form can submit with correct jornada/conversation context
+          // @ts-ignore - permissive prop passing
+          conversationId={current?.id}
+          // @ts-ignore
+          userId={user?.id}
+          // @ts-ignore
+          jornadaId={modalJornadaId}
         />
       )}
 

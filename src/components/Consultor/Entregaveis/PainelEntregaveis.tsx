@@ -1,9 +1,10 @@
 // web/src/components/Consultor/Entregaveis/PainelEntregaveis.tsx
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileText, Download, Eye, Search, X, ExternalLink, Zap, CheckCircle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import type { EntregavelConsultor } from '../../../types/consultor';
 import { uploadHtmlAndOpenPreview } from '../../../lib/storagePreview';
+import { callEdgeFunction } from '../../../lib/functionsClient';
 import { BpmnViewer } from '../BpmnViewer';
 
 interface PainelEntregaveisProps {
@@ -19,7 +20,6 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
   const [showBpmnModal, setShowBpmnModal] = useState(false);
   const [bpmnXml, setBpmnXml] = useState<string>('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [newDeliverableCount, setNewDeliverableCount] = useState(0);
 
   useEffect(() => {
     if (!jornadaId) return;
@@ -43,11 +43,11 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
           table: 'entregaveis_consultor',
           filter: `jornada_id=eq.${jornadaId}`,
         },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setNewDeliverableCount((prev) => prev + 1);
-          }
+        (_payload) => {
+          // recarrega lista local
           void loadEntregaveis();
+          // notifica o componente pai para recalcular badge / jornada (LateralConsultor tem sua própria lógica)
+          try { onRefresh(); } catch (e) { /* ignore */ }
         }
       )
       .subscribe();
@@ -97,8 +97,10 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
       // Marca como visualizado (se existir essa coluna)
       if (!(entregavel as any).visualizado) {
         await supabase.from('entregaveis_consultor').update({ visualizado: true }).eq('id', entregavel.id);
-        setNewDeliverableCount((prev) => Math.max(0, prev - 1));
+        // recarrega lista local e notifica o pai para recalcular badge/jornada
         void loadEntregaveis();
+        try { onRefresh(); } catch (e) { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('entregavel:visualizado', { detail: { entregavelId: entregavel.id, jornadaId } })); } catch (e) {}
       }
     } catch (err: any) {
       console.error('Erro ao visualizar:', err);
@@ -175,19 +177,12 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
     // Se ainda não houver XML, tenta acionar função que o gera e recarrega
     if (!xml || xml.length < 20) {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gerar-bpmn`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session?.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ conversationId: null, docId: entregavel.id }),
-        });
-        if (resp.ok) {
-          // busca novamente o documento para pegar o bpmn_xml
+        // session token not required here because callEdgeFunction will try to get it via supabase client
+        const { error: bpmnErr } = await callEdgeFunction('gerar-bpmn', { conversationId: null, docId: entregavel.id });
+        if (bpmnErr) {
+          console.warn('gerar-bpmn failed:', bpmnErr);
+        } else {
+          // fetch saved doc again
           const { data: recarregado } = await supabase
             .from('entregaveis_consultor')
             .select('*')
@@ -258,19 +253,9 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gerar-plano-acao`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ diagnostico_id: diagnostico.id }),
-      });
-
-      if (!response.ok) throw new Error('Erro ao gerar plano');
+      // session token not required here because callEdgeFunction will try to get it via supabase client
+      const { error: planoErr } = await callEdgeFunction('gerar-plano-acao', { diagnostico_id: diagnostico.id });
+      if (planoErr) throw planoErr;
 
       alert('Plano de Ação gerado com sucesso!');
       void loadEntregaveis();

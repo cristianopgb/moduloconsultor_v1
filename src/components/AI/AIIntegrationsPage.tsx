@@ -277,22 +277,15 @@ export function AIIntegrationsPage() {
 
       const testInput = agent.test_input || 'teste básico'
       
-      // Chamar a Edge Function correspondente
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${agent.function_name}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: testInput,
-          instruction: testInput,
-          text: testInput,
-          user_request: testInput
-        })
-      })
+      // Chamar a Edge Function correspondente via helper
+      const { data: result, error: fnErr } = await (await import('../../lib/functionsClient')).callEdgeFunction(agent.function_name, {
+        message: testInput,
+        instruction: testInput,
+        text: testInput,
+        user_request: testInput
+      });
 
-      const result = await response.json()
+      if (fnErr) throw fnErr;
       
       setTestResults(prev => ({
         ...prev,
