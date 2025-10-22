@@ -584,6 +584,7 @@ class DeliverableGenerator {
       if (!((contexto as any).cadeia_valor) || !((contexto as any).cadeia_valor.processos)) {
         (contexto as any).cadeia_valor = (contexto as any).cadeia_valor || {};
         (contexto as any).cadeia_valor.processos = mapped.map((x:any)=>({ id: x.id, nome: x.nome, impacto: x.impacto, esforco: x.esforco, descricao: x.descricao }));
+        console.log('[DELIVERABLE] injecting processes into contexto for', tipo, 'count:', mapped.length);
       }
     }
 
@@ -604,7 +605,9 @@ class DeliverableGenerator {
   }
 
   buildPromptForType(tipo: string, contexto: any, jornada: any) {
-    const { empresa_nome, responsavel_nome, contexto_coleta } = jornada || {};
+    // Prefer the explicit 'contexto' passed by the caller (may include injected processos)
+    const { empresa_nome, responsavel_nome } = jornada || {};
+    const ctxSource = contexto || (jornada && jornada.contexto_coleta) || {};
     const {
       objetivos,
       dores,
@@ -613,12 +616,12 @@ class DeliverableGenerator {
       desafios,
       metas_estrategicas,
       produtos_servicos
-    } = contexto_coleta || {};
+    } = ctxSource || {};
 
     const empresa = empresa_nome || 'Empresa';
     const responsavel = responsavel_nome || 'Usuário';
     const hoje = new Date().toLocaleDateString('pt-BR');
-    const contextoJson = JSON.stringify(contexto, null, 2);
+    const contextoJson = JSON.stringify(ctxSource || contexto || {}, null, 2);
 
     const prompts: Record<string,string> = {
       anamnese: `Gere um documento HTML (pt-BR) de **Anamnese Empresarial** para ${empresa}.
@@ -995,15 +998,29 @@ async function handleRequest(req: Request) {
       // After processing the form and saving context, re-fetch conversation messages
       // to ensure the LLM prompt builder sees the persisted user message and any DB-driven changes.
       try {
-        const { data: refreshedHistory } = await supabase
+        let { data: refreshedHistory } = await supabase
           .from('messages').select('*')
           .eq('conversation_id', conversation_id)
           .order('created_at', { ascending: true });
+        // retry once if empty (some setups may have eventual consistency/RLS delay)
+        if (!Array.isArray(refreshedHistory) || refreshedHistory.length === 0) {
+          try {
+            await new Promise(res => setTimeout(res, 200));
+            const r = await supabase
+              .from('messages').select('*')
+              .eq('conversation_id', conversation_id)
+              .order('created_at', { ascending: true });
+            refreshedHistory = r.data;
+            console.log('[CONSULTOR-CHAT] retried message reload, messages count:', (refreshedHistory || []).length);
+          } catch (e) {
+            // ignore retry failures
+          }
+        }
         if (Array.isArray(refreshedHistory)) {
           // replace conversationHistory used later for prompt building
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (conversationHistory as any) = refreshedHistory;
-          console.log('[CONSULTOR-CHAT] conversationHistory reloaded after form submission, messages:', (refreshedHistory || []).length);
+          console.log('[CONSULTOR-CHAT] conversationHistory reloaded after form submission, messages:', ((refreshedHistory || []).length));
           try {
             // also append a synthetic assistant acknowledgement so the LLM clearly understands the form was received
             // this is not persisted to DB (only in-memory for prompt building)
@@ -1022,21 +1039,39 @@ async function handleRequest(req: Request) {
       // Persistir processos enviados via formulário de cadeia_valor na tabela específica
       if (form_type === 'cadeia_valor') {
         try {
-          const processosArray = form_data?.processos || null;
+          // Normalize different possible shapes submitted by the frontend into a flat array
+          const normalizeProcesses = (data: any) => {
+            if (!data) return [];
+            if (Array.isArray(data)) return data;
+            if (data.processos && Array.isArray(data.processos)) return data.processos;
+            // If sections were provided as keys, flatten them
+            const out: any[] = [];
+            for (const k of Object.keys(data)) {
+              const v = data[k];
+              if (Array.isArray(v)) out.push(...v);
+              else if (v && typeof v === 'object' && Array.isArray(v.processos)) out.push(...v.processos);
+            }
+            return out;
+          };
+
+          const processosArray = normalizeProcesses(form_data);
           if (Array.isArray(processosArray) && processosArray.length > 0) {
-            // remover processos antigos para esta jornada e inserir novos
             try {
               await supabase.from('cadeia_valor_processos').delete().eq('jornada_id', jornada.id);
             } catch (e) { /* ignore delete errors */ }
-            const toInsert = processosArray.map((p:any) => ({
+            const toInsert = processosArray.map((p: any) => ({
               jornada_id: jornada.id,
-              nome: p.nome || p.process_name || String(p).slice(0,200),
+              nome: p.nome || p.process_name || String(p).slice(0, 200),
               descricao: p.descricao || p.descricao_curta || null,
               impacto: p.impacto ?? (p.impact || null),
               criticidade: p.criticidade ?? p.criticality ?? null,
               esforco: p.esforco ?? p.esforco_estimado ?? null
             }));
-            try { await supabase.from('cadeia_valor_processos').insert(toInsert); } catch (e) { console.warn('[CONSULTOR-CHAT] falha ao inserir processos cadeia_valor:', e); }
+            try {
+              const { data: ins, error: insErr } = await supabase.from('cadeia_valor_processos').insert(toInsert).select('id');
+              if (insErr) console.warn('[CONSULTOR-CHAT] falha ao inserir processos cadeia_valor:', insErr);
+              else console.log('[CONSULTOR-CHAT] inserted cadeia_valor_processos count:', (ins || []).length);
+            } catch (e) { console.warn('[CONSULTOR-CHAT] falha ao inserir processos cadeia_valor (exception):', e); }
           }
         } catch (e) {
           console.warn('[CONSULTOR-CHAT] erro ao persistir cadeia_valor_processos:', e);
