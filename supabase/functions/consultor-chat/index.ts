@@ -721,7 +721,10 @@ Deno.serve(async (req: Request) => {
   if (isFormSubmission && form_data) {
       console.log('[CONSULTOR-CHAT] Form submission detected, updating context...');
       const currentContext = jornada.contexto_coleta || {};
-      const updatedContext = { ...currentContext, ...form_data };
+      
+      // Store form data under the specific form type key (like consolidated version)
+      const formKey = String(form_type || 'generico');
+      const updatedContext = { ...currentContext, [formKey]: form_data };
 
       await supabase
         .from('jornadas_consultor')
@@ -738,13 +741,29 @@ Deno.serve(async (req: Request) => {
 
       const frameworkGuide = new FrameworkGuide(supabase);
       
-      // Detect form type and mark appropriate events
+      // Detect form type and mark appropriate events, also update phase
       if (form_type === 'anamnese' || form_data.nome_empresa || form_data.nome_usuario || form_data.empresa_nome) {
         await frameworkGuide.markEvent(conversation_id, 'anamnese_preenchida');
+        // Update phase to anamnese with validation pending
+        await supabase
+          .from('jornadas_consultor')
+          .update({ etapa_atual: 'anamnese', aguardando_validacao: 'anamnese' })
+          .eq('id', jornada.id);
       } else if (form_type === 'canvas' || form_data.parcerias_chave || form_data.segmentos_clientes) {
         await frameworkGuide.markEvent(conversation_id, 'canvas_preenchido');
+        // Keep in modelagem, clear validation
+        await supabase
+          .from('jornadas_consultor')
+          .update({ etapa_atual: 'modelagem', aguardando_validacao: null })
+          .eq('id', jornada.id);
       } else if (form_type === 'cadeia_valor' || form_data.atividades_primarias || form_data.atividades_suporte || (form_data.processos && Array.isArray(form_data.processos))) {
         await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_preenchida');
+        
+        // Update to modelagem phase
+        await supabase
+          .from('jornadas_consultor')
+          .update({ etapa_atual: 'modelagem', aguardando_validacao: null })
+          .eq('id', jornada.id);
         
         // Save processes from cadeia_valor to the database
         if (form_data.processos && Array.isArray(form_data.processos) && form_data.processos.length > 0) {
@@ -770,7 +789,26 @@ Deno.serve(async (req: Request) => {
         }
       } else if (form_type === 'matriz_priorizacao' || (form_data.processos && Array.isArray(form_data.processos) && !form_type)) {
         await frameworkGuide.markEvent(conversation_id, 'matriz_preenchida');
+        // Update to priorizacao phase
+        await supabase
+          .from('jornadas_consultor')
+          .update({ etapa_atual: 'priorizacao', aguardando_validacao: 'priorizacao' })
+          .eq('id', jornada.id);
+      } else if (form_type === 'atributos_processo') {
+        // Update to execucao phase
+        await supabase
+          .from('jornadas_consultor')
+          .update({ etapa_atual: 'execucao', aguardando_validacao: null })
+          .eq('id', jornada.id);
       }
+      
+      // Refresh jornada after phase update
+      const { data: jornadaRefreshed } = await supabase
+        .from('jornadas_consultor')
+        .select('*')
+        .eq('id', jornada.id)
+        .single();
+      if (jornadaRefreshed) jornada = jornadaRefreshed;
 
       const markerProcessor = new MarkerProcessor(supabase);
       try {
