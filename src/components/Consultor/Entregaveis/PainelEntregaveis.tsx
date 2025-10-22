@@ -1,5 +1,5 @@
 // web/src/components/Consultor/Entregaveis/PainelEntregaveis.tsx
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileText, Download, Eye, Search, X, ExternalLink, Zap, CheckCircle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import type { EntregavelConsultor } from '../../../types/consultor';
@@ -19,7 +19,6 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
   const [showBpmnModal, setShowBpmnModal] = useState(false);
   const [bpmnXml, setBpmnXml] = useState<string>('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [newDeliverableCount, setNewDeliverableCount] = useState(0);
 
   useEffect(() => {
     if (!jornadaId) return;
@@ -43,11 +42,11 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
           table: 'entregaveis_consultor',
           filter: `jornada_id=eq.${jornadaId}`,
         },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setNewDeliverableCount((prev) => prev + 1);
-          }
+        (_payload) => {
+          // recarrega lista local
           void loadEntregaveis();
+          // notifica o componente pai para recalcular badge / jornada (LateralConsultor tem sua própria lógica)
+          try { onRefresh(); } catch (e) { /* ignore */ }
         }
       )
       .subscribe();
@@ -97,8 +96,10 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
       // Marca como visualizado (se existir essa coluna)
       if (!(entregavel as any).visualizado) {
         await supabase.from('entregaveis_consultor').update({ visualizado: true }).eq('id', entregavel.id);
-        setNewDeliverableCount((prev) => Math.max(0, prev - 1));
+        // recarrega lista local e notifica o pai para recalcular badge/jornada
         void loadEntregaveis();
+        try { onRefresh(); } catch (e) { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('entregavel:visualizado', { detail: { entregavelId: entregavel.id, jornadaId } })); } catch (e) {}
       }
     } catch (err: any) {
       console.error('Erro ao visualizar:', err);

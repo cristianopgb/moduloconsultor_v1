@@ -1,5 +1,5 @@
 // web/src/components/Consultor/Gamificacao/XPCelebrationPopup.tsx
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trophy, Star, Zap, TrendingUp, Sparkles } from 'lucide-react';
 import { XP_POR_NIVEL } from '../../../lib/consultor/constants';
 
@@ -36,8 +36,8 @@ export function XPCelebrationPopup({ xpGanho, xpTotal, nivel, motivo, onClose }:
     }));
     setConfetti(confettiArray);
 
-    // Auto-close após 4s
-    const timer = setTimeout(onClose, 4000);
+  // Auto-close após 12s (mais tempo para o usuário ver) e garantir que o card não ocupe toda a altura
+  const timer = setTimeout(onClose, 12000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
@@ -60,7 +60,7 @@ export function XPCelebrationPopup({ xpGanho, xpTotal, nivel, motivo, onClose }:
 
       {/* Card Principal */}
       <div className="relative bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 p-1 rounded-2xl shadow-2xl animate-scaleIn max-w-md w-full mx-4">
-        <div className="bg-gray-900 rounded-2xl p-8 text-center relative overflow-hidden">
+        <div className="bg-gray-900 rounded-2xl p-6 text-center relative overflow-hidden max-h-[70vh] w-full overflow-y-auto">
           {/* brilho de fundo */}
           <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-pink-500/20 animate-pulse" />
 

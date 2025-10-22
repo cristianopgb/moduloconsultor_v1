@@ -1,4 +1,6 @@
-import { createClient } from 'npm:@supabase/supabase-js@2';
+// Use CDN-built ESM to avoid tslib require errors when running in the Edge runtime
+// Use an ESM build compatible with Deno to avoid runtime resolution issues (tslib)
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno'
 import { IntelligentPromptBuilder } from './intelligent-prompt-builder.ts';
 import { MarkerProcessor } from './marker-processor.ts';
 import { DeliverableGenerator } from './deliverable-generator.ts';
@@ -69,7 +71,7 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { message, conversation_id, user_id, form_data } = await req.json();
+  const { message, conversation_id, user_id, form_data, form_type } = await req.json();
 
     if (!message || !conversation_id || !user_id) {
       return new Response(JSON.stringify({ error: 'Parâmetros obrigatórios ausentes' }), {
@@ -127,7 +129,8 @@ Deno.serve(async (req: Request) => {
       jornada = newJornada;
     }
 
-    if (isFormSubmission && form_data) {
+  let preAwardResult = null;
+  if (isFormSubmission && form_data) {
       console.log('[CONSULTOR-CHAT] Form submission detected, updating context...');
       const currentContext = jornada.contexto_coleta || {};
       const updatedContext = { ...currentContext, ...form_data };
@@ -157,7 +160,29 @@ Deno.serve(async (req: Request) => {
       }
 
       const markerProcessor = new MarkerProcessor(supabase);
-      await markerProcessor.autoAwardXP(conversation_id, 'formulario_preenchido');
+      try {
+        // tentar premiar XP e capturar resultado para retornar ao frontend
+        // algumas implementações retornam objeto, outras apenas executam RPCs
+        // guardamos o retorno se houver
+        // @ts-ignore
+        preAwardResult = await markerProcessor.autoAwardXP(conversation_id, 'formulario_preenchido');
+      } catch (e) {
+        console.warn('[CONSULTOR-CHAT] preAward XP failed:', e);
+      }
+
+      // Ensure the LLM sees the submitted form data: append a synthetic user message
+      try {
+        const formSummary = `Formulário submetido (${String(form_type || 'generico')}): ${JSON.stringify(form_data)}`;
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (conversationHistory as any) = [];
+        }
+        // push summary so the prompt builder includes it
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (conversationHistory as any).push({ role: 'user', content: formSummary });
+      } catch (e) {
+        // ignore if summarization fails
+      }
     }
 
     const { data: gamification } = await supabase
@@ -180,16 +205,59 @@ Deno.serve(async (req: Request) => {
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
 
+    // Heuristic fallback: if LLM promises to open a form but markers are missing, infer actions
+    if ((!actions || actions.length === 0) && /abrir o formulário|vou abrir o formulário|vou abrir o form/i.test(llmResponse)) {
+      const inferred: any[] = [];
+      if (/anamnese/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'anamnese' } });
+      if (/canvas/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'canvas' } });
+      if (/cadeia/i.test(llmResponse) || /cadeia de valor/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' } });
+      if (/matriz/i.test(llmResponse) || /prioriza/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'matriz_priorizacao' } });
+      if (inferred.length > 0) {
+        console.log('[CONSULTOR-CHAT] Inferred actions from LLM text:', inferred.map(i=>i.params.tipo));
+        actions.push(...inferred);
+      }
+    }
+
     console.log('[CONSULTOR-CHAT] Detected actions:', actions.map(a => a.type));
 
+    // Filter out forms already filled and apply heuristics similar to consolidated handler
+    const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
+    const filteredActions = actions.filter((a: any) => {
+      if (a.type !== 'exibir_formulario') return true;
+      const tipo = String(a.params?.tipo || '');
+      return !isFormAlreadyFilled(tipo, ctxNow);
+    });
+
+    // Convert matriz form into deliverable if needed
+    for (const a of actions) {
+      if (a.type === 'exibir_formulario' && (a.params?.tipo === 'matriz_priorizacao' || a.params?.tipo === 'matriz-priorizacao')) {
+        filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'matriz_priorizacao' } });
+      }
+    }
+
+    // If we already have cadeia_valor + anamnese/canvas, auto-generate matriz and escopo
+    const hasCadeia = !!(ctxNow && (ctxNow.cadeia_valor || ctxNow.cadeia));
+    const hasCanvasOrAnamnese = !!(ctxNow && (ctxNow.canvas || ctxNow.anamnese || ctxNow.empresa));
+    if ((jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento') && hasCadeia && hasCanvasOrAnamnese) {
+      if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='matriz_priorizacao')) {
+        filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'matriz_priorizacao' } });
+      }
+      if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='escopo_projeto')) {
+        filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'escopo_projeto' } });
+      }
+      if (!filteredActions.some((a:any)=> a.type==='set_validacao' && a.params?.tipo==='modelagem')) {
+        filteredActions.push({ type: 'set_validacao', params: { tipo: 'modelagem' } });
+      }
+    }
+
     const { updates, gamificationResult } = await markerProcessor.executeActions(
-      actions,
+      filteredActions,
       jornada,
       conversation_id,
       user_id
     );
 
-    const formActions = actions.filter(a => a.type === 'exibir_formulario');
+    const formActions = filteredActions.filter(a => a.type === 'exibir_formulario');
     for (const formAction of formActions) {
       const tipo = formAction.params.tipo;
       if (tipo === 'anamnese') {
@@ -256,7 +324,8 @@ Deno.serve(async (req: Request) => {
       jornada_id: jornada.id,
       etapa_atual: jornada.etapa_atual,
       actions: actions.map(a => ({ type: a.type, params: a.params })),
-      gamification: gamificationResult
+      // preferir retorno do prêmio feito no handling do formulário, se disponível
+      gamification: preAwardResult ?? gamificationResult ?? null
     };
 
     console.log('[CONSULTOR-CHAT] Request completed successfully');

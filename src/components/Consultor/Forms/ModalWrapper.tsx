@@ -21,7 +21,9 @@ export default function ModalWrapper({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative w-full ${maxWidthClass} mx-4 bg-gray-900 border border-gray-700 rounded-2xl shadow-xl`}>
+      <div className={`relative w-full ${maxWidthClass} mx-4 bg-gray-900 border border-gray-700 rounded-2xl shadow-xl`}
+        style={{ maxHeight: '90vh' }}
+      >
         <div className="px-5 py-4 border-b border-gray-700 flex items-center justify-between">
           <h3 className="text-sm font-medium text-white">{title}</h3>
           <button
@@ -32,7 +34,7 @@ export default function ModalWrapper({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-5 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 80px)' }}>{children}</div>
       </div>
     </div>
   );

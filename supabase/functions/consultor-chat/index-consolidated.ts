@@ -3,7 +3,17 @@
 // Mantém sua arquitetura original com IntelligentPromptBuilder e MarkerProcessor,
 // adicionando fallbacks e cálculo de matriz baseado nos processos mapeados.
 
-import { createClient } from 'npm:@supabase/supabase-js@2';
+// Use an ESM build compatible with Deno to avoid runtime resolution issues (tslib) in the Edge environment
+// esm.sh bundles a Deno-friendly version of the package
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno'
+
+interface ChatRequest {
+  message: string;
+  conversation_id: string;
+  user_id: string;
+  form_data?: any;
+  form_type?: string;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -56,6 +66,7 @@ CRITICAL RULES:
 - You use markers to trigger actions but remove them from displayed text
 - NEVER suggest hiring an external consultant; YOU are the consultant and must provide concrete, executable guidance
 - NEVER output vague actions (e.g., "treinar equipe", "criar indicadores", "implementar software") without specifics (quem/como/quando/ferramenta/indicador)
+- NEVER request the user to fill a form for 'matriz_priorizacao' or 'escopo_projeto'. These MUST be generated automatically by you when the modelagem data exists. If you would normally ask for a priorizacao form, instead generate the deliverables and ask the user to REVIEW and VALIDATE them.
 ${hasIntroduced ? '- You NEVER repeat your introduction - the client already knows who you are' : ''}
 
 STYLE RULES:
@@ -138,15 +149,16 @@ Depois, sinalize validação: [SET_VALIDACAO:modelagem]`;
     if (currentPhase === 'priorizacao') {
       if (aguardandoValidacao === 'priorizacao') {
         return `# CURRENT PHASE: PRIORIZAÇÃO - AGUARDANDO VALIDAÇÃO
-- Explique por que os **PROCESSOS** (não problemas) foram priorizados
-- Confirme processo #1 para iniciar Execução
-- **CTA**: ao concordar, avance: [AVANCAR_FASE:execucao]`;
+- Analise a matriz gerada com os processos priorizados
+- Confirme se concorda com a ordem de prioridade sugerida
+- Se ajustes forem necessários, podemos revisar
+- **CTA**: Para validar e avançar, use: [AVANCAR_FASE:execucao]`;
       }
       return `# CURRENT PHASE: PRIORIZAÇÃO
-- Liste processos (derivados da Cadeia de Valor) e pontue Impacto x Esforço
-- Gere **dois** entregáveis:
+- Analisando a cadeia de valor para priorizar processos
+- Gerando os entregáveis de priorização:
   [GERAR_ENTREGAVEL:matriz_priorizacao] e [GERAR_ENTREGAVEL:escopo_projeto]
-- Sinalize validação: [SET_VALIDACAO:priorizacao]`;
+- Em seguida aguardarei sua validação: [SET_VALIDACAO:priorizacao]`;
     }
     if (currentPhase === 'execucao') {
       if (aguardandoValidacao === 'bpmn') {
@@ -318,15 +330,43 @@ class MarkerProcessor {
 
   async executeActions(actions: any[], jornada: any, userId: string, conversationId: string) {
     const updates: any = {};
+    const postActions: any[] = [];
     let gamificationResult: any = null;
 
     for (const action of actions){
       switch(action.type){
         case 'set_validacao': {
-          updates.aguardando_validacao = action.params.tipo;
-          await this.supabase.from('jornadas_consultor')
-            .update({ aguardando_validacao: action.params.tipo })
-            .eq('id', jornada.id);
+          const tipo = action.params.tipo;
+          // If user validated priorizacao, advance to execucao
+          if (tipo === 'priorizacao' && jornada.aguardando_validacao === 'priorizacao') {
+            updates.etapa_atual = 'execucao';
+            updates.aguardando_validacao = null;
+            await this.supabase.from('jornadas_consultor')
+              .update({ etapa_atual: 'execucao', aguardando_validacao: null })
+              .eq('id', jornada.id);
+            await this.addTimelineEvent(jornada.id, `Fase avançada para: execucao`, 'execucao');
+            gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase execucao iniciada`, userId, conversationId);
+            await this.ensureAreasFromScope(jornada.id);
+            // enqueue atributos_processo after advancing
+            // Try to include the prioritized process info (from matriz_priorizacao) so frontend can pre-fill the form
+            try {
+              const ctx = jornada.contexto_coleta || {};
+              const processos = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || ctx?.escopo?.processos || [];
+              if (Array.isArray(processos) && processos.length > 0) {
+                const primeiro = processos[0];
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } });
+              } else {
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+              }
+            } catch (e) {
+              postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+            }
+          } else {
+            updates.aguardando_validacao = tipo;
+            await this.supabase.from('jornadas_consultor')
+              .update({ aguardando_validacao: tipo })
+              .eq('id', jornada.id);
+          }
           break;
         }
         case 'avancar_fase': {
@@ -339,6 +379,19 @@ class MarkerProcessor {
           gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase ${action.params.fase} iniciada`, userId, conversationId);
           if (action.params.fase === 'execucao') {
             await this.ensureAreasFromScope(jornada.id);
+            // ensure we ask for atributos_processo once execution starts
+            try {
+              const ctx = jornada.contexto_coleta || {};
+              const processos = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || ctx?.escopo?.processos || [];
+              if (Array.isArray(processos) && processos.length > 0) {
+                const primeiro = processos[0];
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } });
+              } else {
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+              }
+            } catch (e) {
+              postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+            }
           }
           break;
         }
@@ -356,7 +409,7 @@ class MarkerProcessor {
         }
       }
     }
-    return { updates, gamificationResult };
+    return { updates, gamificationResult, postActions };
   }
 
   async ensureAreasFromScope(jornadaId: string) {
@@ -393,6 +446,19 @@ class MarkerProcessor {
   // tenta usar RPC por jornada; fallback por conversa (compat)
   async awardXPByJornada(jornadaId: string, xp: number, conquista: string, userId?: string, conversationId?: string) {
     try {
+      // If we don't have a userId, avoid calling the jornada-level RPC which requires user_id
+      if (!userId) {
+        console.warn('[MARKER] userId missing; using conversation-level XP RPC');
+        if (!conversationId) return null;
+        const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
+          p_conversation_id: conversationId,
+          p_xp_amount: xp,
+          p_conquista_nome: conquista
+        });
+        if (e2) { console.error('[MARKER] XP RPC failed (conversation fallback):', e2); return null; }
+        return d2;
+      }
+
       let { data, error } = await this.supabase.rpc('add_xp_to_jornada', {
         p_jornada_id: jornadaId,
         p_xp_amount: xp,
@@ -400,14 +466,14 @@ class MarkerProcessor {
         p_user_id: userId
       });
       if (error) {
-        console.warn('[MARKER] add_xp_to_jornada not available, trying add_xp_to_conversation...', error);
+        console.warn('[MARKER] add_xp_to_jornada failed, trying add_xp_to_conversation...', error);
         if (!conversationId) return null;
         const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
           p_conversation_id: conversationId,
           p_xp_amount: xp,
           p_conquista_nome: conquista
         });
-        if (e2) { console.error('[MARKER] XP RPC failed:', e2); return null; }
+        if (e2) { console.error('[MARKER] XP RPC failed (fallback):', e2); return null; }
         return d2;
       }
       return data;
@@ -486,20 +552,68 @@ class DeliverableGenerator {
   }
 
   buildPromptForType(tipo: string, contexto: any, jornada: any) {
-    const contextoJson = JSON.stringify(contexto, null, 2);
-    const empresa = jornada?.empresa_nome || 'Empresa';
-    const responsavel = jornada?.responsavel_nome || 'Usuário';
+    const { empresa_nome, responsavel_nome, contexto_coleta } = jornada || {};
+    const {
+      objetivos,
+      dores,
+      processos,
+      areas_impactadas,
+      desafios,
+      metas_estrategicas,
+      produtos_servicos
+    } = contexto_coleta || {};
+
+    const empresa = empresa_nome || 'Empresa';
+    const responsavel = responsavel_nome || 'Usuário';
     const hoje = new Date().toLocaleDateString('pt-BR');
+    const contextoJson = JSON.stringify(contexto, null, 2);
 
     const prompts: Record<string,string> = {
-      anamnese: `Gere um documento HTML (pt-BR) de **Anamnese Empresarial**.
+      anamnese: `Gere um documento HTML (pt-BR) de **Anamnese Empresarial** para ${empresa}.
 
-Dados:
-${contextoJson}
+Use os dados coletados:
+Objetivos: ${objetivos || 'N/A'}
+Dores: ${dores || 'N/A'}
+Desafios: ${desafios || 'N/A'}
+Metas Estratégicas: ${metas_estrategicas || 'N/A'}
 
 Seções: Perfil da Empresa, Situação Atual, Principais Desafios, Metas Estratégicas, Insights.
 HTML limpo com CSS embutido minimalista e padronizado. Retorne APENAS HTML.`,
-      canvas: `Gere um **Business Model Canvas** (pt-BR) em HTML com 9 blocos.
+
+    /* matriz_priorizacao (version consolidated later in file) removed to avoid duplicate keys */
+
+      escopo_projeto: `Gere um **Documento de Escopo** (pt-BR) para ${empresa}.
+Use os dados reais coletados (incluindo entregáveis já gerados e a Matriz de Priorização):
+
+Objetivos: ${objetivos || 'N/A'}
+Dores: ${dores || 'N/A'}
+Processos mapeados/identificados: ${processos || 'N/A'}
+Matriz de Priorização (se disponível no contexto): inclua os 3 primeiros processos priorizados com justificativa clara
+Áreas Impactadas: ${areas_impactadas || 'N/A'}
+
+Requisitos:
+- Não gere um texto genérico. Use os entregáveis já gerados (Anamnese, Canvas, Cadeia de Valor, Matriz de Priorização) como fonte primária.
+- Liste explicitamente quais processos serão trabalhados durante a fase de execução (use a ordem da Matriz de Priorização).
+- Para cada processo priorizado inclua: identificação do processo, razão da priorização (impacto/esforço), escopo do trabalho (o que será coberto na execução), áreas envolvidas, entregáveis esperados e critérios de aceite.
+
+Inclua seções:
+1. Objetivo (alinhado aos objetivos informados)
+2. Justificativa (baseada nas dores reais e na Matriz de Priorização)
+3. Processos Priorizados (liste e detalhe pelo menos os 3 primeiros)
+  - Descrição detalhada
+  - Áreas envolvidas (use as áreas informadas)
+  - Resultados esperados e entregáveis por processo
+4. Premissas e Restrições
+5. Entregas Principais e Critérios de Aceite
+
+HTML limpo com CSS embutido minimalista e padronizado. Retorne APENAS HTML.`,
+
+      canvas: `Gere um **Business Model Canvas** (pt-BR) em HTML para ${empresa}.
+
+Use os dados reais:
+Produtos/Serviços: ${produtos_servicos || 'N/A'}
+Desafios: ${desafios || 'N/A'}
+Metas: ${metas_estrategicas || 'N/A'}
 
 Dados:
 ${contextoJson}
@@ -511,28 +625,24 @@ Dados:
 ${contextoJson}
 
 Indique onde valor é criado/perdido. Visual padronizado. Retorne APENAS HTML.`,
-      matriz_priorizacao: `Gere uma **Matriz de Priorização (Impacto x Esforço)** em HTML (pt-BR) para **PROCESSOS mapeados** (não problemas).
-Use os processos em "__processos_mapeados" do JSON abaixo. Se algum campo (impacto/criticidade/esforço) estiver ausente, assuma 1.
-Produza tabela ordenada por prioridade (maior impacto*criticidade / esforço) e destaque "Prioridade 1".
+      matriz_priorizacao: `Gere uma **Matriz de Priorização (Impacto x Esforço)** em HTML (pt-BR) para os **PROCESSOS mapeados** na cadeia de valor.
 
-Dados:
+Use dados reais do contexto:
 ${contextoJson}
 
-Visual padronizado. Retorne APENAS HTML.`,
-      escopo_projeto: `Gere o documento HTML (pt-BR) **Escopo do Projeto**.
+1. Analise cada processo considerando:
+   - Impacto (1-5): alinhamento objetivos, redução dores, benefícios
+   - Esforço (1-5): complexidade, recursos, dependências
+2. Gere tabela com:
+   - Nome do Processo
+   - Impacto (1-5)
+   - Esforço (1-5) 
+   - Score Final (Impacto/Esforço)
+   - Justificativa baseada no contexto
+3. Ordene por Score
+4. Adicione <pre><code>scores_json</code></pre> com a lista ordenada
 
-Cabeçalho:
-- **Título:** Escopo do Projeto
-- **Empresa:** ${empresa}
-- **Responsável:** ${responsavel}
-- **Data:** ${hoje}
-
-Use os **processos mapeados** em "__processos_mapeados" do JSON abaixo. Liste processos com breve descrição e **ordem** sugerida por prioridade.
-
-Dados:
-${contextoJson}
-
-Visual profissional. Retorne APENAS HTML.`,
+Visual limpo. Retorne apenas o HTML.`,
       processo_as_is: `Gere um HTML de apoio descrevendo o **AS-IS do processo** (pt-BR), com passos e atores.
 
 Dados:
@@ -592,7 +702,29 @@ Visual padronizado. Retorne APENAS HTML.`
     if (!isPreCodeOnly && !/^<!DOCTYPE|^<html/i.test(html)) {
       html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Documento</title></head><body>${html}</body></html>`;
     }
+    try {
+      // Replace explicit scores_json blocks (quando a LLM inclui um bloco de código JSON) por um details colapsável
+      html = html.replace(/<pre>\s*<code>\s*scores_json\s*([\s\S]*?)<\/code>\s*<\/pre>/i, (_m, jsonBlock) => {
+        const cleaned = String(jsonBlock || '').trim();
+        // attempt to pretty-print if it's valid JSON
+        let pretty = cleaned;
+        try { pretty = JSON.stringify(JSON.parse(cleaned), null, 2); } catch (e) { /* keep as-is */ }
+        return `<details style="background:#0b1220;padding:10px;border-radius:6px;color:#e6eef8"><summary style="cursor:pointer;font-weight:600;padding:4px 0">Detalhes dos scores (JSON) — ver apenas se quiser o relatório técnico</summary><pre style="white-space:pre-wrap;overflow:auto;margin-top:8px;color:#d1e7ff">${this.escapeHtml(pretty)}</pre></details>`;
+      });
+    } catch (e) {
+      // ignore post-processing errors
+    }
     return html;
+  }
+
+  // small helper to escape HTML for inclusion in pre blocks
+  escapeHtml(s: string) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   async saveDeliverable(jornadaId: string, tipo: string, nome: string, html: string, etapaOrigem: string, areaId?: string) {
@@ -669,8 +801,10 @@ function isFormAlreadyFilled(tipo: string, ctx: any) {
          (tipo === 'atributos_processo' && c.atributos_processo);
 }
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
+async function handleRequest(req: Request) {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -678,7 +812,8 @@ Deno.serve(async (req) => {
     const openaiKey = Deno.env.get('OPENAI_API_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey, { global: { fetch } });
 
-    const { message, conversation_id, user_id, form_data, form_type } = await req.json();
+    const { message, conversation_id, user_id, form_data, form_type } = await req.json() as ChatRequest;
+    
 
     if (!message || !conversation_id || !user_id) {
       return new Response(JSON.stringify({ error: 'Parâmetros obrigatórios ausentes' }), {
@@ -733,7 +868,8 @@ Deno.serve(async (req) => {
     }
 
     // Persistência de formulário
-    if (isFormSubmission && form_data) {
+  let preAwardResult = null;
+  if (isFormSubmission && form_data) {
       const currentContext = jornada.contexto_coleta || {};
       const updatedContext = { ...currentContext, [String(form_type || 'generico')]: form_data };
 
@@ -769,12 +905,95 @@ Deno.serve(async (req) => {
 
       // Gamificação (evento formulário)
       const markerProcessorForForm = new MarkerProcessor(supabase);
-      await markerProcessorForForm.autoAwardXPByEvent(jornada.id, user_id, 'formulario_preenchido', conversation_id);
+      try {
+        // tentar premiar XP e capturar resultado para retorno
+        // usar o método que já existe e pode retornar dados
+        // @ts-ignore
+        preAwardResult = await markerProcessorForForm.autoAwardXPByEvent(jornada.id, user_id, 'formulario_preenchido', conversation_id);
+      } catch (e) {
+        console.warn('[CONSULTOR-CHAT] preAward XP failed:', e);
+      }
+
+      // Ensure the LLM sees the submitted form data: append a synthetic user message
+      try {
+        const formSummary = `Formulário submetido (${String(form_type || 'generico')}): ${JSON.stringify(form_data)}`;
+        if (!conversationHistory || !Array.isArray(conversationHistory)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (conversationHistory as any) = [];
+        }
+        // push summary so the prompt builder includes it
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (conversationHistory as any).push({ role: 'user', content: formSummary });
+      } catch (e) {
+        // ignore if summarization fails
+      }
 
       // Se escopo existir, criar áreas
       const ctx = updatedContext;
+      // Persistir processos enviados via formulário de cadeia_valor na tabela específica
+      if (form_type === 'cadeia_valor') {
+        try {
+          const processosArray = form_data?.processos || null;
+          if (Array.isArray(processosArray) && processosArray.length > 0) {
+            // remover processos antigos para esta jornada e inserir novos
+            try {
+              await supabase.from('cadeia_valor_processos').delete().eq('jornada_id', jornada.id);
+            } catch (e) { /* ignore delete errors */ }
+            const toInsert = processosArray.map((p:any) => ({
+              jornada_id: jornada.id,
+              nome: p.nome || p.process_name || String(p).slice(0,200),
+              descricao: p.descricao || p.descricao_curta || null,
+              impacto: p.impacto ?? (p.impact || null),
+              criticidade: p.criticidade ?? p.criticality ?? null,
+              esforco: p.esforco ?? p.esforco_estimado ?? null
+            }));
+            try { await supabase.from('cadeia_valor_processos').insert(toInsert); } catch (e) { console.warn('[CONSULTOR-CHAT] falha ao inserir processos cadeia_valor:', e); }
+          }
+        } catch (e) {
+          console.warn('[CONSULTOR-CHAT] erro ao persistir cadeia_valor_processos:', e);
+        }
+      }
       if (ctx?.escopo?.processos || ctx?.escopo_projeto?.processos || ctx?.priorizacao?.processos) {
         await markerProcessorForForm.ensureAreasFromScope(jornada.id);
+      }
+
+      // If we have collected canvas/anamnese/cadeia_valor in contexto_coleta but the corresponding
+      // entregaveis aren't present, auto-generate them so the flow can continue to priorizacao.
+      try {
+        const hasAnamneseData = !!(ctx && (ctx.anamnese || ctx.empresa));
+        const hasCanvasData = !!(ctx && ctx.canvas);
+        const hasCadeiaData = !!(ctx && (ctx.cadeia_valor || ctx.cadeia));
+
+        if ((hasAnamneseData || hasCanvasData || hasCadeiaData)) {
+          const deliverableGenerator = new DeliverableGenerator(supabase, openaiKey);
+          // check existing entregaveis
+          const { data: existing } = await supabase.from('entregaveis_consultor').select('tipo').eq('jornada_id', jornada.id);
+          const tiposExistentes = new Set((existing || []).map((e:any)=> e.tipo));
+
+          if (hasAnamneseData && !tiposExistentes.has('anamnese')) {
+            try {
+              const { html, nome } = await deliverableGenerator.generateDeliverable('anamnese', jornada);
+              await deliverableGenerator.saveDeliverable(jornada.id, 'anamnese', nome, html, jornada.etapa_atual);
+              await markerProcessorForForm.autoAwardXPByEvent(jornada.id, user_id, 'entregavel_gerado', conversation_id);
+            } catch (e) { console.warn('[CONSULTOR-CHAT] falha ao gerar anamnese automaticamente:', e); }
+          }
+          if (hasCanvasData && !tiposExistentes.has('canvas')) {
+            try {
+              const { html, nome } = await deliverableGenerator.generateDeliverable('canvas', jornada);
+              await deliverableGenerator.saveDeliverable(jornada.id, 'canvas', nome, html, jornada.etapa_atual);
+              await markerProcessorForForm.autoAwardXPByEvent(jornada.id, user_id, 'entregavel_gerado', conversation_id);
+            } catch (e) { console.warn('[CONSULTOR-CHAT] falha ao gerar canvas automaticamente:', e); }
+          }
+          if (hasCadeiaData && !tiposExistentes.has('cadeia_valor')) {
+            try {
+              const { html, nome } = await deliverableGenerator.generateDeliverable('cadeia_valor', jornada);
+              await deliverableGenerator.saveDeliverable(jornada.id, 'cadeia_valor', nome, html, jornada.etapa_atual);
+              await markerProcessorForForm.autoAwardXPByEvent(jornada.id, user_id, 'entregavel_gerado', conversation_id);
+            } catch (e) { console.warn('[CONSULTOR-CHAT] falha ao gerar cadeia_valor automaticamente:', e); }
+          }
+        }
+      } catch (e) {
+        console.warn('[CONSULTOR-CHAT] Erro ao auto-gerar entregaveis após form submission:', e);
       }
     }
 
@@ -784,6 +1003,38 @@ Deno.serve(async (req) => {
       .select('*')
       .eq('conversation_id', conversation_id)
       .maybeSingle();
+
+    // If user message contains direct markers (user clicked a button), handle them immediately
+    const userMarkerActions: any[] = [];
+    const formRegex = /\[EXIBIR_FORMULARIO:(\w+)\]/g;
+    const deliverableRegex = /\[GERAR_ENTREGAVEL:([\w-]+)\]/g;
+    const validationRegex = /\[SET_VALIDACAO:(\w+)\]/g;
+    const phaseRegex = /\[AVANCAR_FASE:(\w+)\]/g;
+    const gamificationRegex = /\[GAMIFICACAO:([^:]+):(\d+)\]/g;
+    let m: RegExpExecArray | null;
+    while((m = formRegex.exec(message)) !== null) userMarkerActions.push({ type: 'exibir_formulario', params: { tipo: m[1] } });
+    while((m = deliverableRegex.exec(message)) !== null) userMarkerActions.push({ type: 'gerar_entregavel', params: { tipo: m[1] } });
+    while((m = validationRegex.exec(message)) !== null) userMarkerActions.push({ type: 'set_validacao', params: { tipo: m[1] } });
+    while((m = phaseRegex.exec(message)) !== null) userMarkerActions.push({ type: 'avancar_fase', params: { fase: m[1] } });
+    while((m = gamificationRegex.exec(message)) !== null) userMarkerActions.push({ type: 'gamificacao', params: { evento: m[1], xp: Number(m[2]) } });
+
+    if (userMarkerActions.length > 0) {
+      // execute immediately and return current state (no LLM call)
+      const { updates: ua, gamificationResult: ugr, postActions: up } = await new MarkerProcessor(supabase).executeActions(userMarkerActions, jornada, user_id, conversation_id) as any;
+      // refresh jornada
+      const { data: refreshed } = await supabase.from('jornadas_consultor').select('*').eq('id', jornada.id).single();
+      jornada = refreshed || jornada;
+      const mergedActions = [...userMarkerActions];
+      if (Array.isArray(up) && up.length>0) mergedActions.push(...up);
+      return new Response(JSON.stringify({
+        response: 'Ação processada',
+        jornada_id: jornada.id,
+        etapa_atual: jornada.etapa_atual,
+        aguardando_validacao: jornada.aguardando_validacao,
+        actions: mergedActions,
+        gamification: ugr ?? null
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 
     // PROMPTS
     const promptBuilder = new IntelligentPromptBuilder(supabase);
@@ -797,6 +1048,20 @@ Deno.serve(async (req) => {
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
 
+    // Fallback: se o LLM escreveu que vai abrir um formulário mas não gerou a marker explicitamente,
+    // tentamos inferir a ação por heurística simples (palavras-chave) para não travar o fluxo.
+    if ((!actions || actions.length === 0) && /abrir o formulário|vou abrir o formulário|vou abrir o form/i.test(llmResponse)) {
+      const inferred: any[] = [];
+      if (/anamnese/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'anamnese' } });
+      if (/canvas/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'canvas' } });
+      if (/cadeia/i.test(llmResponse) || /cadeia de valor/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' } });
+      if (/matriz/i.test(llmResponse) || /prioriza/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'matriz_priorizacao' } });
+      if (inferred.length > 0) {
+        console.log('[CONSULTOR-CHAT] Inferred actions from LLM text:', inferred.map(i=>i.params.tipo));
+        actions.push(...inferred);
+      }
+    }
+
     // -------- Fallbacks para não travar fluxo ----------
     const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
     const filteredActions = actions.filter((a: any) => {
@@ -806,10 +1071,29 @@ Deno.serve(async (req) => {
     });
 
     // 1) Matriz de Priorização nunca como formulário
-    //    Se vier como exibir_formulario, troca por gerar_entregavel
+    //    Se LLM tentar exibir como formulário, convertemos em gerar_entregavel (priorização automática)
     for (const a of actions) {
       if (a.type === 'exibir_formulario' && (a.params?.tipo === 'matriz_priorizacao' || a.params?.tipo === 'matriz-priorizacao')) {
+        console.log('[CONSULTOR-CHAT] Interceptando pedido de formulário de matriz_priorizacao — convertendo para gerar_entregavel');
         filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'matriz_priorizacao' } });
+      }
+    }
+
+    // If we're in modelagem and we already have cadeia_valor and anamnese/canvas in contexto_coleta,
+    // we should generate 'matriz_priorizacao' and 'escopo_projeto' automatically (LLM should compute them)
+    const hasCadeia = !!(ctxNow && (ctxNow.cadeia_valor || ctxNow.cadeia));
+    const hasCanvasOrAnamnese = !!(ctxNow && (ctxNow.canvas || ctxNow.anamnese || ctxNow.empresa));
+    if ((jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento') && hasCadeia && hasCanvasOrAnamnese) {
+      // ensure we don't duplicate if already present
+      if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='matriz_priorizacao')) {
+        filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'matriz_priorizacao' } });
+      }
+      if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='escopo_projeto')) {
+        filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'escopo_projeto' } });
+      }
+      // also set validation for modelagem once generated
+      if (!filteredActions.some((a:any)=> a.type==='set_validacao' && a.params?.tipo==='modelagem')) {
+        filteredActions.push({ type: 'set_validacao', params: { tipo: 'modelagem' } });
       }
     }
 
@@ -829,11 +1113,21 @@ Deno.serve(async (req) => {
     }
     // ----------------------------------------------------
 
-    const { updates, gamificationResult } =
-      await markerProcessor.executeActions(filteredActions, jornada, user_id, conversation_id);
+    const { updates, gamificationResult, postActions } =
+      await markerProcessor.executeActions(filteredActions, jornada, user_id, conversation_id) as any;
 
-    // GERAR ENTREGÁVEIS
-    const deliverableActions = filteredActions.filter((a: any)=>a.type === 'gerar_entregavel');
+    // Merge postActions (avoiding duplicates)
+    if (Array.isArray(postActions) && postActions.length > 0) {
+      for (const pa of postActions) {
+        if (!filteredActions.some((a:any)=> a.type === pa.type && JSON.stringify(a.params) === JSON.stringify(pa.params))) {
+          filteredActions.push(pa);
+        }
+      }
+    }
+
+  // GERAR ENTREGÁVEIS
+  let generatedMatriz = false;
+  const deliverableActions = filteredActions.filter((a: any)=>a.type === 'gerar_entregavel');
     if (deliverableActions.length > 0) {
       const deliverableGenerator = new DeliverableGenerator(supabase, openaiKey);
       for (const action of deliverableActions){
@@ -845,31 +1139,87 @@ Deno.serve(async (req) => {
           await deliverableGenerator.saveDeliverable(jornada.id, tipo, nome, html, jornada.etapa_atual);
           await markerProcessor.autoAwardXPByEvent(jornada.id, user_id, 'entregavel_gerado', conversation_id);
           if (tipo === 'escopo_projeto') await markerProcessor.ensureAreasFromScope(jornada.id);
+
+          // If we just generated the prioritization matrix, compute concrete priorities from cadeia_valor_processos
+          if (tipo === 'matriz_priorizacao') {
+            try {
+              console.log('[CONSULTOR-CHAT] Gerando matriz_priorizacao automaticamente (computando scores)');
+              const { data: processos } = await supabase
+                .from('cadeia_valor_processos')
+                .select('id, nome, impacto, criticidade, esforco, descricao')
+                .eq('jornada_id', jornada.id);
+
+              const computed = (processos || []).map((p:any) => {
+                const impacto = Number(p.impacto || 1);
+                const criticidade = Number(p.criticidade || 1);
+                const esforco = Number(p.esforco || 1) || 1;
+                // Nova fórmula que inclui complexidade/urgência se disponíveis
+                const complexidade = Number((p as any).complexidade || 1);
+                const urgencia = Number((p as any).urgencia || 1);
+                const score = ((impacto * criticidade) + (urgencia * complexidade)) / Math.max(1, esforco);
+                return { id: p.id, nome: p.nome, impacto, criticidade, esforco, complexidade, urgencia, score, descricao: p.descricao || '' };
+              }).sort((a:any,b:any)=> b.score - a.score);
+
+              // persist computed matrix into contexto_coleta.matriz_priorizacao
+              const newCtx = { ...(jornada.contexto_coleta || {}), matriz_priorizacao: { processos: computed, generated_at: new Date().toISOString() } };
+              await supabase.from('jornadas_consultor').update({ contexto_coleta: newCtx, aguardando_validacao: 'priorizacao' }).eq('id', jornada.id);
+              jornada.contexto_coleta = newCtx;
+              jornada.aguardando_validacao = 'priorizacao';
+
+              // Do NOT move to 'execucao' yet and do NOT enqueue atributos_processo.
+              // The user must VALIDATE the priorização first. Once they validate, the frontend
+              // will call the backend with a SET_VALIDACAO:priorizacao action to advance.
+              console.log('[CONSULTOR-CHAT] matriz_priorizacao persistida e jornada marcada aguardando_validacao: priorizacao');
+              // Ensure the assistant asks the user to review and validate the matrix
+              // by adding a set_validacao action to the response flow (frontend will render CTA)
+              if (!filteredActions.some((a:any)=> a.type === 'set_validacao' && a.params?.tipo === 'priorizacao')) {
+                filteredActions.push({ type: 'set_validacao', params: { tipo: 'priorizacao' } });
+              }
+              generatedMatriz = true;
+            } catch (e) {
+              console.error('[CONSULTOR-CHAT] Error computing matriz_priorizacao details:', e);
+            }
+          }
         } catch (err) {
           console.error(`[CONSULTOR-CHAT] Error generating deliverable ${action.params?.tipo}:`, err);
         }
       }
     }
 
-    if (Object.keys(updates).length > 0) jornada = { ...jornada, ...updates };
-
-    // Persistência das falas
-    await saveMessages(supabase, conversation_id, user_id, message, displayContent);
+    // If we generated a matrix automatically, prepare a clear review/validation CTA
+    let responseContent = displayContent;
+    try {
+      if (generatedMatriz) {
+        const reviewNote = `\n\nAtenção: gerei automaticamente a *Matriz de Priorização* e o *Escopo do Projeto* com base nos dados fornecidos. Por favor, revise os entregáveis na aba "Entregáveis" e, se concordar com as prioridades sugeridas, use o botão "Validar Priorização" disponível na conversa para avançarmos. Ao validar, iniciaremos a execução: primeiro faremos a coleta de atributos do primeiro processo priorizado e depois modelagem AS-IS e BPMN.`;
+        responseContent = (responseContent || '') + reviewNote;
+        // Ensure frontend receives set_validacao to render CTA buttons
+        if (!filteredActions.some((a:any)=> a.type === 'set_validacao' && a.params?.tipo === 'priorizacao')) {
+          filteredActions.push({ type: 'set_validacao', params: { tipo: 'priorizacao' } });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
 
     // RESPOSTA
     return new Response(JSON.stringify({
-      response: displayContent,
+      response: responseContent,
       jornada_id: jornada.id,
       etapa_atual: jornada.etapa_atual,
       aguardando_validacao: jornada.aguardando_validacao,
-      actions: filteredActions.map((a:any)=>({ type: a.type, params: a.params })),
-      gamification: gamificationResult
+      actions: filteredActions.map(a => ({ type: a.type, params: a.params })),
+      gamification: preAwardResult ?? gamificationResult ?? null
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('[CONSULTOR-CHAT ERROR]', error);
-    return new Response(JSON.stringify({ error: error.message, details: error.stack }), {
+    const err = error as Error;
+    return new Response(JSON.stringify({ error: err.message, details: err.stack }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
-});
+}
+
+// @ts-ignore
+Deno.serve(handleRequest);
+
