@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react'
-import { Upload, FileSpreadsheet, X, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, X, AlertTriangle, CheckCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -67,52 +67,34 @@ export function DatasetUploader({ onProcessed, onClose }: DatasetUploaderProps) 
         throw new Error('Usuário não autenticado. Faça login novamente.')
       }
 
-      // Chamar Edge Function
-      console.log('[DEBUG] Chamando process-excel Edge Function...')
-      
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-excel`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          file_data: base64,
-          filename: selectedFile.name,
-          conversation_id: null // Por enquanto não vinculamos a conversa específica
-        })
-      })
+      // Chamar Edge Function (helper centralizado tentará supabase.functions.invoke ou fetch com token)
+      console.log('[DEBUG] Chamando process-excel Edge Function via helper...')
+      const { data: result, error: fnErr } = await (await import('../../lib/functionsClient')).callEdgeFunction('process-excel', {
+        file_data: base64,
+        filename: selectedFile.name,
+        conversation_id: null
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
+      if (fnErr) {
+        // try to map common errors if provided by the function
+        const errorData = fnErr || {};
 
         // Mapear erros específicos para mensagens user-friendly
-        let userMessage = errorData.error || `Erro ${response.status}`
-
-        if (response.status === 403) {
-          userMessage = '🔒 Erro de permissão: Não foi possível fazer upload do arquivo. Verifique sua conexão e tente novamente.'
-        } else if (response.status === 400) {
-          if (errorData.error_type === 'FILE_TOO_LARGE') {
-            userMessage = '📁 Arquivo muito grande! O tamanho máximo é 25MB. Considere filtrar colunas desnecessárias ou dividir em múltiplos arquivos.'
-          } else if (errorData.error_type === 'DATASET_TOO_COMPLEX') {
-            userMessage = '⚡ Dataset muito complexo! Máximo de 50.000 linhas permitidas para análise interativa. Filtre os dados ou divida em partes menores.'
-          } else {
-            userMessage = `❌ Dados inválidos: ${errorData.error || 'Verifique o formato do arquivo Excel'}`
-          }
-        } else if (response.status === 546) {
-          userMessage = '💥 Arquivo complexo demais para processar. Tente com um arquivo menor ou mais simples (menos colunas ou linhas).'
-        } else if (response.status >= 500) {
-          userMessage = '🔧 Erro no servidor. Tente novamente em alguns instantes. Se o problema persistir, entre em contato com o suporte.'
+        let userMessage = errorData?.error || 'Erro ao processar arquivo via função'
+        // If helper returned status details, map common codes
+        if (errorData && typeof errorData === 'object') {
+          const code = (errorData as any).status || (errorData as any).statusCode || null;
+          if (code === 403) userMessage = '🔒 Erro de permissão: Não foi possível fazer upload do arquivo. Verifique sua conexão e tente novamente.'
+          if (code === 400 && (errorData as any).error_type === 'FILE_TOO_LARGE') userMessage = '📁 Arquivo muito grande! O tamanho máximo é 25MB.'
+          if (code === 400 && (errorData as any).error_type === 'DATASET_TOO_COMPLEX') userMessage = '⚡ Dataset muito complexo! Filtre os dados ou divida em partes menores.'
+          if (code >= 500) userMessage = '🔧 Erro no servidor. Tente novamente em alguns instantes.'
         }
-
         throw new Error(userMessage)
       }
 
-      const result = await response.json()
-      console.log('[DEBUG] Processamento concluído:', result)
-
-      if (!result.success) {
-        throw new Error(result.error || 'Falha no processamento')
+      console.log('[DEBUG] Processamento concluído via helper:', result)
+      if (!result || !result.success) {
+        throw new Error(result?.error || 'Falha no processamento')
       }
 
       setStep('completed')

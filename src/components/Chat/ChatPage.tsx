@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 
 import { supabase, Conversation, Message, Model, ChatMode } from '../../lib/supabase'
+import { callEdgeFunction } from '../../lib/functionsClient'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { detectAndParseCSV, getDelimiterName } from '../../utils/csvDetector'
@@ -544,18 +545,11 @@ function ChatPage() {
         reader.readAsDataURL(file)
         const content_base64 = await base64Promise
 
-        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-reference`
-        const uploadResponse = await fetch(functionUrl, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, content_base64, bucket }),
-        })
-        if (!uploadResponse.ok) {
-          const errorData = await uploadResponse.json().catch(()=> ({}))
-          throw new Error(`Upload failed: ${errorData.error || 'Unknown error'}`)
+        const { data: uploadResult, error: uploadErr } = await callEdgeFunction('upload-reference', { filename: file.name, content_base64, bucket })
+        if (uploadErr) {
+          throw uploadErr
         }
-        const uploadResult = await uploadResponse.json()
-        const path = uploadResult.path
+        const path = uploadResult?.path
 
         // extração local (rápido, só para contexto)
         let text = ''

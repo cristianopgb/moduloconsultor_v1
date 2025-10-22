@@ -1,5 +1,6 @@
 // /src/lib/storagePreview.ts
 import { supabase } from './supabase'
+import { callEdgeFunction } from './functionsClient'
 
 type Params = {
   html: string
@@ -338,20 +339,12 @@ export async function uploadHtmlAndOpenPreview({
       const ts = Date.now()
       const path = `u_${userId || 'anon'}/c_${conversationId || 'sem-conversa'}/${safe}-${ts}.html`
 
-      // Use Edge Function with Service Role to bypass RLS
-      const { data: session } = await supabase.auth.getSession()
-      if (session?.session?.access_token) {
-        const { error: upErr } = await supabase.functions.invoke('save-preview', {
-          body: {
-            html,
-            path,
-            conversation_id: conversationId || null,
-            user_id: userId || null
-          }
-        })
-        if (upErr) console.warn('[preview][upload] falhou:', upErr.message || upErr)
-      } else {
-        console.warn('[preview][upload] sem token de autenticação, pulando upload')
+      // Use Edge Function helper to call save-preview
+      try {
+        const { data: resp, error: fnErr } = await callEdgeFunction('save-preview', { html, path, conversation_id: conversationId || null, user_id: userId || null })
+        if (fnErr) console.warn('[preview][upload] falhou:', fnErr)
+      } catch (e) {
+        console.warn('[preview][upload] erro ao chamar save-preview via helper:', e)
       }
     } catch (e) {
       console.warn('[preview][upload] erro inesperado:', e)

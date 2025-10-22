@@ -101,18 +101,8 @@ export function DocumentGenerator({ onGenerate, selectedTemplate }: DocumentGene
         }
       }
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-document`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestData)
-      })
-
-      if (!response.ok) throw new Error('Erro ao gerar documento')
-
-      const result = await response.json()
+      const { data: result, error: fnErr } = await (await import('../../lib/functionsClient')).callEdgeFunction('generate-document', requestData);
+      if (fnErr) throw fnErr;
       setGeneratedDoc(result)
       onGenerate?.(result, selectedTemplate?.id || null)
     } catch (err: any) {

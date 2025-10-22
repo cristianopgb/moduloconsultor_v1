@@ -4,6 +4,7 @@ import { FileText, Download, Eye, Search, X, ExternalLink, Zap, CheckCircle } fr
 import { supabase } from '../../../lib/supabase';
 import type { EntregavelConsultor } from '../../../types/consultor';
 import { uploadHtmlAndOpenPreview } from '../../../lib/storagePreview';
+import { callEdgeFunction } from '../../../lib/functionsClient';
 import { BpmnViewer } from '../BpmnViewer';
 
 interface PainelEntregaveisProps {
@@ -176,19 +177,12 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
     // Se ainda não houver XML, tenta acionar função que o gera e recarrega
     if (!xml || xml.length < 20) {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gerar-bpmn`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session?.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ conversationId: null, docId: entregavel.id }),
-        });
-        if (resp.ok) {
-          // busca novamente o documento para pegar o bpmn_xml
+        // session token not required here because callEdgeFunction will try to get it via supabase client
+        const { error: bpmnErr } = await callEdgeFunction('gerar-bpmn', { conversationId: null, docId: entregavel.id });
+        if (bpmnErr) {
+          console.warn('gerar-bpmn failed:', bpmnErr);
+        } else {
+          // fetch saved doc again
           const { data: recarregado } = await supabase
             .from('entregaveis_consultor')
             .select('*')
@@ -259,19 +253,9 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gerar-plano-acao`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ diagnostico_id: diagnostico.id }),
-      });
-
-      if (!response.ok) throw new Error('Erro ao gerar plano');
+      // session token not required here because callEdgeFunction will try to get it via supabase client
+      const { error: planoErr } = await callEdgeFunction('gerar-plano-acao', { diagnostico_id: diagnostico.id });
+      if (planoErr) throw planoErr;
 
       alert('Plano de Ação gerado com sucesso!');
       void loadEntregaveis();

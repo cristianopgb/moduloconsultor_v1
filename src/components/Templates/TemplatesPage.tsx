@@ -72,22 +72,8 @@ export function TemplatesPage() {
     setAiError('')
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-      if (!token) throw new Error('Usuário não autenticado. Faça login novamente.')
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/template-creator`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction: aiInstruction, user_role: 'master' })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `Erro ${response.status}`)
-      }
-
-      const aiResult = await response.json()
+      const { data: aiResult, error: aiErr } = await (await import('../../lib/functionsClient')).callEdgeFunction('template-creator', { instruction: aiInstruction, user_role: 'master' });
+      if (aiErr) throw aiErr;
 
       setFormData(prev => ({
         ...prev,
@@ -239,18 +225,11 @@ export function TemplatesPage() {
         }
       }
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-template`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(previewData)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `Erro ${response.status}`)
+      const { data: result, error: resultErr } = await (await import('../../lib/functionsClient')).callEdgeFunction('generate-template', previewData);
+      if (resultErr) {
+        const msg = typeof resultErr === 'object' ? JSON.stringify(resultErr) : String(resultErr);
+        throw new Error(msg || 'Erro ao gerar preview');
       }
-
-      const result = await response.json()
 
       const byteCharacters = atob(result.content)
       const byteNumbers = Array.from(byteCharacters).map(c => c.charCodeAt(0))

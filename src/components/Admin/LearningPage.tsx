@@ -215,31 +215,17 @@ export function LearningPage() {
     try {
       setSuggestingTags(true)
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-assistant`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: 'system',
-              content: 'Você extrai palavras-chave relevantes de perguntas. Retorne APENAS um array JSON de strings, sem explicações.'
-            },
-            {
-              role: 'user',
-              content: `Extraia 5-10 palavras-chave em português desta pergunta para busca semântica: "${question}"`
-            }
-          ],
-          temperature: 0.3
-        })
-      })
+      const { data, error } = await (await import('../../lib/functionsClient')).callEdgeFunction('chat-assistant', {
+        messages: [
+          { role: 'system', content: 'Você extrai palavras-chave relevantes de perguntas. Retorne APENAS um array JSON de strings, sem explicações.' },
+          { role: 'user', content: `Extraia 5-10 palavras-chave em português desta pergunta para busca semântica: "${question}"` }
+        ],
+        temperature: 0.3
+      });
 
-      if (!response.ok) throw new Error('Erro ao sugerir tags')
+      if (error) throw new Error('Erro ao sugerir tags: ' + JSON.stringify(error));
 
-      const data = await response.json()
-      const content = data.choices?.[0]?.message?.content || '[]'
+      const content = data?.choices?.[0]?.message?.content || '[]'
 
       let suggestedTags: string[] = []
       try {
@@ -693,31 +679,15 @@ export function LearningPage() {
 
       const questionText = newTemplateForm.description || newTemplateForm.name
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-assistant`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: 'system',
-              content: 'Você extrai palavras-chave relevantes de perguntas. Retorne APENAS um array JSON de strings, sem explicações.'
-            },
-            {
-              role: 'user',
-              content: `Extraia 5-10 palavras-chave em português desta pergunta para busca semântica: "${questionText}"`
-            }
-          ],
-          temperature: 0.3
-        })
+      const { data, error } = await callEdgeFunction('chat-assistant', {
+        messages: [
+          { role: 'system', content: 'Você extrai palavras-chave relevantes de perguntas. Retorne APENAS um array JSON de strings, sem explicações.' },
+          { role: 'user', content: `Extraia 5-10 palavras-chave em português desta pergunta para busca semântica: "${questionText}"` }
+        ],
+        temperature: 0.3
       })
-
-      if (!response.ok) throw new Error('Erro ao sugerir tags')
-
-      const data = await response.json()
-      const content = data.choices?.[0]?.message?.content || '[]'
+      if (error) throw error
+      const content = data?.choices?.[0]?.message?.content || '[]'
 
       let suggestedTags: string[] = []
       try {

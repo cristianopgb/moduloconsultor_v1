@@ -333,10 +333,27 @@ class MarkerProcessor {
     const postActions: any[] = [];
     let gamificationResult: any = null;
 
+    // refresh jornada from DB to avoid stale state when processing actions
+    try {
+      if (jornada && jornada.id) {
+        const { data: refreshedJornada } = await this.supabase
+          .from('jornadas_consultor').select('*').eq('id', jornada.id).single();
+        if (refreshedJornada) {
+          jornada = refreshedJornada;
+          console.log('[MARKER] Refreshed jornada before executing actions, etapa_atual:', jornada.etapa_atual, 'aguardando_validacao:', jornada.aguardando_validacao);
+        }
+      }
+    } catch (e) {
+      console.warn('[MARKER] failed to refresh jornada before executeActions:', e);
+    }
+
+    console.log('[MARKER] executeActions received actions:', actions.map((a:any)=>a.type));
+
     for (const action of actions){
       switch(action.type){
         case 'set_validacao': {
           const tipo = action.params.tipo;
+          console.log(`[MARKER] processing set_validacao for tipo='${tipo}' (jornada.aguardando_validacao='${jornada.aguardando_validacao}')`);
           // If user validated priorizacao, advance to execucao
           if (tipo === 'priorizacao' && jornada.aguardando_validacao === 'priorizacao') {
             updates.etapa_atual = 'execucao';
@@ -345,7 +362,11 @@ class MarkerProcessor {
               .update({ etapa_atual: 'execucao', aguardando_validacao: null })
               .eq('id', jornada.id);
             await this.addTimelineEvent(jornada.id, `Fase avançada para: execucao`, 'execucao');
-            gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase execucao iniciada`, userId, conversationId);
+            try {
+              gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase execucao iniciada`, userId, conversationId);
+            } catch (e) {
+              console.warn('[MARKER] awardXPByJornada failed on set_validacao:priorizacao', e);
+            }
             await this.ensureAreasFromScope(jornada.id);
             // enqueue atributos_processo after advancing
             // Try to include the prioritized process info (from matriz_priorizacao) so frontend can pre-fill the form
@@ -354,12 +375,16 @@ class MarkerProcessor {
               const processos = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || ctx?.escopo?.processos || [];
               if (Array.isArray(processos) && processos.length > 0) {
                 const primeiro = processos[0];
-                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } });
+                const pa = { type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } };
+                postActions.push(pa);
+                console.log('[MARKER] enqueued atributos_processo prefilled with process:', pa.params.processo);
               } else {
                 postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+                console.log('[MARKER] enqueued atributos_processo without prefilling (no prioritized processes found)');
               }
             } catch (e) {
               postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+              console.warn('[MARKER] error while trying to enqueue atributos_processo, enqueued empty form instead:', e);
             }
           } else {
             updates.aguardando_validacao = tipo;
@@ -445,18 +470,32 @@ class MarkerProcessor {
 
   // tenta usar RPC por jornada; fallback por conversa (compat)
   async awardXPByJornada(jornadaId: string, xp: number, conquista: string, userId?: string, conversationId?: string) {
+    // Lightweight validation for userId to avoid passing invalid/null values to RPCs
+    const isValidUserId = (id?: string) => {
+      if (!id || typeof id !== 'string') return false;
+      const v = id.trim();
+      if (!v) return false;
+      if (v.toLowerCase() === 'null') return false;
+      // basic check: should contain hex or dash characters (UUID-like) or be reasonably long
+      return /[0-9a-fA-F\-]{8,}/.test(v);
+    };
+
     try {
-      // If we don't have a userId, avoid calling the jornada-level RPC which requires user_id
-      if (!userId) {
-        console.warn('[MARKER] userId missing; using conversation-level XP RPC');
+      if (!isValidUserId(userId)) {
+        console.warn('[MARKER] invalid or missing userId; using conversation-level XP RPC');
         if (!conversationId) return null;
-        const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
-          p_conversation_id: conversationId,
-          p_xp_amount: xp,
-          p_conquista_nome: conquista
-        });
-        if (e2) { console.error('[MARKER] XP RPC failed (conversation fallback):', e2); return null; }
-        return d2;
+        try {
+          const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
+            p_conversation_id: conversationId,
+            p_xp_amount: xp,
+            p_conquista_nome: conquista
+          });
+          if (e2) { console.error('[MARKER] XP RPC failed (conversation fallback):', e2); return null; }
+          return d2;
+        } catch (errRpc) {
+          console.error('[MARKER] Exception calling add_xp_to_conversation (fallback):', errRpc);
+          return null;
+        }
       }
 
       let { data, error } = await this.supabase.rpc('add_xp_to_jornada', {
@@ -468,13 +507,18 @@ class MarkerProcessor {
       if (error) {
         console.warn('[MARKER] add_xp_to_jornada failed, trying add_xp_to_conversation...', error);
         if (!conversationId) return null;
-        const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
-          p_conversation_id: conversationId,
-          p_xp_amount: xp,
-          p_conquista_nome: conquista
-        });
-        if (e2) { console.error('[MARKER] XP RPC failed (fallback):', e2); return null; }
-        return d2;
+        try {
+          const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
+            p_conversation_id: conversationId,
+            p_xp_amount: xp,
+            p_conquista_nome: conquista
+          });
+          if (e2) { console.error('[MARKER] XP RPC failed (fallback):', e2); return null; }
+          return d2;
+        } catch (errRpc) {
+          console.error('[MARKER] Exception calling add_xp_to_conversation (fallback):', errRpc);
+          return null;
+        }
       }
       return data;
     } catch (err) {
@@ -530,9 +574,17 @@ class DeliverableGenerator {
         .select('id,nome,criticidade,impacto,esforco,descricao')
         .eq('jornada_id', jornada.id);
 
-      (contexto as any).__processos_mapeados = (processos || []).map((p:any)=>({
-        id: p.id, nome: p.nome, impacto: p.impacto, criticidade: p.criticidade, esforco: p.esforco, descricao: p.descricao
-      }));
+      const mapped = (processos || []).map((p:any)=>({ id: p.id, nome: p.nome, impacto: p.impacto, criticidade: p.criticidade, esforco: p.esforco, descricao: p.descricao }));
+      (contexto as any).__processos_mapeados = mapped;
+
+      // Ensure prompts receive a canonical field with processes so the LLM doesn't fallback to mock text
+      if (!((contexto as any).processos) || ((contexto as any).processos || []).length === 0) {
+        (contexto as any).processos = mapped.map((x:any)=>({ id: x.id, nome: x.nome, impacto: x.impacto, esforco: x.esforco, descricao: x.descricao }));
+      }
+      if (!((contexto as any).cadeia_valor) || !((contexto as any).cadeia_valor.processos)) {
+        (contexto as any).cadeia_valor = (contexto as any).cadeia_valor || {};
+        (contexto as any).cadeia_valor.processos = mapped.map((x:any)=>({ id: x.id, nome: x.nome, impacto: x.impacto, esforco: x.esforco, descricao: x.descricao }));
+      }
     }
 
     const prompt = this.buildPromptForType(tipo, contexto, jornada);
@@ -824,10 +876,12 @@ async function handleRequest(req: Request) {
     const isFormSubmission = Boolean(form_data && Object.keys(form_data).length > 0);
 
     // histórico
-    const { data: conversationHistory } = await supabase
+    const { data: _conversationHistory } = await supabase
       .from('messages').select('*')
       .eq('conversation_id', conversation_id)
       .order('created_at', { ascending: true });
+    // allow reassigning conversationHistory later (we may reload it after form submission)
+    let conversationHistory = _conversationHistory;
 
     // Jornada por (user_id, conversation_id) — UPSERT iniciando em ANAMNESE (como seu original)
     let { data: jornada, error: selectErr } = await supabase
@@ -910,6 +964,7 @@ async function handleRequest(req: Request) {
         // usar o método que já existe e pode retornar dados
         // @ts-ignore
         preAwardResult = await markerProcessorForForm.autoAwardXPByEvent(jornada.id, user_id, 'formulario_preenchido', conversation_id);
+        console.log('[CONSULTOR-CHAT] preAwardResult:', preAwardResult);
       } catch (e) {
         console.warn('[CONSULTOR-CHAT] preAward XP failed:', e);
       }
@@ -924,8 +979,42 @@ async function handleRequest(req: Request) {
         // push summary so the prompt builder includes it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (conversationHistory as any).push({ role: 'user', content: formSummary });
+        // Persist an assistant acknowledgement in the messages table so subsequent reads include it
+        try {
+          const ack = `Recebi o formulário ${String(form_type || 'generico')} e atualizei o contexto.`;
+          await supabase.from('messages').insert([{ conversation_id: conversation_id, role: 'assistant', content: ack, user_id: user_id }]);
+          console.log('[CONSULTOR-CHAT] persisted assistant ack message to messages table');
+        } catch (e) {
+          // log but do not fail the flow if DB insert fails (RLS/permissions may block this in some setups)
+          console.warn('[CONSULTOR-CHAT] failed to persist assistant ack message (non-fatal):', e);
+        }
       } catch (e) {
         // ignore if summarization fails
+      }
+
+      // After processing the form and saving context, re-fetch conversation messages
+      // to ensure the LLM prompt builder sees the persisted user message and any DB-driven changes.
+      try {
+        const { data: refreshedHistory } = await supabase
+          .from('messages').select('*')
+          .eq('conversation_id', conversation_id)
+          .order('created_at', { ascending: true });
+        if (Array.isArray(refreshedHistory)) {
+          // replace conversationHistory used later for prompt building
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (conversationHistory as any) = refreshedHistory;
+          console.log('[CONSULTOR-CHAT] conversationHistory reloaded after form submission, messages:', (refreshedHistory || []).length);
+          try {
+            // also append a synthetic assistant acknowledgement so the LLM clearly understands the form was received
+            // this is not persisted to DB (only in-memory for prompt building)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (conversationHistory as any).push({ role: 'assistant', content: `Recebi o formulário ${String(form_type || 'generico')} e atualizei o contexto. Vou analisar os dados e gerar os próximos passos.` });
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        console.warn('[CONSULTOR-CHAT] falha ao recarregar conversationHistory após form submission:', e);
       }
 
       // Se escopo existir, criar áreas
