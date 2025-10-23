@@ -25,25 +25,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let mounted = true
+
     // Verificar sessão inicial
     const getInitialSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        setUser(session?.user ?? null)
-      } catch (error) {
-        console.error('Erro ao obter sessão:', error)
-        
-        // Check if it's a refresh token error and clear stale session
-        if (error instanceof Error && 
-            (error.message.includes('Invalid Refresh Token') || 
-             error.message.includes('Refresh Token Not Found'))) {
-          console.log('Clearing stale session due to invalid refresh token')
-          await supabase.auth.signOut()
+        const { data: { session }, error } = await supabase.auth.getSession()
+
+        if (error) {
+          console.error('Erro ao obter sessão:', error)
+
+          if (error.message.includes('Invalid Refresh Token') ||
+              error.message.includes('Refresh Token Not Found')) {
+            console.log('🧹 Limpando sessão inválida...')
+            localStorage.removeItem('proceidaia.auth')
+            await supabase.auth.signOut({ scope: 'local' })
+          }
+
+          if (mounted) setUser(null)
+        } else {
+          if (mounted) setUser(session?.user ?? null)
         }
-        
-        setUser(null)
+      } catch (error) {
+        console.error('Erro inesperado na sessão:', error)
+        if (mounted) setUser(null)
       } finally {
-        setLoading(false)
+        if (mounted) setLoading(false)
       }
     }
 
@@ -52,12 +59,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Escutar mudanças de auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setUser(session?.user ?? null)
-        setLoading(false)
+        if (event === 'SIGNED_OUT') {
+          localStorage.removeItem('proceidaia.auth')
+        }
+
+        if (event === 'TOKEN_REFRESHED') {
+          console.log('🔄 Token atualizado com sucesso')
+        }
+
+        if (mounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email: string, password: string) => {
@@ -70,74 +90,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUp = async (email: string, password: string, role: 'user' | 'master') => {
     console.log('🔄 Iniciando cadastro:', { email, role })
-    
-    // 1. Criar usuário no Supabase Auth (com trigger automático corrigido)
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name: email.split('@')[0],
-          role: role
+
+    try {
+      // 1. Criar usuário no Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: email.split('@')[0],
+            role: role
+          }
         }
+      })
+
+      if (authError) {
+        console.error('❌ Erro no auth:', authError)
+        throw new Error(`Erro ao criar conta: ${authError.message}`)
       }
-    })
-    
-    if (authError) {
-      console.error('❌ Erro no auth:', authError)
-      throw authError
-    }
-    
-    if (authData.user) {
+
+      if (!authData.user) {
+        throw new Error('Usuário não foi criado corretamente')
+      }
+
       console.log('✅ Usuário criado no auth:', authData.user.id)
-      
-      // 2. Aguardar trigger processar
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // 3. Verificar se foi criado na tabela users pelo trigger
-      try {
-        const { data: userData, error: checkError } = await supabase
+
+      // 2. Aguardar trigger processar (com retry)
+      let retries = 3
+      let userData = null
+
+      while (retries > 0 && !userData) {
+        await new Promise(resolve => setTimeout(resolve, 1500))
+
+        const { data, error } = await supabase
           .from('users')
           .select()
           .eq('id', authData.user.id)
-          .single()
-        
-        if (checkError || !userData) {
-          console.log('⚠️ Trigger não criou usuário, criando manualmente...')
-          
-          // Fallback: criar manualmente se trigger falhou
-          const { data: manualUserData, error: manualError } = await supabase
-            .from('users')
-            .upsert({
-              id: authData.user.id,
-              email: authData.user.email,
-              name: email.split('@')[0],
-              role: role
-            }, {
-              onConflict: 'id'
-            })
-            .select()
-          
-          if (manualError) {
-            console.error('❌ Erro ao criar usuário manualmente:', manualError)
-            throw new Error(`Erro ao salvar dados: ${manualError.message}`)
-          }
-          
-          console.log('✅ Usuário criado manualmente:', manualUserData)
-        } else {
+          .maybeSingle()
+
+        if (!error && data) {
+          userData = data
           console.log('✅ Usuário criado pelo trigger:', userData)
+          break
         }
-        
-        // 4. Fazer login automático
-        await signIn(email, password)
-        
-      } catch (tableError) {
-        console.error('❌ Erro na tabela users:', tableError)
-        throw tableError
+
+        retries--
+        if (retries > 0) {
+          console.log(`⏳ Aguardando trigger... (${retries} tentativas restantes)`)
+        }
       }
+
+      // 3. Fallback: criar manualmente se trigger falhou
+      if (!userData) {
+        console.log('⚠️ Trigger não criou usuário, criando manualmente...')
+
+        const { data: manualUserData, error: manualError } = await supabase
+          .from('users')
+          .upsert({
+            id: authData.user.id,
+            email: authData.user.email,
+            name: email.split('@')[0],
+            role: role,
+            tokens_used: 0,
+            tokens_limit: role === 'master' ? 999999999 : 100000
+          }, {
+            onConflict: 'id'
+          })
+          .select()
+          .single()
+
+        if (manualError) {
+          console.error('❌ Erro ao criar usuário manualmente:', manualError)
+          throw new Error(`Erro ao salvar dados: ${manualError.message}`)
+        }
+
+        console.log('✅ Usuário criado manualmente:', manualUserData)
+      }
+
+      // 4. Fazer login automático
+      await signIn(email, password)
+
+      console.log('🎉 Cadastro concluído com sucesso!')
+
+    } catch (error) {
+      console.error('❌ Erro no processo de cadastro:', error)
+      throw error
     }
-    
-    console.log('🎉 Cadastro concluído com sucesso!')
   }
 
   const signOut = async () => {

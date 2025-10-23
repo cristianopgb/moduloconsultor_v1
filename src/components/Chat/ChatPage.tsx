@@ -318,23 +318,77 @@ function ChatPage() {
 
   useEffect(() => {
     if (!user?.id) return
-    ;(async () => {
-      const { data } = await supabase.from('conversations').select('*').eq('user_id', user.id).order('updated_at', { ascending: false })
-      setConversations(data || [])
-    })()
+
+    let retryCount = 0
+    const maxRetries = 3
+
+    const loadConversations = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('conversations')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+
+        if (error) {
+          if (error.code === 'PGRST205' && retryCount < maxRetries) {
+            retryCount++
+            console.warn(`⚠️ Schema cache desatualizado, tentativa ${retryCount}/${maxRetries}...`)
+            setTimeout(loadConversations, 2000 * retryCount)
+            return
+          }
+
+          console.error('Erro ao carregar conversas:', error)
+          setConversations([])
+        } else {
+          setConversations(data || [])
+        }
+      } catch (err) {
+        console.error('Erro inesperado ao carregar conversas:', err)
+        setConversations([])
+      }
+    }
+
+    loadConversations()
   }, [user?.id])
 
   useEffect(() => {
     if (!user?.id) return
-    ;(async () => {
-      const { data, error } = await supabase
-        .from('models')
-        .select('*')
-        .or('template_type.is.null,template_type.eq.presentation')
-        .order('name', { ascending: true })
-      if (error) console.warn('Falha ao carregar templates:', error.message)
-      setTemplates(data || [])
-    })()
+
+    let retryCount = 0
+    const maxRetries = 3
+
+    const loadTemplates = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('models')
+          .select('*')
+          .or('template_type.is.null,template_type.eq.presentation')
+          .order('name', { ascending: true })
+
+        if (error) {
+          if (error.code === 'PGRST205' && retryCount < maxRetries) {
+            retryCount++
+            console.warn(`⚠️ Schema cache desatualizado, tentativa ${retryCount}/${maxRetries}...`)
+            setTimeout(loadTemplates, 2000 * retryCount)
+            return
+          }
+
+          console.warn('Falha ao carregar templates:', error.message)
+          setTemplates([])
+        } else {
+          setTemplates(data || [])
+          if (data && data.length > 0) {
+            console.log(`✅ ${data.length} templates carregados`)
+          }
+        }
+      } catch (err) {
+        console.error('Erro inesperado ao carregar templates:', err)
+        setTemplates([])
+      }
+    }
+
+    loadTemplates()
   }, [user?.id])
 
   function resetForConversation() {
