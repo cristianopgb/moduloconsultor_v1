@@ -17,6 +17,16 @@ export interface ProcessedLLM {
 export class MarkerProcessor {
   constructor(private supabase: ReturnType<typeof createClient>) {}
 
+  // Lightweight validation for userId to avoid passing invalid/null values to RPCs
+  private isValidUserId(id?: string): boolean {
+    if (!id || typeof id !== 'string') return false;
+    const v = id.trim();
+    if (!v) return false;
+    if (v.toLowerCase() === 'null') return false;
+    // basic check: should contain hex or dash characters (UUID-like) or be reasonably long
+    return /[0-9a-fA-F\-]{8,}/.test(v);
+  }
+
   parse(llmText: string): ProcessedLLM {
     let text = llmText || '';
     const actions: MarkerAction[] = [];
@@ -66,11 +76,31 @@ export class MarkerProcessor {
     return { displayContent: text.trim(), actions };
   }
 
-  async execute(actions: MarkerAction[], jornada: any): Promise<void> {
+  async execute(actions: MarkerAction[], jornada: any, userId?: string, conversationId?: string): Promise<{updates: any, gamificationResult: any, postActions: any[]}> {
+    const updates: any = {};
+    const postActions: any[] = [];
+    let gamificationResult: any = null;
+
+    // refresh jornada from DB to avoid stale state when processing actions
+    try {
+      if (jornada && jornada.id) {
+        const { data: refreshedJornada } = await this.supabase
+          .from('jornadas_consultor').select('*').eq('id', jornada.id).single();
+        if (refreshedJornada) {
+          jornada = refreshedJornada;
+          console.log('[MARKER] Refreshed jornada before executing actions, etapa_atual:', jornada.etapa_atual, 'aguardando_validacao:', jornada.aguardando_validacao);
+        }
+      }
+    } catch (e) {
+      console.warn('[MARKER] failed to refresh jornada before executeActions:', e);
+    }
+
+    console.log('[MARKER] executeActions received actions:', actions.map((a:any)=>a.type));
+
     for (const a of actions) {
       switch (a.type) {
         case 'exibir_formulario': {
-          await this.timeline(jornada.id, jornada.etapa_atual, `Formulário exibido: ${a.params.tipo}`, { tipo: a.params.tipo });
+          await this.timeline(jornada.id, jornada.etapa_atual, `Formulário exibido: ${a.params.tipo}`);
           break;
         }
         case 'gerar_entregavel': {
@@ -78,7 +108,47 @@ export class MarkerProcessor {
           break;
         }
         case 'set_validacao': {
-          await this.timeline(jornada.id, jornada.etapa_atual, `Validação definida: ${a.params.tipo}`);
+          const tipo = a.params.tipo;
+          console.log(`[MARKER] processing set_validacao for tipo='${tipo}' (jornada.aguardando_validacao='${jornada.aguardando_validacao}')`);
+
+          // If user validated priorizacao, advance to execucao
+          if (tipo === 'priorizacao' && jornada.aguardando_validacao === 'priorizacao') {
+            updates.etapa_atual = 'execucao';
+            updates.aguardando_validacao = null;
+            await this.supabase.from('jornadas_consultor')
+              .update({ etapa_atual: 'execucao', aguardando_validacao: null })
+              .eq('id', jornada.id);
+            await this.timeline(jornada.id, 'execucao', `Fase avançada para: execucao`);
+            try {
+              gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase execucao iniciada`, userId, conversationId);
+            } catch (e) {
+              console.warn('[MARKER] awardXPByJornada failed on set_validacao:priorizacao', e);
+            }
+            await this.ensureAreasFromScope(jornada.id);
+            // enqueue atributos_processo after advancing
+            try {
+              const ctx = jornada.contexto_coleta || {};
+              const processos = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || ctx?.escopo?.processos || [];
+              if (Array.isArray(processos) && processos.length > 0) {
+                const primeiro = processos[0];
+                const pa = { type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } };
+                postActions.push(pa);
+                console.log('[MARKER] enqueued atributos_processo prefilled with process:', pa.params.processo);
+              } else {
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+                console.log('[MARKER] enqueued atributos_processo without prefilling (no prioritized processes found)');
+              }
+            } catch (e) {
+              postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+              console.warn('[MARKER] error while trying to enqueue atributos_processo, enqueued empty form instead:', e);
+            }
+          } else {
+            updates.aguardando_validacao = tipo;
+            await this.supabase.from('jornadas_consultor')
+              .update({ aguardando_validacao: tipo })
+              .eq('id', jornada.id);
+          }
+          await this.timeline(jornada.id, jornada.etapa_atual, `Validação definida: ${tipo}`);
           break;
         }
         case 'acao_usuario': {
@@ -88,27 +158,38 @@ export class MarkerProcessor {
           break;
         }
         case 'avancar_fase': {
-          await this.supabase.from('jornadas_consultor').update({ etapa_atual: a.params.fase }).eq('id', jornada.id);
+          updates.etapa_atual = a.params.fase;
+          updates.aguardando_validacao = null;
+          await this.supabase.from('jornadas_consultor').update({ etapa_atual: a.params.fase, aguardando_validacao: null }).eq('id', jornada.id);
           await this.timeline(jornada.id, a.params.fase, `Avanço de fase: ${a.params.fase}`);
+          gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase ${a.params.fase} iniciada`, userId, conversationId);
+          if (a.params.fase === 'execucao') {
+            await this.ensureAreasFromScope(jornada.id);
+            // ensure we ask for atributos_processo once execution starts
+            try {
+              const ctx = jornada.contexto_coleta || {};
+              const processos = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || ctx?.escopo?.processos || [];
+              if (Array.isArray(processos) && processos.length > 0) {
+                const primeiro = processos[0];
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } });
+              } else {
+                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+              }
+            } catch (e) {
+              postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+            }
+          }
           break;
         }
         case 'gamificacao': {
           if (a.params.xp > 0) {
-            const { error } = await this.supabase.rpc('adicionar_xp_jornada', {
-              p_jornada_id: jornada.id,
-              p_quantidade: a.params.xp,
-              p_motivo: a.params.evento,
-            });
-            if (!error) {
-              await this.timeline(jornada.id, jornada.etapa_atual, `+${a.params.xp} XP • ${a.params.evento}`);
-            } else {
-              console.error('[Gamificação] RPC adicionar_xp_jornada falhou:', error);
-            }
+            gamificationResult = await this.awardXPByJornada(jornada.id, a.params.xp, a.params.evento, userId, conversationId);
           }
           break;
         }
       }
     }
+    return { updates, gamificationResult, postActions };
   }
 
   private async timeline(jornada_id: string, fase: string, evento: string, meta?: any) {
@@ -117,6 +198,98 @@ export class MarkerProcessor {
     await this.supabase.from('timeline_consultor').insert({
       jornada_id, fase, evento
     });
+  }
+
+  async ensureAreasFromScope(jornadaId: string) {
+    try {
+      const { data: j } = await this.supabase
+        .from('jornadas_consultor').select('contexto_coleta').eq('id', jornadaId).single();
+      const ctx = j?.contexto_coleta || {};
+      const processos = ctx?.escopo?.processos || ctx?.escopo_projeto?.processos || ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || [];
+      if (!Array.isArray(processos) || processos.length === 0) return;
+
+      const { data: existentes } = await this.supabase
+        .from('areas_trabalho').select('id, nome_area').eq('jornada_id', jornadaId);
+      const nomesExistentes = new Set((existentes || []).map((a:any)=>(a.nome_area || '').toLowerCase().trim()));
+      let pos = (existentes || []).length + 1;
+
+      for (const p of processos){
+        const nome = (typeof p === 'string' ? p : p.nome || p.processo || '').trim();
+        if (!nome) continue;
+        if (nomesExistentes.has(nome.toLowerCase())) continue;
+
+        await this.supabase.from('areas_trabalho').insert({
+          jornada_id: jornadaId,
+          nome_area: nome,
+          etapa_area: 'as_is',
+          posicao_prioridade: pos++,
+          progresso_area: 0
+        });
+      }
+    } catch (e) {
+      console.error('[AREAS] Erro ao garantir áreas do escopo:', e);
+    }
+  }
+
+  // Award XP by jornada with fallback to conversation-level (compatibility)
+  async awardXPByJornada(jornadaId: string, xp: number, conquista: string, userId?: string, conversationId?: string) {
+    try {
+      if (!this.isValidUserId(userId)) {
+        console.warn('[MARKER] invalid or missing userId; using conversation-level XP RPC');
+        if (!conversationId) return null;
+        try {
+          const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
+            p_conversation_id: conversationId,
+            p_xp_amount: xp,
+            p_conquista_nome: conquista
+          });
+          if (e2) { console.error('[MARKER] XP RPC failed (conversation fallback):', e2); return null; }
+          return d2;
+        } catch (errRpc) {
+          console.error('[MARKER] Exception calling add_xp_to_conversation (fallback):', errRpc);
+          return null;
+        }
+      }
+
+      let { data, error } = await this.supabase.rpc('add_xp_to_jornada', {
+        p_jornada_id: jornadaId,
+        p_xp_amount: xp,
+        p_conquista_nome: conquista,
+        p_user_id: userId
+      });
+      if (error) {
+        console.warn('[MARKER] add_xp_to_jornada failed, trying add_xp_to_conversation...', error);
+        if (!conversationId) return null;
+        try {
+          const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
+            p_conversation_id: conversationId,
+            p_xp_amount: xp,
+            p_conquista_nome: conquista
+          });
+          if (e2) { console.error('[MARKER] XP RPC failed (fallback):', e2); return null; }
+          return d2;
+        } catch (errRpc) {
+          console.error('[MARKER] Exception calling add_xp_to_conversation (fallback):', errRpc);
+          return null;
+        }
+      }
+      return data;
+    } catch (err) {
+      console.error('[MARKER] Exception awarding XP:', err);
+      return null;
+    }
+  }
+
+  async autoAwardXPByEvent(jornadaId: string, userId: string, event: 'formulario_preenchido'|'entregavel_gerado'|'fase_concluida'|'acao_iniciada', conversationId?: string) {
+    const xpMap: Record<string, number> = {
+      formulario_preenchido: 50,
+      entregavel_gerado: 75,
+      fase_concluida: 100,
+      acao_iniciada: 25
+    };
+    const xp = xpMap[event];
+    if (!xp) return null;
+    return await this.awardXPByJornada(jornadaId, xp, event, userId, conversationId);
   }
 
   /**
