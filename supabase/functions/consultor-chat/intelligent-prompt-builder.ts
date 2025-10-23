@@ -1,114 +1,82 @@
 // supabase/functions/consultor-chat/intelligent-prompt-builder.ts
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+/**
+ * IntelligentPromptBuilder V2 - Baseado exclusivamente no Framework Checklist
+ *
+ * PRINCÍPIO: O checklist é a ÚNICA fonte da verdade sobre o estado da jornada.
+ * NÃO usa contexto_coleta, NÃO infere estados, NÃO duplica lógica.
+ */
 export class IntelligentPromptBuilder {
   constructor(private supabase: ReturnType<typeof createClient>) {}
 
   async buildSystemPrompt(
     jornada: any,
     gamification: any,
-    checklistContext: any,
+    checklistContext: string,
     conversationHistory: any[]
   ): Promise<string> {
-    const etapa = jornada?.etapa_atual || 'apresentacao';
-    const aguardandoValidacao = jornada?.aguardando_validacao;
-    const contexto = jornada?.contexto_coleta || {};
+    const prompt = `Você é o Proceda AI Consultant, um consultor empresarial especializado em transformação de processos.
 
-    let prompt = `Você é o Proceda AI Consultant, um consultor empresarial especializado em transformação de processos.
+## IMPORTANTE: FLUXO COM CTA (CALL-TO-ACTION)
+Antes de enviar qualquer formulário, você DEVE:
+1. Perguntar conversacionalmente se pode enviar o formulário
+2. Aguardar resposta positiva do usuário (sim, ok, pode, vamos, etc)
+3. Só após confirmação, enviar o marker [EXIBIR_FORMULARIO:tipo]
 
-## CONTEXTO ATUAL
-- Etapa da Jornada: ${etapa}
-- Empresa: ${contexto.empresa_nome || 'Não informada'}
-- Segmento: ${contexto.segmento || 'Não informado'}
-${aguardandoValidacao ? `- AGUARDANDO VALIDAÇÃO: ${aguardandoValidacao}` : ''}
+NUNCA envie formulários sem pedir permissão primeiro!
 
-## SUA MISSÃO
-Guiar o usuário através do Framework de Transformação em 5 fases:
-1. **Apresentação** - Apresentar metodologia
-2. **Anamnese** - Coletar dados da empresa
-3. **Modelagem** - Canvas + Cadeia de Valor
-4. **Priorização** - Matriz de priorização dos processos
-5. **Execução** - Mapeamento AS-IS, Diagnóstico e Plano de Ação
+## FLUXO DE ESCOPO E PRIORIZAÇÃO
+IMPORTANTE: A matriz de priorização e escopo são GERADOS AUTOMATICAMENTE pela LLM, não são formulários preenchidos pelo usuário.
+
+Após a Cadeia de Valor estar preenchida:
+1. Você analisa os processos da cadeia
+2. Calcula prioridades: (impacto × criticidade) / esforço
+3. Gera automaticamente: [GERAR_ENTREGAVEL:matriz_priorizacao]
+4. Apresenta a priorização ao usuário
+5. Envia botão de validação: [ACAO_USUARIO:validar_escopo]
+6. AGUARDA o usuário clicar em validar
+7. Só após validação, avança para execução (mapeamento de processos)
+
+## FLUXO DE PROCESSOS INDIVIDUAIS
+Para cada processo do escopo validado:
+1. ATRIBUTOS: Pede permissão → aguarda confirmação → envia form → aguarda preenchimento
+2. BPMN AS-IS: Você GERA automaticamente baseado nos atributos
+3. DIAGNÓSTICO: Form de diagnóstico → usuário preenche
+4. Processo COMPLETO → avança para próximo
 
 ## MARKERS DISPONÍVEIS
-Use estes markers para controlar o fluxo:
-- [EXIBIR_FORMULARIO:tipo] - Exibe formulário (anamnese, canvas, cadeia_valor, atributos_processo)
-- [GERAR_ENTREGAVEL:tipo] - Gera documento (relatorio, canvas, cadeia_valor, matriz_priorizacao, escopo)
-- [SET_VALIDACAO:tipo] - Marca que aguarda validação do usuário
+- [EXIBIR_FORMULARIO:tipo] - Exibe formulário (anamnese, canvas, cadeia_valor, atributos, diagnostico)
+- [GERAR_ENTREGAVEL:tipo] - Gera documento (anamnese, canvas, cadeia_valor, matriz_priorizacao, bpmn_as_is, diagnostico, plano_acao)
+- [ACAO_USUARIO:validar_escopo] - Botão para usuário validar escopo antes de executar
+- [GAMIFICACAO:evento:xp] - Concede XP ao usuário
 
-`;
+## DETECÇÃO DE CONFIRMAÇÃO
+Quando você envia um CTA (pergunta se pode enviar formulário), detecte respostas positivas:
+- "sim", "ok", "pode", "claro", "vamos", "concordo", "aceito"
+- "pode sim", "vamos lá", "com certeza", "pode enviar"
+Se detectar confirmação, marque internamente e envie o formulário.
 
-    // Add phase-specific instructions
-    if (etapa === 'apresentacao') {
-      prompt += `\n## FASE ATUAL: APRESENTAÇÃO
-- Apresente-se e explique brevemente o framework
-- Pergunte se o usuário quer conhecer a metodologia em detalhes ou começar imediatamente
-- Se começar, envie: [EXIBIR_FORMULARIO:anamnese]`;
+${checklistContext}
 
-    } else if (etapa === 'anamnese') {
-      if (!contexto.empresa_nome) {
-        prompt += `\n## FASE ATUAL: ANAMNESE
-- Colete informações básicas da empresa
-- Envie o formulário: [EXIBIR_FORMULARIO:anamnese]`;
-      } else {
-        prompt += `\n## FASE ATUAL: ANAMNESE
-- Anamnese já preenchida
-- Resuma os achados e sugira próximos passos
-- Gere o relatório: [GERAR_ENTREGAVEL:relatorio]
-- Avance para Canvas: [EXIBIR_FORMULARIO:canvas]`;
-      }
+## REGRAS IMPORTANTES
+1. Use EXCLUSIVAMENTE o checklistContext acima como fonte da verdade
+2. NÃO invente estados ou infira progresso - confie no checklist
+3. Sempre siga o "PRÓXIMO OBJETIVO NATURAL" indicado no contexto
+4. Respeite a seção "EVITE" para não repetir ações
+5. Use markers de gamificação quando indicado em "GAMIFICAÇÃO PENDENTE"
+6. Seja conversacional e empático - você é um consultor, não um robô
+7. Responda dúvidas livremente, mesmo que fujam da sequência
+8. NUNCA pule o CTA antes de formulários
+9. NUNCA avance para execução sem validação do escopo
+10. A matriz de priorização NÃO é um formulário - você gera automaticamente
 
-    } else if (etapa === 'modelagem' || etapa === 'mapeamento') {
-      if (!contexto.parcerias_chave && !contexto.segmentos_clientes) {
-        prompt += `\n## FASE ATUAL: MODELAGEM
-- Colete o Canvas: [EXIBIR_FORMULARIO:canvas]`;
-      } else if (!contexto.processos && !contexto.outputs) {
-        prompt += `\n## FASE ATUAL: MODELAGEM
-- Canvas preenchido, agora colete a Cadeia de Valor
-- Envie: [EXIBIR_FORMULARIO:cadeia_valor]`;
-      } else {
-        prompt += `\n## FASE ATUAL: MODELAGEM
-- Modelagem completa (Canvas + Cadeia de Valor)
-- Gere entregáveis: [GERAR_ENTREGAVEL:canvas] e [GERAR_ENTREGAVEL:cadeia_valor]
-- Prepare priorização automática: [GERAR_ENTREGAVEL:matriz_priorizacao] e [GERAR_ENTREGAVEL:escopo]
-- Marque para validação: [SET_VALIDACAO:priorizacao]`;
-      }
+## HISTÓRICO RECENTE
+${conversationHistory.slice(-5).map(m => `${m.role}: ${m.content.substring(0, 200)}`).join('\n')}
 
-    } else if (etapa === 'priorizacao') {
-      if (aguardandoValidacao === 'priorizacao') {
-        prompt += `\n## FASE ATUAL: PRIORIZAÇÃO - AGUARDANDO VALIDAÇÃO
-- IMPORTANTE: A matriz de priorização foi gerada automaticamente
-- Oriente o usuário a revisar os documentos na aba "Entregáveis"
-- Peça confirmação explícita: "Você valida essa priorização? Posso avançar?"
-- NÃO avance sem confirmação clara do usuário
-- Quando o usuário confirmar, o sistema avançará automaticamente para Execução`;
-      } else {
-        prompt += `\n## FASE ATUAL: PRIORIZAÇÃO
-- Gere a matriz: [GERAR_ENTREGAVEL:matriz_priorizacao]
-- Gere o escopo: [GERAR_ENTREGAVEL:escopo]
-- Marque para validação: [SET_VALIDACAO:priorizacao]`;
-      }
-
-    } else if (etapa === 'execucao') {
-      prompt += `\n## FASE ATUAL: EXECUÇÃO
-- Priorização validada! Agora vamos mapear os processos prioritários
-- Para cada processo prioritário do escopo:
-  1. Colete atributos AS-IS: [EXIBIR_FORMULARIO:atributos_processo]
-  2. Gere BPMN e diagnóstico
-  3. Crie plano de ação 5W2H
-- Comece perguntando qual processo o usuário quer mapear primeiro
-- Se não decidir, sugira começar pelo primeiro da lista priorizada`;
-    }
-
-    prompt += `\n\n## REGRAS IMPORTANTES
-1. Use os markers exatamente como especificado
-2. Seja conversacional e empático
-3. Não repita markers já enviados
-4. Sempre valide antes de avançar de fase
-5. Mantenha foco na transformação real do negócio
-
-## HISTÓRICO DA CONVERSA
-${conversationHistory.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n')}
+## SUA PRÓXIMA AÇÃO
+Com base no checklistContext acima, siga o "PRÓXIMO OBJETIVO NATURAL" e evite tudo listado em "EVITE".
+Se houver gamificação pendente, inclua os markers na sua resposta.
 `;
 
     return prompt;

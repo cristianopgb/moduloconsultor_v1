@@ -23,7 +23,7 @@ export default function CadeiaValorForm({ isOpen, onClose, conversationId, userI
   const [erro, setErro] = useState<string | null>(null);
 
   // parse lines into processos: allow lines like "Nome do processo - descrição curta"
-  const parseProcessos = (raw: string, categoria: string) => {
+  const parseProcessos = (raw: string, tipo_processo: 'primario' | 'suporte' | 'gestao') => {
     const lines = String(raw || '').split(/\n+/).map(l => l.trim()).filter(Boolean);
     return lines.map((ln) => {
       const parts = ln.split(/\s+-\s+/); // split by ' - '
@@ -35,7 +35,7 @@ export default function CadeiaValorForm({ isOpen, onClose, conversationId, userI
         impacto: null,
         criticidade: null,
         esforco: null,
-        categoria
+        tipo_processo
       };
     });
   };
@@ -43,14 +43,12 @@ export default function CadeiaValorForm({ isOpen, onClose, conversationId, userI
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErro(null);
-    const fornecedores = parseProcessos(fornecedoresText, 'fornecedor');
-    const primarios = parseProcessos(primariosText || primariosText === '' ? primariosText : primariosText, 'primario');
+    const primarios = parseProcessos(primariosText, 'primario');
     const gestao = parseProcessos(gestaoText, 'gestao');
     const suporte = parseProcessos(suporteText, 'suporte');
-    const principais = parseProcessos(primariosText || primariosText === '' ? primariosText : primariosText, 'primario');
 
-    // if user used the principal field (primariosText) we'll use it; otherwise combine all
-    const processos = [ ...fornecedores, ...primarios, ...gestao, ...suporte, ...principais ].filter(p => p && p.nome);
+    // Combine all processos
+    const processos = [ ...primarios, ...gestao, ...suporte ].filter(p => p && p.nome);
     if (!processos || processos.length === 0) {
       setErro('Descreva ao menos um processo em algum dos campos (uma linha por processo).');
       return;

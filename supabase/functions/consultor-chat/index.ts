@@ -12,6 +12,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey'
 };
 
+function isFormAlreadyFilled(formType: string, context: any): boolean {
+  if (!context) return false;
+
+  switch (formType) {
+    case 'anamnese':
+      return !!(context.empresa_nome || context.nome_empresa);
+    case 'canvas':
+      return !!(context.parcerias_chave || context.segmentos_clientes);
+    case 'cadeia_valor':
+      return !!(context.processos || context.outputs);
+    case 'matriz_priorizacao':
+      return !!(context.matriz || context.processos_priorizados);
+    default:
+      return false;
+  }
+}
+
 async function saveMessages(supabase: any, conversationId: string, userId: string, userMsg: string, assistantMsg: string) {
   try {
     await supabase.from('messages').insert([
@@ -129,6 +146,35 @@ Deno.serve(async (req: Request) => {
       jornada = newJornada;
     }
 
+    // CTA Detection and Confirmation System
+    const frameworkGuide = new FrameworkGuide(supabase);
+    const awaitingStatus = await frameworkGuide.isAwaitingConfirmation(conversation_id);
+
+    if (awaitingStatus.awaiting && !isFormSubmission) {
+      console.log(`[CONSULTOR-CHAT] Awaiting confirmation for: ${awaitingStatus.type}`);
+
+      // Detect if user message contains confirmation
+      if (frameworkGuide.isUserConfirmation(message)) {
+        console.log(`[CONSULTOR-CHAT] User confirmed: ${awaitingStatus.type}`);
+
+        // Mark confirmation in checklist
+        if (awaitingStatus.type === 'anamnese') {
+          await frameworkGuide.markEvent(conversation_id, 'anamnese_confirmada');
+        } else if (awaitingStatus.type === 'canvas') {
+          await frameworkGuide.markEvent(conversation_id, 'canvas_confirmado');
+        } else if (awaitingStatus.type === 'cadeia_valor') {
+          await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_confirmada');
+        } else if (awaitingStatus.type === 'escopo') {
+          await frameworkGuide.markEvent(conversation_id, 'escopo_validado');
+        } else if (awaitingStatus.type?.startsWith('atributos:')) {
+          const processoNome = awaitingStatus.type.split(':')[1];
+          await frameworkGuide.markProcessoEvent(conversation_id, processoNome, 'atributos_confirmado');
+        }
+
+        console.log(`[CONSULTOR-CHAT] Confirmation marked for ${awaitingStatus.type}`);
+      }
+    }
+
     // Check if user is confirming validation
     if (jornada.aguardando_validacao === 'priorizacao' && !isFormSubmission) {
       const confirmWords = /valido|confirmo|validar|concordo|ok|sim|vamos|pode.*avanc|seguir|próxim/i;
@@ -222,8 +268,9 @@ Deno.serve(async (req: Request) => {
       .eq('jornada_id', jornada.id)
       .maybeSingle();
 
-    const frameworkGuide = new FrameworkGuide(supabase);
     const checklistContext = await frameworkGuide.getGuideContext(conversation_id);
+    let updates: any = {};
+    let gamificationResult: any = null;
 
     const promptBuilder = new IntelligentPromptBuilder(supabase);
     const systemPrompt = await promptBuilder.buildSystemPrompt(jornada, gamification, checklistContext, conversationHistory || []);

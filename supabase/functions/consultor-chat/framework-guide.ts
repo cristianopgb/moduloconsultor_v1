@@ -17,9 +17,13 @@ export interface ProcessoChecklist {
   processo_nome: string;
   processo_ordem: number;
   atributos_preenchidos: boolean;
+  atributos_cta_enviado?: boolean;
+  atributos_usuario_confirmou?: boolean;
   bpmn_as_is_mapeado: boolean;
   diagnostico_preenchido: boolean;
   processo_completo: boolean;
+  estado_processo?: string;
+  iteracoes_processo?: number;
   xp_atributos_concedido: boolean;
   xp_bpmn_concedido: boolean;
   xp_diagnostico_concedido: boolean;
@@ -31,18 +35,28 @@ export interface FrameworkChecklistData {
   anamnese_preenchida: boolean;
   anamnese_analisada: boolean;
   anamnese_formulario_exibido: boolean;
+  anamnese_cta_enviado?: boolean;
+  anamnese_usuario_confirmou?: boolean;
   canvas_preenchido: boolean;
   canvas_formulario_exibido: boolean;
+  canvas_cta_enviado?: boolean;
+  canvas_usuario_confirmou?: boolean;
   cadeia_valor_preenchida: boolean;
   cadeia_valor_formulario_exibida: boolean;
+  cadeia_valor_cta_enviado?: boolean;
+  cadeia_valor_usuario_confirmou?: boolean;
   processos_identificados: boolean;
   escopo_priorizacao_definido: boolean;
   escopo_quantidade_processos: number;
   escopo_processos_nomes: string[];
   matriz_priorizacao_preenchida: boolean;
   matriz_priorizacao_formulario_exibido: boolean;
+  escopo_validado_pelo_usuario?: boolean;
+  aguardando_validacao_escopo?: boolean;
   todos_processos_concluidos: boolean;
   plano_acao_gerado: boolean;
+  fase_atual?: string;
+  iteracoes_fase_atual?: number;
   xp_anamnese_concedido: boolean;
   xp_canvas_concedido: boolean;
   xp_cadeia_valor_concedido: boolean;
@@ -164,8 +178,14 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
     if (!checklist.apresentacao_feita) {
       return "Apresentar-se brevemente e pedir permissão para iniciar.";
     }
-    if (!checklist.anamnese_formulario_exibido) {
-      return "Quando apropriado, propor anamnese empresarial: [EXIBIR_FORMULARIO:anamnese]";
+    if (!checklist.anamnese_cta_enviado) {
+      return "Propor de forma conversacional: 'Posso enviar um formulário rápido de anamnese?' (não envie o form ainda!)";
+    }
+    if (checklist.anamnese_cta_enviado && !checklist.anamnese_usuario_confirmou) {
+      return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher anamnese. NÃO envie o formulário até ele responder positivamente.";
+    }
+    if (checklist.anamnese_usuario_confirmou && !checklist.anamnese_formulario_exibido) {
+      return "Enviar formulário de anamnese agora: [EXIBIR_FORMULARIO:anamnese]";
     }
     if (checklist.anamnese_formulario_exibido && !checklist.anamnese_preenchida) {
       return "Aguardando cliente preencher anamnese. Responda dúvidas se houver.";
@@ -173,14 +193,26 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
     if (checklist.anamnese_preenchida && !checklist.anamnese_analisada) {
       return "Fazer análise dos dados da anamnese e introduzir Business Model Canvas.";
     }
-    if (!checklist.canvas_formulario_exibido && checklist.anamnese_analisada) {
-      return "Propor mapeamento do Canvas: [EXIBIR_FORMULARIO:canvas]";
+    if (checklist.anamnese_analisada && !checklist.canvas_cta_enviado) {
+      return "Propor de forma conversacional: 'Que tal mapearmos seu modelo de negócio no Canvas?' (não envie o form ainda!)";
+    }
+    if (checklist.canvas_cta_enviado && !checklist.canvas_usuario_confirmou) {
+      return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher Canvas. NÃO envie o formulário até ele responder.";
+    }
+    if (checklist.canvas_usuario_confirmou && !checklist.canvas_formulario_exibido) {
+      return "Enviar formulário de Canvas agora: [EXIBIR_FORMULARIO:canvas]";
     }
     if (checklist.canvas_formulario_exibido && !checklist.canvas_preenchido) {
       return "Aguardando Canvas. Tire dúvidas se necessário.";
     }
-    if (checklist.canvas_preenchido && !checklist.cadeia_valor_formulario_exibida) {
-      return "Introduzir Cadeia de Valor de Porter e propor mapeamento: [EXIBIR_FORMULARIO:cadeia_valor]";
+    if (checklist.canvas_preenchido && !checklist.cadeia_valor_cta_enviado) {
+      return "Introduzir Cadeia de Valor de Porter e perguntar: 'Posso enviar o formulário de Cadeia de Valor?' (não envie ainda!)";
+    }
+    if (checklist.cadeia_valor_cta_enviado && !checklist.cadeia_valor_usuario_confirmou) {
+      return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher Cadeia de Valor. NÃO envie o formulário.";
+    }
+    if (checklist.cadeia_valor_usuario_confirmou && !checklist.cadeia_valor_formulario_exibida) {
+      return "Enviar formulário de Cadeia de Valor agora: [EXIBIR_FORMULARIO:cadeia_valor]";
     }
     if (checklist.cadeia_valor_formulario_exibida && !checklist.cadeia_valor_preenchida) {
       return "Aguardando Cadeia de Valor.";
@@ -191,11 +223,14 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
     if (checklist.processos_identificados && !checklist.escopo_priorizacao_definido) {
       return "DEFINIR ESCOPO: Perguntar ao cliente QUANTOS processos ele quer mapear (sugestão: 2-5 processos). Liste os candidatos e deixe ele escolher.";
     }
-    if (checklist.escopo_priorizacao_definido && !checklist.matriz_priorizacao_formulario_exibido) {
-      return "Propor matriz de priorização: [EXIBIR_FORMULARIO:matriz_priorizacao]";
+    if (checklist.escopo_priorizacao_definido && !checklist.matriz_priorizacao_preenchida) {
+      return "GERAR MATRIZ AUTOMATICAMENTE: Analise os processos da cadeia de valor, calcule prioridades (impacto × criticidade / esforço) e gere a matriz: [GERAR_ENTREGAVEL:matriz_priorizacao]";
     }
-    if (checklist.matriz_priorizacao_formulario_exibido && !checklist.matriz_priorizacao_preenchida) {
-      return "Aguardando matriz de priorização.";
+    if (checklist.matriz_priorizacao_preenchida && !checklist.aguardando_validacao_escopo) {
+      return "Apresentar matriz de priorização e escopo sugerido. Perguntar: 'Você concorda com essa priorização?' e enviar botão: [ACAO_USUARIO:validar_escopo]";
+    }
+    if (checklist.aguardando_validacao_escopo && !checklist.escopo_validado_pelo_usuario) {
+      return "⏸️ AGUARDANDO: Usuário validar o escopo proposto. NÃO avance para execução até ele validar.";
     }
 
     if (processos.length > 0) {
@@ -208,8 +243,14 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
         return "✅ Framework completo! Manter disponibilidade para ajustes e dúvidas.";
       }
 
-      if (!processoAtual.atributos_preenchidos) {
-        return `Mapear atributos do processo "${processoAtual.processo_nome}": [EXIBIR_FORMULARIO:atributos] (Processo ${processoAtual.processo_ordem}/${processos.length})`;
+      if (!processoAtual.atributos_cta_enviado) {
+        return `Propor coleta de atributos do processo "${processoAtual.processo_nome}": 'Vamos coletar os atributos deste processo?' (Processo ${processoAtual.processo_ordem}/${processos.length})`;
+      }
+      if (processoAtual.atributos_cta_enviado && !processoAtual.atributos_usuario_confirmou) {
+        return `⏸️ AGUARDANDO: Usuário confirmar coleta de atributos do processo "${processoAtual.processo_nome}". NÃO envie formulário.`;
+      }
+      if (processoAtual.atributos_usuario_confirmou && !processoAtual.atributos_preenchidos) {
+        return `Enviar formulário de atributos do processo "${processoAtual.processo_nome}": [EXIBIR_FORMULARIO:atributos] (Processo ${processoAtual.processo_ordem}/${processos.length})`;
       }
       if (!processoAtual.bpmn_as_is_mapeado) {
         return `Mapear BPMN AS-IS do processo "${processoAtual.processo_nome}": [GERAR_ENTREGAVEL:bpmn_as_is] (Processo ${processoAtual.processo_ordem}/${processos.length})`;
@@ -229,9 +270,12 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
 
     if (checklist.apresentacao_feita) avoid.push("- NÃO se apresente novamente");
     if (checklist.anamnese_preenchida) avoid.push("- NÃO peça dados que já estão na anamnese");
+    if (checklist.anamnese_formulario_exibido) avoid.push("- NÃO envie formulário de anamnese novamente");
     if (checklist.canvas_preenchido) avoid.push("- NÃO peça Canvas novamente");
+    if (checklist.canvas_formulario_exibido) avoid.push("- NÃO envie formulário de Canvas novamente");
     if (checklist.cadeia_valor_preenchida) avoid.push("- NÃO peça Cadeia de Valor novamente");
-    if (checklist.matriz_priorizacao_preenchida) avoid.push("- NÃO peça matriz novamente");
+    if (checklist.cadeia_valor_formulario_exibida) avoid.push("- NÃO envie formulário de Cadeia de Valor novamente");
+    if (checklist.matriz_priorizacao_preenchida) avoid.push("- NÃO gere matriz novamente - ela já foi gerada");
 
     if (!checklist.escopo_priorizacao_definido && checklist.processos_identificados) {
       avoid.push("- NÃO pule a definição de escopo - pergunte QUAIS processos priorizar");
@@ -295,16 +339,22 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
 
     const eventMap: Record<string, any> = {
       'apresentacao': { apresentacao_feita: true, apresentacao_ts: new Date().toISOString() },
+      'anamnese_cta_enviado': { anamnese_cta_enviado: true },
+      'anamnese_confirmada': { anamnese_usuario_confirmou: true },
       'anamnese_exibida': { anamnese_formulario_exibido: true },
       'anamnese_preenchida': { anamnese_preenchida: true, anamnese_ts: new Date().toISOString() },
       'anamnese_analisada': { anamnese_analisada: true },
+      'canvas_cta_enviado': { canvas_cta_enviado: true },
+      'canvas_confirmado': { canvas_usuario_confirmou: true },
       'canvas_exibido': { canvas_formulario_exibido: true },
       'canvas_preenchido': { canvas_preenchido: true, canvas_ts: new Date().toISOString() },
+      'cadeia_valor_cta_enviado': { cadeia_valor_cta_enviado: true },
+      'cadeia_valor_confirmada': { cadeia_valor_usuario_confirmou: true },
       'cadeia_valor_exibida': { cadeia_valor_formulario_exibida: true },
       'cadeia_valor_preenchida': { cadeia_valor_preenchida: true, cadeia_valor_ts: new Date().toISOString() },
       'processos_identificados': { processos_identificados: true, processos_identificados_ts: new Date().toISOString() },
-      'matriz_exibida': { matriz_priorizacao_formulario_exibido: true },
-      'matriz_preenchida': { matriz_priorizacao_preenchida: true, matriz_priorizacao_ts: new Date().toISOString() },
+      'matriz_gerada': { matriz_priorizacao_preenchida: true, matriz_priorizacao_ts: new Date().toISOString(), aguardando_validacao_escopo: true },
+      'escopo_validado': { escopo_validado_pelo_usuario: true, escopo_validacao_ts: new Date().toISOString(), aguardando_validacao_escopo: false },
       'plano_gerado': { plano_acao_gerado: true, plano_acao_ts: new Date().toISOString() },
       'xp_anamnese': { xp_anamnese_concedido: true },
       'xp_canvas': { xp_canvas_concedido: true },
@@ -377,12 +427,19 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
     const updates: any = { updated_at: new Date().toISOString() };
 
     switch(event) {
+      case 'atributos_cta_enviado':
+        updates.atributos_cta_enviado = true;
+        break;
+      case 'atributos_confirmado':
+        updates.atributos_usuario_confirmou = true;
+        break;
       case 'atributos_exibidos':
         updates.atributos_formulario_exibido = true;
         break;
       case 'atributos_preenchidos':
         updates.atributos_preenchidos = true;
         updates.atributos_ts = new Date().toISOString();
+        updates.estado_processo = 'BPMN';
         break;
       case 'bpmn_solicitado':
         updates.bpmn_as_is_solicitado = true;
@@ -390,6 +447,7 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
       case 'bpmn_mapeado':
         updates.bpmn_as_is_mapeado = true;
         updates.bpmn_as_is_ts = new Date().toISOString();
+        updates.estado_processo = 'DIAGNOSTICO';
         break;
       case 'diagnostico_exibido':
         updates.diagnostico_formulario_exibido = true;
@@ -399,6 +457,7 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
         updates.diagnostico_ts = new Date().toISOString();
         updates.processo_completo = true;
         updates.processo_completo_ts = new Date().toISOString();
+        updates.estado_processo = 'COMPLETO';
         break;
       case 'xp_atributos':
         updates.xp_atributos_concedido = true;
@@ -418,10 +477,76 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
       .eq('processo_nome', processoNome);
 
     if (error) {
-      console.error(`[FRAMEWORK_GUIDE] Erro ao marcar evento de processo ${procesoNome}:`, error);
+      console.error(`[FRAMEWORK_GUIDE] Erro ao marcar evento de processo ${processoNome}:`, error);
     } else {
       console.log(`[FRAMEWORK_GUIDE] Processo ${processoNome}: ${event}`);
     }
+  }
+
+  /**
+   * Detecta se mensagem do usuário contém confirmação positiva
+   */
+  isUserConfirmation(message: string): boolean {
+    const lowerMsg = message.toLowerCase().trim();
+    const confirmPatterns = [
+      /^sim$/,
+      /^ok$/,
+      /^pode$/,
+      /^claro$/,
+      /^vamos/,
+      /^concordo/,
+      /^aceito/,
+      /pode sim/,
+      /vamos lá/,
+      /com certeza/,
+      /vamos em frente/,
+      /pode enviar/,
+      /pode mandar/,
+    ];
+    return confirmPatterns.some(pattern => pattern.test(lowerMsg));
+  }
+
+  /**
+   * Verifica se está aguardando confirmação de algum CTA
+   */
+  async isAwaitingConfirmation(conversationId: string): Promise<{awaiting: boolean, type?: string}> {
+    const { data: checklist } = await this.supabase
+      .from('framework_checklist')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .maybeSingle();
+
+    if (!checklist) return { awaiting: false };
+
+    if (checklist.anamnese_cta_enviado && !checklist.anamnese_usuario_confirmou) {
+      return { awaiting: true, type: 'anamnese' };
+    }
+    if (checklist.canvas_cta_enviado && !checklist.canvas_usuario_confirmou) {
+      return { awaiting: true, type: 'canvas' };
+    }
+    if (checklist.cadeia_valor_cta_enviado && !checklist.cadeia_valor_usuario_confirmou) {
+      return { awaiting: true, type: 'cadeia_valor' };
+    }
+    if (checklist.aguardando_validacao_escopo && !checklist.escopo_validado_pelo_usuario) {
+      return { awaiting: true, type: 'escopo' };
+    }
+
+    const { data: processos } = await this.supabase
+      .from('processo_checklist')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('processo_ordem');
+
+    if (processos) {
+      const processoAguardando = processos.find(p =>
+        p.atributos_cta_enviado && !p.atributos_usuario_confirmou
+      );
+      if (processoAguardando) {
+        return { awaiting: true, type: `atributos:${processoAguardando.processo_nome}` };
+      }
+    }
+
+    return { awaiting: false };
   }
 
   /**
