@@ -106,6 +106,30 @@ Deno.serve(async (req: Request) => {
 
     const isFormSubmission = Boolean(form_data && Object.keys(form_data).length > 0);
 
+    // DEBOUNCE: Block if last form was submitted less than 5 seconds ago
+    if (isFormSubmission) {
+      const { data: ultimoForm } = await supabase
+        .from('messages')
+        .select('created_at')
+        .eq('conversation_id', conversation_id)
+        .eq('role', 'user')
+        .ilike('content', '%Formulário%enviado%')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (ultimoForm) {
+        const diff = Date.now() - new Date(ultimoForm.created_at).getTime();
+        if (diff < 5000) {
+          console.log('[DEBOUNCE] ⏸️ Bloqueando submissão rápida demais');
+          return new Response(JSON.stringify({ error: 'Aguarde antes de enviar outro formulário' }), {
+            status: 429,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+      }
+    }
+
     // histórico
     const { data: _conversationHistory } = await supabase
       .from('messages').select('*')
@@ -306,10 +330,20 @@ Deno.serve(async (req: Request) => {
       } else if (form_type === 'atributos_processo') {
         // Atributos só devem ser preenchidos na fase de execução
         // NÃO avançar etapa aqui, apenas manter em execução
+        // NÃO enfileirar BPMN/diagnóstico automaticamente - deixar a LLM conduzir
         await supabase.from('jornadas_consultor')
           .update({ etapa_atual: 'execucao', aguardando_validacao: null })
           .eq('id', jornada.id);
-        console.log('[CONSULTOR-CHAT] Atributos do processo preenchidos, mantendo em execução');
+        console.log('[CONSULTOR-CHAT] ✅ Atributos do processo preenchidos, mantendo em execução (LLM vai propor próximo passo)');
+
+        // Mark processo-level event (if you have markProcessoEvent implemented)
+        try {
+          const processoNome = form_data?.processo_nome || form_data?.nome || 'processo';
+          await frameworkGuide.markProcessoEvent(conversation_id, processoNome, 'atributos_preenchido');
+          console.log(`[CONSULTOR-CHAT] ✅ Marked atributos_preenchido for processo: ${processoNome}`);
+        } catch (e) {
+          console.warn('[CONSULTOR-CHAT] Failed to mark processo event:', e);
+        }
       }
 
       // refresh jornada
@@ -465,21 +499,63 @@ Deno.serve(async (req: Request) => {
         console.warn('[CONSULTOR-CHAT] Erro ao auto-gerar entregaveis após form submission:', e);
       }
 
-      // Mark form events in framework checklist
-      if (form_data.nome_empresa || form_data.nome_usuario || form_data.empresa_nome) {
-        await frameworkGuide.markEvent(conversation_id, 'anamnese_preenchida');
-        // IMPORTANTE: Marcar como analisada também para evitar loop
-        await frameworkGuide.markEvent(conversation_id, 'anamnese_analisada');
-        console.log('[CONSULTOR-CHAT] Marked anamnese_preenchida + analisada');
-      } else if (form_data.parcerias_chave || form_data.segmentos_clientes) {
-        await frameworkGuide.markEvent(conversation_id, 'canvas_preenchido');
-        console.log('[CONSULTOR-CHAT] Marked canvas_preenchido');
-      } else if (form_type === 'cadeia_valor' || (form_data.processos && form_data.outputs)) {
-        await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_preenchida');
-        console.log('[CONSULTOR-CHAT] Marked cadeia_valor_preenchida');
-      } else if (form_data.processos && Array.isArray(form_data.processos) && form_type !== 'cadeia_valor') {
-        await frameworkGuide.markEvent(conversation_id, 'matriz_preenchida');
-        console.log('[CONSULTOR-CHAT] Marked matriz_preenchida');
+      // Mark form events in framework checklist BY FORM_TYPE (more reliable)
+      try {
+        if (form_type === 'anamnese') {
+          await frameworkGuide.markEvent(conversation_id, 'anamnese_preenchida');
+          await frameworkGuide.markEvent(conversation_id, 'anamnese_analisada');
+          console.log('[CONSULTOR-CHAT] ✅ Marked anamnese_preenchida + analisada');
+        } else if (form_type === 'canvas') {
+          await frameworkGuide.markEvent(conversation_id, 'canvas_preenchido');
+          console.log('[CONSULTOR-CHAT] ✅ Marked canvas_preenchido');
+        } else if (form_type === 'cadeia_valor') {
+          await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_preenchida');
+          console.log('[CONSULTOR-CHAT] ✅ Marked cadeia_valor_preenchida');
+        } else if (form_type === 'atributos_processo') {
+          console.log('[CONSULTOR-CHAT] ✅ Atributos marked (processo-level checklist)');
+        }
+      } catch (e) {
+        console.warn('[CHECKLIST] Failed to mark event by form_type:', e);
+      }
+
+      // REGISTER TIMELINE EVENT FOR FORM SUBMISSION
+      try {
+        await supabase.from('timeline_consultor').insert({
+          jornada_id: jornada.id,
+          fase: jornada.etapa_atual,
+          evento: `Formulário recebido: ${String(form_type)}`
+        });
+        console.log(`[TIMELINE] ✅ Registered form submission: ${form_type}`);
+      } catch (e) {
+        console.warn('[TIMELINE] Failed to register form submission:', e);
+      }
+
+      // GENERATE DELIVERABLES IMMEDIATELY BY FORM_TYPE
+      try {
+        const deliverableGenerator = new DeliverableGenerator(supabase, openaiKey);
+
+        if (form_type === 'anamnese') {
+          const { html, nome } = await deliverableGenerator.generateDeliverable('anamnese', jornada, '');
+          await deliverableGenerator.saveDeliverable(jornada.id, 'anamnese', nome, html, jornada.etapa_atual);
+          await supabase.from('timeline_consultor').insert({ jornada_id: jornada.id, fase: jornada.etapa_atual, evento: 'Entregável gerado: anamnese' });
+          console.log('[ENTREGAVEL] ✅ Generated anamnese deliverable');
+        }
+
+        if (form_type === 'canvas') {
+          const { html, nome } = await deliverableGenerator.generateDeliverable('canvas', jornada, '');
+          await deliverableGenerator.saveDeliverable(jornada.id, 'canvas', nome, html, jornada.etapa_atual);
+          await supabase.from('timeline_consultor').insert({ jornada_id: jornada.id, fase: jornada.etapa_atual, evento: 'Entregável gerado: canvas' });
+          console.log('[ENTREGAVEL] ✅ Generated canvas deliverable');
+        }
+
+        if (form_type === 'cadeia_valor') {
+          const { html, nome } = await deliverableGenerator.generateDeliverable('cadeia_valor', jornada, '');
+          await deliverableGenerator.saveDeliverable(jornada.id, 'cadeia_valor', nome, html, jornada.etapa_atual);
+          await supabase.from('timeline_consultor').insert({ jornada_id: jornada.id, fase: jornada.etapa_atual, evento: 'Entregável gerado: cadeia_valor' });
+          console.log('[ENTREGAVEL] ✅ Generated cadeia_valor deliverable');
+        }
+      } catch (e) {
+        console.warn('[ENTREGAVEIS] Failed immediate generation by form_type:', e);
       }
     }
 
@@ -581,6 +657,12 @@ Deno.serve(async (req: Request) => {
       if (a.type !== 'exibir_formulario') return true;
       const tipo = String(a.params?.tipo || '');
 
+      // ⚠️ CRITICAL: Block ALL forms if awaiting validation
+      if (jornada.aguardando_validacao) {
+        console.log(`[CONSULTOR-CHAT] ⛔ Bloqueando formulário ${tipo} - aguardando validação: ${jornada.aguardando_validacao}`);
+        return false;
+      }
+
       // Bloquear formulários já preenchidos
       if (isFormAlreadyFilled(tipo, ctxNow)) {
         console.log(`[CONSULTOR-CHAT] ⛔ Bloqueando formulário ${tipo} - já preenchido`);
@@ -650,30 +732,9 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 2) Em MODELAGEM: garantir ordem Canvas → Cadeia de Valor
-    if (jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento') {
-      // Se anamnese preenchida mas canvas não, não adicionar cadeia ainda
-      const hasAnamnese = !!(ctxNow && (ctxNow.anamnese || ctxNow.empresa));
-      const hasCanvas = !!(ctxNow && ctxNow.canvas);
-      const hasCadeia = !!(ctxNow && (ctxNow.cadeia_valor || ctxNow.cadeia));
-
-      // Só sugerir Cadeia se Canvas já existe
-      if (hasCanvas && !hasCadeia && !filteredActions.some((a:any)=> a.type==='exibir_formulario' && a.params?.tipo==='cadeia_valor')) {
-        console.log('[CONSULTOR-CHAT] Canvas existe, sugerindo Cadeia de Valor');
-        filteredActions.push({ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' } });
-      }
-
-      // Só sugerir Canvas se Anamnese já existe e Canvas não
-      if (hasAnamnese && !hasCanvas && !filteredActions.some((a:any)=> a.type==='exibir_formulario' && a.params?.tipo==='canvas')) {
-        console.log('[CONSULTOR-CHAT] Anamnese existe, sugerindo Canvas');
-        filteredActions.push({ type: 'exibir_formulario', params: { tipo: 'canvas' } });
-      }
-    }
-
-    // 3) IMPORTANTE: Atributos do Processo SÓ na fase de EXECUÇÃO
-    // NÃO adicionar automaticamente - deixar a LLM pedir permissão primeiro via CTA
-    // Removi a lógica automática que estava causando o problema
-    // ----------------------------------------------------
+    // REMOVED: Auto-push logic that was causing cascade
+    // Forms should ONLY open when LLM explicitly requests via CTA and user confirms
+    // All auto-suggestion logic has been removed to enforce strict framework flow
 
     // Execute filtered actions
     const { updates, gamificationResult, postActions } =
@@ -702,7 +763,32 @@ Deno.serve(async (req: Request) => {
           const { html, nome } = await deliverableGenerator.generateDeliverable(tipo, jornada, llmResponse);
           await deliverableGenerator.saveDeliverable(jornada.id, tipo, nome, html, jornada.etapa_atual);
           await markerProcessor.autoAwardXPByEvent(jornada.id, user_id, 'entregavel_gerado', conversation_id);
-          if (tipo === 'escopo_projeto') await markerProcessor.ensureAreasFromScope(jornada.id);
+
+          // Register timeline event for deliverable generation
+          try {
+            await supabase.from('timeline_consultor').insert({
+              jornada_id: jornada.id,
+              fase: jornada.etapa_atual,
+              evento: `Entregável gerado: ${tipo}`
+            });
+            console.log(`[TIMELINE] ✅ Registered deliverable generation: ${tipo}`);
+          } catch (e) {
+            console.warn('[TIMELINE] Failed to register deliverable:', e);
+          }
+
+          if (tipo === 'escopo_projeto') {
+            await markerProcessor.ensureAreasFromScope(jornada.id);
+            // Register escopo timeline event
+            try {
+              await supabase.from('timeline_consultor').insert({
+                jornada_id: jornada.id,
+                fase: jornada.etapa_atual,
+                evento: 'Entregável gerado: escopo_projeto'
+              });
+            } catch (e) {
+              console.warn('[TIMELINE] Failed to register escopo:', e);
+            }
+          }
 
           // If we just generated the prioritization matrix, compute concrete priorities from cadeia_valor_processos
           if (tipo === 'matriz_priorizacao') {
@@ -729,10 +815,23 @@ Deno.serve(async (req: Request) => {
               jornada.contexto_coleta = newCtx;
               jornada.aguardando_validacao = 'priorizacao';
 
+              // ⚠️ CRITICAL: Block progression until user validates
               // Do NOT move to 'execucao' yet and do NOT enqueue atributos_processo.
               // The user must VALIDATE the priorização first. Once they validate, the frontend
               // will call the backend with a SET_VALIDACAO:priorizacao action to advance.
               console.log('[CONSULTOR-CHAT] matriz_priorizacao persistida e jornada marcada aguardando_validacao: priorizacao');
+
+              // Register timeline event
+              try {
+                await supabase.from('timeline_consultor').insert({
+                  jornada_id: jornada.id,
+                  fase: jornada.etapa_atual,
+                  evento: 'Entregável gerado: matriz_priorizacao'
+                });
+              } catch (e) {
+                console.warn('[TIMELINE] Failed to register matriz generation:', e);
+              }
+
               // Ensure the assistant asks the user to review and validate the matrix
               if (!filteredActions.some((a:any)=> a.type === 'set_validacao' && a.params?.tipo === 'priorizacao')) {
                 filteredActions.push({ type: 'set_validacao', params: { tipo: 'priorizacao' } });
