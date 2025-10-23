@@ -235,8 +235,10 @@ Deno.serve(async (req: Request) => {
 
       // Atualiza etapa/validação conforme formulário
       if (form_type === 'anamnese') {
+        // CRÍTICO: Após anamnese preenchida, avançar para modelagem (canvas)
+        // aguardando_validacao: null para não travar o fluxo
         await supabase.from('jornadas_consultor')
-          .update({ etapa_atual: 'anamnese', aguardando_validacao: 'anamnese' })
+          .update({ etapa_atual: 'modelagem', aguardando_validacao: null })
           .eq('id', jornada.id);
       }
       if (form_type === 'canvas' || form_type === 'cadeia_valor') {
@@ -411,7 +413,9 @@ Deno.serve(async (req: Request) => {
       // Mark form events in framework checklist
       if (form_data.nome_empresa || form_data.nome_usuario || form_data.empresa_nome) {
         await frameworkGuide.markEvent(conversation_id, 'anamnese_preenchida');
-        console.log('[CONSULTOR-CHAT] Marked anamnese_preenchida');
+        // IMPORTANTE: Marcar como analisada também para evitar loop
+        await frameworkGuide.markEvent(conversation_id, 'anamnese_analisada');
+        console.log('[CONSULTOR-CHAT] Marked anamnese_preenchida + analisada');
       } else if (form_data.parcerias_chave || form_data.segmentos_clientes) {
         await frameworkGuide.markEvent(conversation_id, 'canvas_preenchido');
         console.log('[CONSULTOR-CHAT] Marked canvas_preenchido');
