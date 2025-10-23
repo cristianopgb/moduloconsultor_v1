@@ -13,9 +13,9 @@
     - Adicionar contador de iterações
     - Adicionar campo de estado explícito
 
-  3. Alterações na Tabela cadeia_valor_processos
-    - Adicionar campo tipo_processo (primario, suporte, gestao)
-    - Adicionar índice para filtros por tipo
+  3. NOTA: cadeia_valor_processos
+    - A tabela cadeia_valor_processos já existe (migração 20251011200000)
+    - O campo tipo_processo já está criado nessa tabela base
 
   4. Novas Funções
     - Função para detectar estado atual do framework
@@ -217,34 +217,12 @@ BEGIN
 END $$;
 
 -- =====================================================
--- PARTE 5: ADICIONAR tipo_processo EM CADEIA_VALOR_PROCESSOS
+-- PARTE 5: NOTA SOBRE CADEIA_VALOR_PROCESSOS
 -- =====================================================
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'cadeia_valor_processos' AND column_name = 'tipo_processo'
-  ) THEN
-    ALTER TABLE cadeia_valor_processos ADD COLUMN tipo_processo TEXT DEFAULT 'primario';
-  END IF;
-END $$;
-
--- Adicionar constraint para tipo_processo
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.constraint_column_usage
-    WHERE table_name = 'cadeia_valor_processos' AND constraint_name = 'cadeia_valor_processos_tipo_check'
-  ) THEN
-    ALTER TABLE cadeia_valor_processos
-    ADD CONSTRAINT cadeia_valor_processos_tipo_check
-    CHECK (tipo_processo IN ('primario', 'suporte', 'gestao'));
-  END IF;
-END $$;
-
--- Criar índice para filtrar por tipo
-CREATE INDEX IF NOT EXISTS idx_cadeia_valor_processos_tipo ON cadeia_valor_processos(tipo_processo);
+-- NOTA: A tabela cadeia_valor_processos e o campo tipo_processo já são criados
+-- na migração 20251011200000_create_cadeia_valor_processos.sql
+-- Esta seção foi removida para evitar duplicação
 
 -- =====================================================
 -- PARTE 6: FUNÇÕES AUXILIARES
@@ -425,5 +403,3 @@ COMMENT ON COLUMN processo_checklist.atributos_cta_enviado IS 'LLM enviou CTA pe
 COMMENT ON COLUMN processo_checklist.atributos_usuario_confirmou IS 'Usuário confirmou que quer preencher atributos';
 COMMENT ON COLUMN processo_checklist.estado_processo IS 'Estado da máquina: IDLE, ATRIBUTOS, BPMN, DIAGNOSTICO, COMPLETO';
 COMMENT ON COLUMN processo_checklist.iteracoes_processo IS 'Contador de iterações no processo atual (previne loops)';
-
-COMMENT ON COLUMN cadeia_valor_processos.tipo_processo IS 'Tipo do processo na cadeia: primario, suporte ou gestao';
