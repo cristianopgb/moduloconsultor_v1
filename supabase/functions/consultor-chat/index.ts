@@ -151,12 +151,16 @@ Deno.serve(async (req: Request) => {
       const frameworkGuide = new FrameworkGuide(supabase);
       if (form_data.nome_empresa || form_data.nome_usuario || form_data.empresa_nome) {
         await frameworkGuide.markEvent(conversation_id, 'anamnese_preenchida');
+        console.log('[CONSULTOR-CHAT] Marked anamnese_preenchida');
       } else if (form_data.parcerias_chave || form_data.segmentos_clientes) {
         await frameworkGuide.markEvent(conversation_id, 'canvas_preenchido');
-      } else if (form_data.atividades_primarias || form_data.atividades_suporte) {
+        console.log('[CONSULTOR-CHAT] Marked canvas_preenchido');
+      } else if (form_type === 'cadeia_valor' || (form_data.processos && form_data.outputs)) {
         await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_preenchida');
-      } else if (form_data.processos && Array.isArray(form_data.processos)) {
+        console.log('[CONSULTOR-CHAT] Marked cadeia_valor_preenchida');
+      } else if (form_data.processos && Array.isArray(form_data.processos) && form_type !== 'cadeia_valor') {
         await frameworkGuide.markEvent(conversation_id, 'matriz_preenchida');
+        console.log('[CONSULTOR-CHAT] Marked matriz_preenchida');
       }
 
       const markerProcessor = new MarkerProcessor(supabase);
@@ -188,7 +192,7 @@ Deno.serve(async (req: Request) => {
     const { data: gamification } = await supabase
       .from('gamificacao_consultor')
       .select('*')
-      .eq('user_id', user_id)
+      .eq('jornada_id', jornada.id)
       .maybeSingle();
 
     const frameworkGuide = new FrameworkGuide(supabase);
