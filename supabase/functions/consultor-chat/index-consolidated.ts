@@ -564,6 +564,19 @@ class DeliverableGenerator {
   }
 
   async generateDeliverable(tipo: string, jornada: any) {
+    // Try to fetch template from database first
+    const { data: template } = await this.supabase
+      .from('templates_entregaveis')
+      .select('*')
+      .eq('tipo', tipo)
+      .maybeSingle();
+
+    if (template) {
+      // Use template-based approach
+      return await this.generateFromTemplate(template, jornada, tipo);
+    }
+
+    // Fallback to LLM generation
     // Base de contexto
     let contexto = jornada.contexto_coleta || {};
 
@@ -602,6 +615,125 @@ class DeliverableGenerator {
       plano_acao: 'Plano de Ação 5W2H'
     };
     return { html: this.cleanHTML(html), nome: nomeMap[tipo] || 'Documento' };
+  }
+
+  async generateFromTemplate(template: any, jornada: any, tipo: string) {
+    let html = template.html_template || '';
+    const ctx = jornada.contexto_coleta || {};
+
+    // Build mapping object with all possible data sources
+    const data: Record<string, string> = {
+      data_geracao: new Date().toLocaleDateString('pt-BR'),
+
+      // From jornada context (anamnese form)
+      empresa_nome: ctx.empresa_nome || ctx.nome_empresa || '',
+      nome_usuario: ctx.nome_usuario || '',
+      cargo: ctx.cargo || '',
+      segmento: ctx.segmento || ctx.ramo_atuacao || '',
+      porte: ctx.porte || ctx.numero_funcionarios || '',
+      desafios_principais: ctx.desafios_principais || ctx.desafios || '',
+      desafios_mencionados: ctx.desafios_principais || ctx.desafios || '',
+      proximos_passos: ctx.expectativas || ctx.metas_curto_prazo || 'A definir conforme evolução do projeto',
+
+      // Canvas fields
+      parcerias_principais: ctx.parcerias_chave || ctx.parcerias_principais || '',
+      atividades_principais: ctx.atividades_chave || ctx.atividades_principais || '',
+      proposta_valor: ctx.proposta_valor || '',
+      relacionamento_clientes: ctx.relacionamento || ctx.relacionamento_clientes || '',
+      segmentos_clientes: ctx.segmentos_clientes || '',
+      recursos_principais: ctx.recursos_chave || ctx.recursos_principais || '',
+      canais_distribuicao: ctx.canais || ctx.canais_distribuicao || '',
+      estrutura_custos: ctx.estrutura_custos || '',
+      fontes_receita: ctx.fontes_receita || '',
+      observacoes_canvas: ctx.observacoes || ''
+    };
+
+    // For matriz/escopo, fetch processes
+    if (tipo === 'matriz_priorizacao' || tipo === 'matriz' || tipo === 'escopo_projeto' || tipo === 'escopo') {
+      const { data: processos } = await this.supabase
+        .from('cadeia_valor_processos')
+        .select('id,nome,criticidade,impacto,esforco')
+        .eq('jornada_id', jornada.id);
+
+      const linhas = (processos || []).map((p: any) => {
+        const imp = Number(p.impacto || 1);
+        const cri = Number(p.criticidade || 1);
+        const esf = Math.max(1, Number(p.esforco || 1));
+        const score = Math.round((imp * cri) / esf * 100) / 100;
+        return { ...p, score };
+      }).sort((a: any, b: any) => b.score - a.score);
+
+      data.matriz_processos = this.buildMatrizTable(linhas);
+      data.processos_prioritarios = this.buildPrioridadesList(linhas);
+    }
+
+    // Replace all placeholders {{key}} with actual values
+    for (const [key, value] of Object.entries(data)) {
+      const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      html = html.replace(regex, value || '-');
+    }
+
+    // Replace any remaining unfilled placeholders with '-'
+    html = html.replace(/\{\{[^}]+\}\}/g, '-');
+
+    const nomeMap: Record<string,string> = {
+      anamnese: 'Anamnese Empresarial',
+      relatorio: 'Relatório de Anamnese',
+      canvas: 'Canvas do Modelo de Negócio',
+      cadeia_valor: 'Cadeia de Valor',
+      matriz_priorizacao: 'Matriz de Priorização',
+      matriz: 'Matriz de Priorização',
+      escopo_projeto: 'Escopo do Projeto',
+      escopo: 'Escopo do Projeto'
+    };
+
+    return { html, nome: nomeMap[tipo] || 'Documento' };
+  }
+
+  buildMatrizTable(processos: any[]): string {
+    if (!processos || processos.length === 0) {
+      return '<p>Nenhum processo mapeado ainda.</p>';
+    }
+
+    const rows = processos.map((p, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.nome || '-'}</td>
+        <td>${p.impacto ?? '-'}</td>
+        <td>${p.criticidade ?? '-'}</td>
+        <td>${p.esforco ?? '-'}</td>
+        <td><strong>${p.score ?? '-'}</strong></td>
+      </tr>
+    `).join('');
+
+    return `
+      <table class="matriz-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Processo</th>
+            <th>Impacto</th>
+            <th>Criticidade</th>
+            <th>Esforço</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
+  buildPrioridadesList(processos: any[]): string {
+    if (!processos || processos.length === 0) {
+      return '<p>Nenhum processo priorizado.</p>';
+    }
+
+    const topProcessos = processos.slice(0, 5);
+    const items = topProcessos.map((p, i) =>
+      `<li><strong>${i + 1}. ${p.nome}</strong> (Score: ${p.score ?? '-'})</li>`
+    ).join('');
+
+    return `<ul>${items}</ul>`;
   }
 
   buildPromptForType(tipo: string, contexto: any, jornada: any) {
@@ -894,6 +1026,32 @@ async function handleRequest(req: Request) {
       .eq('conversation_id', conversation_id)
       .maybeSingle();
 
+    // Check if user is confirming prioritization validation
+    if (jornada && jornada.aguardando_validacao === 'priorizacao' && !isFormSubmission) {
+      const confirmWords = /valido|confirmo|validar|concordo|ok|sim|vamos|pode.*avanc|seguir|próxim|correto|perfeito|tudo.*certo/i;
+      if (confirmWords.test(message)) {
+        console.log('[CONSULTOR-CHAT] User confirmed prioritization, advancing to execution phase');
+
+        await supabase
+          .from('jornadas_consultor')
+          .update({
+            aguardando_validacao: null,
+            etapa_atual: 'execucao'
+          })
+          .eq('id', jornada.id);
+
+        // Reload jornada to get updated state
+        const { data: jornadaAtualizada } = await supabase
+          .from('jornadas_consultor')
+          .select('*')
+          .eq('id', jornada.id)
+          .single();
+
+        if (jornadaAtualizada) jornada = jornadaAtualizada;
+        console.log('[CONSULTOR-CHAT] Jornada advanced to execucao phase');
+      }
+    }
+
     if (!jornada) {
       const { data: upserted, error: upErr } = await supabase
         .from('jornadas_consultor')
@@ -1121,11 +1279,11 @@ async function handleRequest(req: Request) {
       }
     }
 
-    // GAMIFICAÇÃO (compat com sua tabela/view atual)
+    // GAMIFICAÇÃO (buscar por jornada_id)
     const { data: gamification } = await supabase
-      .from('gamificacao_conversa')
+      .from('gamificacao_consultor')
       .select('*')
-      .eq('conversation_id', conversation_id)
+      .eq('jornada_id', jornada.id)
       .maybeSingle();
 
     // If user message contains direct markers (user clicked a button), handle them immediately
