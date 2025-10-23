@@ -76,11 +76,52 @@ export class FrameworkGuide {
    * Gera contexto de orientação para a LLM (não instruções rígidas)
    */
   async getGuideContext(conversationId: string): Promise<string> {
-    const { data: checklist, error: checklistError } = await this.supabase
+    let { data: checklist, error: checklistError } = await this.supabase
       .from('framework_checklist')
       .select('*')
       .eq('conversation_id', conversationId)
       .maybeSingle();
+
+    // Se checklist não existe, criar automaticamente
+    if (!checklist && !checklistError) {
+      console.log('[FRAMEWORK_GUIDE] Checklist não existe, criando automaticamente...');
+      const { data: newChecklist, error: createError } = await this.supabase
+        .from('framework_checklist')
+        .insert({
+          conversation_id: conversationId,
+          apresentacao_feita: false,
+          anamnese_preenchida: false,
+          anamnese_analisada: false,
+          anamnese_formulario_exibido: false,
+          canvas_preenchido: false,
+          canvas_formulario_exibido: false,
+          cadeia_valor_preenchida: false,
+          cadeia_valor_formulario_exibida: false,
+          processos_identificados: false,
+          escopo_priorizacao_definido: false,
+          escopo_quantidade_processos: 0,
+          escopo_processos_nomes: [],
+          matriz_priorizacao_preenchida: false,
+          matriz_priorizacao_formulario_exibido: false,
+          todos_processos_concluidos: false,
+          plano_acao_gerado: false,
+          xp_anamnese_concedido: false,
+          xp_canvas_concedido: false,
+          xp_cadeia_valor_concedido: false,
+          xp_matriz_priorizacao_concedido: false,
+          xp_plano_acao_concedido: false,
+          xp_conclusao_concedido: false
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('[FRAMEWORK_GUIDE] Erro ao criar checklist:', createError);
+        return "";
+      }
+      checklist = newChecklist;
+      console.log('[FRAMEWORK_GUIDE] Checklist criado com sucesso');
+    }
 
     if (checklistError || !checklist) {
       console.error('[FRAMEWORK_GUIDE] Erro ao buscar checklist:', checklistError);

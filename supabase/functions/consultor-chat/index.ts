@@ -102,7 +102,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    console.log('[CONSULTOR-CHAT] Request received:', { user_id, conversation_id, has_form_data: !!form_data });
+    console.log('[CONSULTOR-CHAT] Request received:', { user_id, conversation_id, has_form_data: !!form_data, message_preview: message?.substring(0, 50) });
 
     const isFormSubmission = Boolean(form_data && Object.keys(form_data).length > 0);
 
@@ -467,15 +467,18 @@ Deno.serve(async (req: Request) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    console.log('[CONSULTOR-CHAT] Fetching checklist context...');
     const checklistContext = await frameworkGuide.getGuideContext(conversation_id);
+    console.log('[CONSULTOR-CHAT] Checklist context fetched, length:', checklistContext?.length || 0);
 
     const promptBuilder = new IntelligentPromptBuilder(supabase);
+    console.log('[CONSULTOR-CHAT] Building prompts...');
     const systemPrompt = await promptBuilder.buildSystemPrompt(jornada, gamification, checklistContext, conversationHistory || []);
     const userPrompt = await promptBuilder.buildUserPrompt(message, conversationHistory || []);
+    console.log('[CONSULTOR-CHAT] Prompts built. Calling LLM...');
 
-    console.log('[CONSULTOR-CHAT] Calling LLM with enhanced prompts...');
     const llmResponse = await callLLM(systemPrompt, userPrompt, openaiKey);
-    console.log('[CONSULTOR-CHAT] LLM response received');
+    console.log('[CONSULTOR-CHAT] LLM response received, length:', llmResponse?.length || 0);
 
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
@@ -507,7 +510,8 @@ Deno.serve(async (req: Request) => {
     // 1) Matriz de Priorização nunca como formulário
     //    Se LLM tentar exibir como formulário, convertemos em gerar_entregavel (priorização automática)
     for (const a of actions) {
-      if (a.type === 'exibir_formulario' && (a.params?.tipo === 'matriz_priorizacao' || a.params?.tipo === 'matriz-priorizacao')) {
+      const aAny = a as any;
+      if (aAny.type === 'exibir_formulario' && (aAny.params?.tipo === 'matriz_priorizacao' || aAny.params?.tipo === 'matriz-priorizacao')) {
         console.log('[CONSULTOR-CHAT] Interceptando pedido de formulário de matriz_priorizacao — convertendo para gerar_entregavel');
         filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'matriz_priorizacao' } });
       }
@@ -567,7 +571,8 @@ Deno.serve(async (req: Request) => {
       const deliverableGenerator = new DeliverableGenerator(supabase, openaiKey);
       for (const action of deliverableActions){
         try {
-          const rawTipo = action.params.tipo;
+          const actionAny = action as any;
+          const rawTipo = actionAny.params?.tipo;
           // normalização de slug
           const tipo = (rawTipo === 'matriz' ? 'matriz_priorizacao' : rawTipo).replace(/-/g, '_');
           const { html, nome } = await deliverableGenerator.generateDeliverable(tipo, jornada, llmResponse);
@@ -614,7 +619,8 @@ Deno.serve(async (req: Request) => {
             }
           }
         } catch (err) {
-          console.error(`[CONSULTOR-CHAT] Error generating deliverable ${action.params?.tipo}:`, err);
+          const actionAny = action as any;
+          console.error(`[CONSULTOR-CHAT] Error generating deliverable ${actionAny.params?.tipo}:`, err);
         }
       }
     }
