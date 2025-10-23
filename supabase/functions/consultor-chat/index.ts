@@ -480,6 +480,20 @@ Deno.serve(async (req: Request) => {
     const llmResponse = await callLLM(systemPrompt, userPrompt, openaiKey);
     console.log('[CONSULTOR-CHAT] LLM response received, length:', llmResponse?.length || 0);
 
+    // DETECÇÃO AUTOMÁTICA DE CTA: Se LLM pergunta sobre enviar formulário, marcar CTA como enviado
+    if (/posso enviar.*formul[aá]rio|vou enviar.*formul[aá]rio|enviar.*formul[aá]rio.*anamnese/i.test(llmResponse)) {
+      console.log('[CONSULTOR-CHAT] Detectado CTA de anamnese na resposta LLM, marcando...');
+      await frameworkGuide.markEvent(conversation_id, 'anamnese_cta_enviado');
+    }
+    if (/posso enviar.*canvas|vou enviar.*canvas|mapear.*canvas/i.test(llmResponse)) {
+      console.log('[CONSULTOR-CHAT] Detectado CTA de canvas na resposta LLM, marcando...');
+      await frameworkGuide.markEvent(conversation_id, 'canvas_cta_enviado');
+    }
+    if (/posso enviar.*cadeia.*valor|vou enviar.*cadeia/i.test(llmResponse)) {
+      console.log('[CONSULTOR-CHAT] Detectado CTA de cadeia de valor na resposta LLM, marcando...');
+      await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_cta_enviado');
+    }
+
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
 
