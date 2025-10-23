@@ -197,20 +197,48 @@ Deno.serve(async (req: Request) => {
     const frameworkGuide = new FrameworkGuide(supabase);
     const awaitingStatus = await frameworkGuide.isAwaitingConfirmation(conversation_id);
 
+    // ANTI-LOOP ESCAPE HATCH: Count recent assistant messages asking about the same form
+    if (awaitingStatus.awaiting && !isFormSubmission) {
+      const recentMessages = (conversationHistory || []).slice(-10);
+      const recentAssistantMessages = recentMessages.filter((m: any) => m.role === 'assistant');
+      const formType = awaitingStatus.type;
+      const ctaKeywords = ['formul', 'anamnese', 'canvas', 'cadeia', 'posso enviar', 'vou enviar'];
+      const repeatedCTACount = recentAssistantMessages.filter((m: any) => {
+        const content = (m.content || '').toLowerCase();
+        return ctaKeywords.some(kw => content.includes(kw));
+      }).length;
+
+      if (repeatedCTACount >= 2) {
+        console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Detected ${repeatedCTACount} CTA requests. Force-confirming ${formType}.`);
+        // Force confirmation to break the loop
+        if (formType === 'anamnese') {
+          await frameworkGuide.markEvent(conversation_id, 'anamnese_confirmada');
+        } else if (formType === 'canvas') {
+          await frameworkGuide.markEvent(conversation_id, 'canvas_confirmado');
+        } else if (formType === 'cadeia_valor') {
+          await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_confirmada');
+        }
+        console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Force-confirmed ${formType}, will send form marker`);
+      }
+    }
+
     if (awaitingStatus.awaiting && !isFormSubmission) {
       console.log(`[CONSULTOR-CHAT] Awaiting confirmation for: ${awaitingStatus.type}`);
 
       // Detect if user message contains confirmation
       if (frameworkGuide.isUserConfirmation(message)) {
-        console.log(`[CONSULTOR-CHAT] User confirmed: ${awaitingStatus.type}`);
+        console.log(`[CONSULTOR-CHAT] ✅ User confirmed: ${awaitingStatus.type}`);
 
         // Mark confirmation in checklist
         if (awaitingStatus.type === 'anamnese') {
           await frameworkGuide.markEvent(conversation_id, 'anamnese_confirmada');
+          console.log('[CONSULTOR-CHAT] ✅ Marked anamnese_usuario_confirmou = true');
         } else if (awaitingStatus.type === 'canvas') {
           await frameworkGuide.markEvent(conversation_id, 'canvas_confirmado');
+          console.log('[CONSULTOR-CHAT] ✅ Marked canvas_usuario_confirmou = true');
         } else if (awaitingStatus.type === 'cadeia_valor') {
           await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_confirmada');
+          console.log('[CONSULTOR-CHAT] ✅ Marked cadeia_valor_usuario_confirmou = true');
         } else if (awaitingStatus.type === 'escopo') {
           await frameworkGuide.markEvent(conversation_id, 'escopo_validado');
         } else if (awaitingStatus.type?.startsWith('atributos:')) {
@@ -218,7 +246,9 @@ Deno.serve(async (req: Request) => {
           await frameworkGuide.markProcessoEvent(conversation_id, processoNome, 'atributos_confirmado');
         }
 
-        console.log(`[CONSULTOR-CHAT] Confirmation marked for ${awaitingStatus.type}`);
+        console.log(`[CONSULTOR-CHAT] ✅ Confirmation marked for ${awaitingStatus.type}, continuing to LLM call`);
+      } else {
+        console.log(`[CONSULTOR-CHAT] ⏸️ User message did NOT match confirmation patterns: "${message.substring(0, 50)}"`);
       }
     }
 
@@ -470,6 +500,14 @@ Deno.serve(async (req: Request) => {
     console.log('[CONSULTOR-CHAT] Fetching checklist context...');
     const checklistContext = await frameworkGuide.getGuideContext(conversation_id);
     console.log('[CONSULTOR-CHAT] Checklist context fetched, length:', checklistContext?.length || 0);
+
+    // Log checklist state for debugging
+    const { data: checklistDebug } = await supabase
+      .from('framework_checklist')
+      .select('anamnese_cta_enviado, anamnese_usuario_confirmou, anamnese_formulario_exibido, anamnese_preenchida')
+      .eq('conversation_id', conversation_id)
+      .maybeSingle();
+    console.log('[CONSULTOR-CHAT] Current checklist state:', checklistDebug);
 
     const promptBuilder = new IntelligentPromptBuilder(supabase);
     console.log('[CONSULTOR-CHAT] Building prompts...');

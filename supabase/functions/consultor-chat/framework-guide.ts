@@ -223,10 +223,10 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
       return "Propor de forma conversacional: 'Posso enviar um formulário rápido de anamnese?' (não envie o form ainda!)";
     }
     if (checklist.anamnese_cta_enviado && !checklist.anamnese_usuario_confirmou) {
-      return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher anamnese. NÃO envie o formulário até ele responder positivamente.";
+      return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher anamnese. NÃO envie o formulário até ele responder positivamente. SE o usuário já disse 'sim' ou 'pode' anteriormente, detecte isso e envie o formulário IMEDIATAMENTE.";
     }
     if (checklist.anamnese_usuario_confirmou && !checklist.anamnese_formulario_exibido) {
-      return "Enviar formulário de anamnese agora: [EXIBIR_FORMULARIO:anamnese]";
+      return "✅ USUÁRIO CONFIRMOU! Enviar formulário de anamnese AGORA: [EXIBIR_FORMULARIO:anamnese]";
     }
     if (checklist.anamnese_formulario_exibido && !checklist.anamnese_preenchida) {
       return "Aguardando cliente preencher anamnese. Responda dúvidas se houver.";
@@ -543,6 +543,14 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
       /vamos em frente/,
       /pode enviar/,
       /pode mandar/,
+      /sim.*pode/,
+      /já falei que (sim|pode)/,
+      /pode começar/,
+      /bora/,
+      /beleza/,
+      /tudo bem/,
+      /positivo/,
+      /confirmo/,
     ];
     return confirmPatterns.some(pattern => pattern.test(lowerMsg));
   }
