@@ -129,6 +129,33 @@ Deno.serve(async (req: Request) => {
       jornada = newJornada;
     }
 
+    // Check if user is confirming validation
+    if (jornada.aguardando_validacao === 'priorizacao' && !isFormSubmission) {
+      const confirmWords = /valido|confirmo|validar|concordo|ok|sim|vamos|pode.*avanc|seguir|próxim/i;
+      if (confirmWords.test(message)) {
+        console.log('[CONSULTOR-CHAT] User confirmed prioritization, advancing to execution phase');
+
+        await supabase
+          .from('jornadas_consultor')
+          .update({
+            aguardando_validacao: null,
+            etapa_atual: 'execucao'
+          })
+          .eq('id', jornada.id);
+
+        // Reload jornada to get updated state
+        const { data: jornadaAtualizada } = await supabase
+          .from('jornadas_consultor')
+          .select('*')
+          .eq('id', jornada.id)
+          .single();
+
+        if (jornadaAtualizada) jornada = jornadaAtualizada;
+
+        console.log('[CONSULTOR-CHAT] Jornada advanced to execucao phase');
+      }
+    }
+
   let preAwardResult = null;
   if (isFormSubmission && form_data) {
       console.log('[CONSULTOR-CHAT] Form submission detected, updating context...');
@@ -254,12 +281,21 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const { updates, gamificationResult } = await markerProcessor.executeActions(
-      filteredActions,
-      jornada,
-      conversation_id,
-      user_id
-    );
+    // Process set_validacao actions
+    const validationActions = filteredActions.filter(a => a.type === 'set_validacao');
+    for (const valAction of validationActions) {
+      const tipo = valAction.params.tipo;
+      console.log(`[CONSULTOR-CHAT] Processing set_validacao for tipo='${tipo}'`);
+
+      if (tipo === 'priorizacao') {
+        // Set the jornada to await validation
+        await supabase
+          .from('jornadas_consultor')
+          .update({ aguardando_validacao: 'priorizacao' })
+          .eq('id', jornada.id);
+        console.log('[CONSULTOR-CHAT] Jornada marked as aguardando_validacao: priorizacao');
+      }
+    }
 
     const formActions = filteredActions.filter(a => a.type === 'exibir_formulario');
     for (const formAction of formActions) {
