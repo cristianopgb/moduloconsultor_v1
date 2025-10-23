@@ -194,10 +194,17 @@ export class MarkerProcessor {
 
   private async timeline(jornada_id: string, fase: string, evento: string, meta?: any) {
     // timeline_consultor table has columns: jornada_id, evento, fase, timestamp, created_at
-    // do not insert a 'meta' field that doesn't exist in the schema
-    await this.supabase.from('timeline_consultor').insert({
-      jornada_id, fase, evento
-    });
+    // NÃO usar campo 'meta' ou 'tipo_evento' que não existem no schema
+    try {
+      await this.supabase.from('timeline_consultor').insert({
+        jornada_id,
+        fase,
+        evento
+      });
+      console.log(`[TIMELINE] Evento registrado: ${evento} (fase: ${fase})`);
+    } catch (e) {
+      console.warn('[TIMELINE] Erro ao registrar evento (não-fatal):', e);
+    }
   }
 
   async ensureAreasFromScope(jornadaId: string) {

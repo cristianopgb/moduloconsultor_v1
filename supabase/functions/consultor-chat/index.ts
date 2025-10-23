@@ -195,6 +195,21 @@ Deno.serve(async (req: Request) => {
 
     // CTA Detection and Confirmation System (from framework-guide)
     const frameworkGuide = new FrameworkGuide(supabase);
+
+    // Marcar apresentação como feita após primeira resposta do assistente
+    const { data: checklistData } = await supabase
+      .from('framework_checklist')
+      .select('apresentacao_feita')
+      .eq('conversation_id', conversation_id)
+      .maybeSingle();
+
+    const hasAssistantReplied = Array.isArray(conversationHistory) && conversationHistory.some((m: any) => m.role === 'assistant');
+    if (hasAssistantReplied && checklistData && !checklistData.apresentacao_feita) {
+      // Marcar apresentação como feita
+      await frameworkGuide.markEvent(conversation_id, 'apresentacao');
+      console.log('[CONSULTOR-CHAT] ✅ Marcada apresentacao_feita = true no checklist');
+    }
+
     const awaitingStatus = await frameworkGuide.isAwaitingConfirmation(conversation_id);
 
     // ANTI-LOOP ESCAPE HATCH: Count recent assistant messages asking about the same form
@@ -263,28 +278,38 @@ Deno.serve(async (req: Request) => {
         .update({ contexto_coleta: updatedContext })
         .eq('id', jornada.id);
 
-      // Atualiza etapa/validação conforme formulário
+      // Atualiza etapa/validação conforme formulário - SEGUINDO ORDEM DO FRAMEWORK RIGOROSAMENTE
       if (form_type === 'anamnese') {
-        // CRÍTICO: Após anamnese preenchida, avançar para modelagem (canvas)
-        // aguardando_validacao: null para não travar o fluxo
+        // Após anamnese, manter em modelagem para solicitar Canvas
         await supabase.from('jornadas_consultor')
           .update({ etapa_atual: 'modelagem', aguardando_validacao: null })
           .eq('id', jornada.id);
-      }
-      if (form_type === 'canvas' || form_type === 'cadeia_valor') {
+        console.log('[CONSULTOR-CHAT] Anamnese preenchida, avançando para modelagem (Canvas será o próximo)');
+      } else if (form_type === 'canvas') {
+        // Após canvas, manter em modelagem para solicitar Cadeia de Valor
         await supabase.from('jornadas_consultor')
           .update({ etapa_atual: 'modelagem', aguardando_validacao: null })
           .eq('id', jornada.id);
-      }
-      if (form_type === 'matriz_priorizacao') {
+        console.log('[CONSULTOR-CHAT] Canvas preenchido, mantendo em modelagem (Cadeia de Valor será o próximo)');
+      } else if (form_type === 'cadeia_valor') {
+        // Após cadeia de valor, manter em modelagem para gerar matriz automaticamente
+        await supabase.from('jornadas_consultor')
+          .update({ etapa_atual: 'modelagem', aguardando_validacao: null })
+          .eq('id', jornada.id);
+        console.log('[CONSULTOR-CHAT] Cadeia de Valor preenchida, mantendo em modelagem (Matriz será gerada automaticamente)');
+      } else if (form_type === 'matriz_priorizacao') {
+        // Matriz não deve ser form, mas se vier como form, marcar para priorização
         await supabase.from('jornadas_consultor')
           .update({ etapa_atual: 'priorizacao', aguardando_validacao: 'priorizacao' })
           .eq('id', jornada.id);
-      }
-      if (form_type === 'atributos_processo') {
+        console.log('[CONSULTOR-CHAT] Matriz recebida, aguardando validação do usuário');
+      } else if (form_type === 'atributos_processo') {
+        // Atributos só devem ser preenchidos na fase de execução
+        // NÃO avançar etapa aqui, apenas manter em execução
         await supabase.from('jornadas_consultor')
           .update({ etapa_atual: 'execucao', aguardando_validacao: null })
           .eq('id', jornada.id);
+        console.log('[CONSULTOR-CHAT] Atributos do processo preenchidos, mantendo em execução');
       }
 
       // refresh jornada
@@ -535,28 +560,52 @@ Deno.serve(async (req: Request) => {
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
 
-    // Fallback: se o LLM escreveu que vai abrir um formulário mas não gerou a marker explicitamente,
-    // tentamos inferir a ação por heurística simples (palavras-chave) para não travar o fluxo.
-    if ((!actions || actions.length === 0) && /abrir o formulário|vou abrir o formulário|vou abrir o form/i.test(llmResponse)) {
-      const inferred: any[] = [];
-      if (/anamnese/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'anamnese' } });
-      if (/canvas/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'canvas' } });
-      if (/cadeia/i.test(llmResponse) || /cadeia de valor/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' } });
-      if (/matriz/i.test(llmResponse) || /prioriza/i.test(llmResponse)) inferred.push({ type: 'exibir_formulario', params: { tipo: 'matriz_priorizacao' } });
-      if (inferred.length > 0) {
-        console.log('[CONSULTOR-CHAT] Inferred actions from LLM text:', inferred.map(i=>i.params.tipo));
-        actions.push(...inferred);
-      }
-    }
+    // Fallback DESABILITADO: Não inferir ações automaticamente
+    // A LLM DEVE usar markers explícitos. Se não usar, é porque não deve enviar ainda.
+    // Este fallback estava causando envio de formulários sem CTA confirmado.
+    // REMOVIDO para garantir fluxo rigoroso do framework
 
     console.log('[CONSULTOR-CHAT] Detected actions:', actions.map(a => a.type));
 
-    // -------- Fallbacks para não travar fluxo ----------
+    // -------- Validações Rigorosas de Transição de Fase ----------
     const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
+
+    // Buscar estado do checklist para validações
+    const { data: checklistValidation } = await supabase
+      .from('framework_checklist')
+      .select('*')
+      .eq('conversation_id', conversation_id)
+      .maybeSingle();
+
     const filteredActions = actions.filter((a: any) => {
       if (a.type !== 'exibir_formulario') return true;
       const tipo = String(a.params?.tipo || '');
-      return !isFormAlreadyFilled(tipo, ctxNow);
+
+      // Bloquear formulários já preenchidos
+      if (isFormAlreadyFilled(tipo, ctxNow)) {
+        console.log(`[CONSULTOR-CHAT] ⛔ Bloqueando formulário ${tipo} - já preenchido`);
+        return false;
+      }
+
+      // Bloquear atributos_processo se não estiver em execução
+      if (tipo === 'atributos_processo' && jornada.etapa_atual !== 'execucao') {
+        console.log(`[CONSULTOR-CHAT] ⛔ Bloqueando atributos_processo - não está em fase de execução (etapa atual: ${jornada.etapa_atual})`);
+        return false;
+      }
+
+      // Bloquear Canvas se Anamnese não foi preenchida
+      if (tipo === 'canvas' && !checklistValidation?.anamnese_preenchida) {
+        console.log('[CONSULTOR-CHAT] ⛔ Bloqueando Canvas - Anamnese ainda não preenchida');
+        return false;
+      }
+
+      // Bloquear Cadeia de Valor se Canvas não foi preenchido
+      if (tipo === 'cadeia_valor' && !checklistValidation?.canvas_preenchido) {
+        console.log('[CONSULTOR-CHAT] ⛔ Bloqueando Cadeia de Valor - Canvas ainda não preenchido');
+        return false;
+      }
+
+      return true;
     });
 
     // 1) Matriz de Priorização nunca como formulário
@@ -569,38 +618,61 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // If we're in modelagem and we already have cadeia_valor and anamnese/canvas in contexto_coleta,
-    // we should generate 'matriz_priorizacao' and 'escopo_projeto' automatically (LLM should compute them)
+    // Se estamos em modelagem E já temos Cadeia de Valor preenchida,
+    // gerar matriz_priorizacao e escopo_projeto automaticamente
     const hasCadeia = !!(ctxNow && (ctxNow.cadeia_valor || ctxNow.cadeia));
-    const hasCanvasOrAnamnese = !!(ctxNow && (ctxNow.canvas || ctxNow.anamnese || ctxNow.empresa));
-    if ((jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento') && hasCadeia && hasCanvasOrAnamnese) {
-      // ensure we don't duplicate if already present
+    const hasCanvas = !!(ctxNow && ctxNow.canvas);
+    const hasAnamnese = !!(ctxNow && (ctxNow.anamnese || ctxNow.empresa));
+
+    // Verificar se matriz já foi gerada
+    const { data: matrizExistente } = await supabase
+      .from('entregaveis_consultor')
+      .select('id')
+      .eq('jornada_id', jornada.id)
+      .eq('tipo', 'matriz_priorizacao')
+      .maybeSingle();
+
+    if ((jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento')
+        && hasCadeia && hasCanvas && hasAnamnese
+        && !matrizExistente) {
+      console.log('[CONSULTOR-CHAT] Anamnese + Canvas + Cadeia completos, gerando Matriz automaticamente');
+
+      // Gerar matriz e escopo automaticamente
       if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='matriz_priorizacao')) {
         filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'matriz_priorizacao' } });
       }
       if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='escopo_projeto')) {
         filteredActions.push({ type: 'gerar_entregavel', params: { tipo: 'escopo_projeto' } });
       }
-      // also set validation for modelagem once generated
-      if (!filteredActions.some((a:any)=> a.type==='set_validacao' && a.params?.tipo==='modelagem')) {
-        filteredActions.push({ type: 'set_validacao', params: { tipo: 'modelagem' } });
+      // Marcar para aguardar validação
+      if (!filteredActions.some((a:any)=> a.type==='set_validacao' && a.params?.tipo==='priorizacao')) {
+        filteredActions.push({ type: 'set_validacao', params: { tipo: 'priorizacao' } });
       }
     }
 
-    // 2) Em MODELAGEM/MAPEAMENTO: garantir Cadeia de Valor (se ainda não foi preenchida)
-    if ((jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento')
-        && !isFormAlreadyFilled('cadeia_valor', ctxNow)
-        && !filteredActions.some((a:any)=> a.type==='exibir_formulario' && a.params?.tipo==='cadeia_valor')) {
-      filteredActions.push({ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' } });
+    // 2) Em MODELAGEM: garantir ordem Canvas → Cadeia de Valor
+    if (jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento') {
+      // Se anamnese preenchida mas canvas não, não adicionar cadeia ainda
+      const hasAnamnese = !!(ctxNow && (ctxNow.anamnese || ctxNow.empresa));
+      const hasCanvas = !!(ctxNow && ctxNow.canvas);
+      const hasCadeia = !!(ctxNow && (ctxNow.cadeia_valor || ctxNow.cadeia));
+
+      // Só sugerir Cadeia se Canvas já existe
+      if (hasCanvas && !hasCadeia && !filteredActions.some((a:any)=> a.type==='exibir_formulario' && a.params?.tipo==='cadeia_valor')) {
+        console.log('[CONSULTOR-CHAT] Canvas existe, sugerindo Cadeia de Valor');
+        filteredActions.push({ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' } });
+      }
+
+      // Só sugerir Canvas se Anamnese já existe e Canvas não
+      if (hasAnamnese && !hasCanvas && !filteredActions.some((a:any)=> a.type==='exibir_formulario' && a.params?.tipo==='canvas')) {
+        console.log('[CONSULTOR-CHAT] Anamnese existe, sugerindo Canvas');
+        filteredActions.push({ type: 'exibir_formulario', params: { tipo: 'canvas' } });
+      }
     }
 
-    // 3) Após existir Cadeia de Valor: sugerir Atributos do Processo quando for iniciar Execução
-    if ((jornada.etapa_atual === 'execucao' || jornada.etapa_atual === 'priorizacao')
-        && ctxNow?.cadeia_valor
-        && !isFormAlreadyFilled('atributos_processo', ctxNow)
-        && !filteredActions.some((a:any)=> a.type==='exibir_formulario' && a.params?.tipo==='atributos_processo')) {
-      filteredActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
-    }
+    // 3) IMPORTANTE: Atributos do Processo SÓ na fase de EXECUÇÃO
+    // NÃO adicionar automaticamente - deixar a LLM pedir permissão primeiro via CTA
+    // Removi a lógica automática que estava causando o problema
     // ----------------------------------------------------
 
     // Execute filtered actions

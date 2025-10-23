@@ -216,9 +216,12 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
   }
 
   private suggestNextStep(checklist: FrameworkChecklistData, processos: ProcessoChecklist[]): string {
+    // FASE 1: APRESENTAÇÃO
     if (!checklist.apresentacao_feita) {
-      return "Apresentar-se brevemente e pedir permissão para iniciar.";
+      return "Apresentar-se brevemente (APENAS UMA VEZ) e pedir permissão para iniciar. Marcar apresentacao_feita após primeira resposta.";
     }
+
+    // FASE 2: ANAMNESE
     if (!checklist.anamnese_cta_enviado) {
       return "Propor de forma conversacional: 'Posso enviar um formulário rápido de anamnese?' (não envie o form ainda!)";
     }
@@ -232,49 +235,54 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
       return "Aguardando cliente preencher anamnese. Responda dúvidas se houver.";
     }
     if (checklist.anamnese_preenchida && !checklist.anamnese_analisada) {
-      return "Fazer análise dos dados da anamnese e introduzir Business Model Canvas.";
+      return "Fazer análise dos dados da anamnese, gerar entregável de anamnese, e introduzir Business Model Canvas (não pergunte sobre atributos ou execução ainda).";
     }
+
+    // FASE 3: CANVAS (obrigatório após anamnese)
     if (checklist.anamnese_analisada && !checklist.canvas_cta_enviado) {
-      return "Propor de forma conversacional: 'Que tal mapearmos seu modelo de negócio no Canvas?' (não envie o form ainda!)";
+      return "⚠️ PRÓXIMO PASSO OBRIGATÓRIO: Canvas. Propor de forma conversacional: 'Que tal mapearmos seu modelo de negócio no Canvas?' (não envie o form ainda!)";
     }
     if (checklist.canvas_cta_enviado && !checklist.canvas_usuario_confirmou) {
       return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher Canvas. NÃO envie o formulário até ele responder.";
     }
     if (checklist.canvas_usuario_confirmou && !checklist.canvas_formulario_exibido) {
-      return "Enviar formulário de Canvas agora: [EXIBIR_FORMULARIO:canvas]";
+      return "✅ USUÁRIO CONFIRMOU Canvas! Enviar formulário de Canvas agora: [EXIBIR_FORMULARIO:canvas]";
     }
     if (checklist.canvas_formulario_exibido && !checklist.canvas_preenchido) {
       return "Aguardando Canvas. Tire dúvidas se necessário.";
     }
+
+    // FASE 4: CADEIA DE VALOR (obrigatório após canvas)
     if (checklist.canvas_preenchido && !checklist.cadeia_valor_cta_enviado) {
-      return "Introduzir Cadeia de Valor de Porter e perguntar: 'Posso enviar o formulário de Cadeia de Valor?' (não envie ainda!)";
+      return "⚠️ PRÓXIMO PASSO OBRIGATÓRIO: Cadeia de Valor. Introduzir Cadeia de Valor de Porter e perguntar: 'Posso enviar o formulário de Cadeia de Valor?' (não envie ainda!)";
     }
     if (checklist.cadeia_valor_cta_enviado && !checklist.cadeia_valor_usuario_confirmou) {
       return "⏸️ AGUARDANDO: Usuário confirmar que quer preencher Cadeia de Valor. NÃO envie o formulário.";
     }
     if (checklist.cadeia_valor_usuario_confirmou && !checklist.cadeia_valor_formulario_exibida) {
-      return "Enviar formulário de Cadeia de Valor agora: [EXIBIR_FORMULARIO:cadeia_valor]";
+      return "✅ USUÁRIO CONFIRMOU Cadeia! Enviar formulário de Cadeia de Valor agora: [EXIBIR_FORMULARIO:cadeia_valor]";
     }
     if (checklist.cadeia_valor_formulario_exibida && !checklist.cadeia_valor_preenchida) {
       return "Aguardando Cadeia de Valor.";
     }
-    if (checklist.cadeia_valor_preenchida && !checklist.processos_identificados) {
-      return "Ajudar a identificar processos-chave da empresa baseado na cadeia.";
-    }
-    if (checklist.processos_identificados && !checklist.escopo_priorizacao_definido) {
-      return "DEFINIR ESCOPO: Perguntar ao cliente QUANTOS processos ele quer mapear (sugestão: 2-5 processos). Liste os candidatos e deixe ele escolher.";
-    }
-    if (checklist.escopo_priorizacao_definido && !checklist.matriz_priorizacao_preenchida) {
-      return "GERAR MATRIZ AUTOMATICAMENTE: Analise os processos da cadeia de valor, calcule prioridades (impacto × criticidade / esforço) e gere a matriz: [GERAR_ENTREGAVEL:matriz_priorizacao]";
-    }
-    if (checklist.matriz_priorizacao_preenchida && !checklist.aguardando_validacao_escopo) {
-      return "Apresentar matriz de priorização e escopo sugerido. Perguntar: 'Você concorda com essa priorização?' e enviar botão: [ACAO_USUARIO:validar_escopo]";
-    }
-    if (checklist.aguardando_validacao_escopo && !checklist.escopo_validado_pelo_usuario) {
-      return "⏸️ AGUARDANDO: Usuário validar o escopo proposto. NÃO avance para execução até ele validar.";
+
+    // FASE 5: MATRIZ/ESCOPO (gerados automaticamente)
+    if (checklist.cadeia_valor_preenchida && !checklist.matriz_priorizacao_preenchida) {
+      return "⚠️ AÇÃO AUTOMÁTICA: Gerar MATRIZ DE PRIORIZAÇÃO automaticamente. Analise os processos da cadeia de valor, calcule prioridades (impacto × criticidade / esforço) e gere: [GERAR_ENTREGAVEL:matriz_priorizacao] e [GERAR_ENTREGAVEL:escopo_projeto]. NÃO peça formulário ao usuário.";
     }
 
-    if (processos.length > 0) {
+    // FASE 6: VALIDAÇÃO DO ESCOPO (obrigatório antes de execução)
+    if (checklist.matriz_priorizacao_preenchida && !checklist.aguardando_validacao_escopo) {
+      return "⚠️ PASSO CRÍTICO: Apresentar matriz de priorização e escopo sugerido ao usuário. Perguntar: 'Você concorda com essa priorização?' - aguardar confirmação verbal. Enviar marcação: [SET_VALIDACAO:priorizacao]";
+    }
+    if (checklist.aguardando_validacao_escopo && !checklist.escopo_validado_pelo_usuario) {
+      return "⏸️ AGUARDANDO: Usuário validar o escopo proposto. NÃO avance para execução até ele validar. Se ele disser 'sim', 'concordo', 'ok' → detecte como validação e marque escopo_validado.";
+    }
+
+    // FASE 7: EXECUÇÃO (processos individuais) - SÓ APÓS VALIDAÇÃO
+
+    // Só entrar em execução se escopo foi validado
+    if (checklist.escopo_validado_pelo_usuario && processos.length > 0) {
       const processoAtual = processos.find(p => !p.processo_completo);
 
       if (!processoAtual) {
@@ -284,14 +292,15 @@ ${this.buildPendingXP(checklist as FrameworkChecklistData, (processos || []) as 
         return "✅ Framework completo! Manter disponibilidade para ajustes e dúvidas.";
       }
 
+      // FLUXO COM CTA OBRIGATÓRIO PARA ATRIBUTOS
       if (!processoAtual.atributos_cta_enviado) {
-        return `Propor coleta de atributos do processo "${processoAtual.processo_nome}": 'Vamos coletar os atributos deste processo?' (Processo ${processoAtual.processo_ordem}/${processos.length})`;
+        return `⚠️ ATENÇÃO: Perguntar primeiro! Propor coleta de atributos do processo "${processoAtual.processo_nome}": 'Vamos coletar os atributos deste processo?' - NÃO enviar formulário ainda! (Processo ${processoAtual.processo_ordem}/${processos.length})`;
       }
       if (processoAtual.atributos_cta_enviado && !processoAtual.atributos_usuario_confirmou) {
-        return `⏸️ AGUARDANDO: Usuário confirmar coleta de atributos do processo "${processoAtual.processo_nome}". NÃO envie formulário.`;
+        return `⏸️ AGUARDANDO: Usuário confirmar coleta de atributos do processo "${processoAtual.processo_nome}". NÃO envie formulário até receber confirmação positiva (sim, ok, pode, vamos).`;
       }
       if (processoAtual.atributos_usuario_confirmou && !processoAtual.atributos_preenchidos) {
-        return `Enviar formulário de atributos do processo "${processoAtual.processo_nome}": [EXIBIR_FORMULARIO:atributos] (Processo ${processoAtual.processo_ordem}/${processos.length})`;
+        return `✅ USUÁRIO CONFIRMOU! Enviar formulário de atributos do processo "${processoAtual.processo_nome}" AGORA: [EXIBIR_FORMULARIO:atributos_processo] (Processo ${processoAtual.processo_ordem}/${processos.length})`;
       }
       if (!processoAtual.bpmn_as_is_mapeado) {
         return `Mapear BPMN AS-IS do processo "${processoAtual.processo_nome}": [GERAR_ENTREGAVEL:bpmn_as_is] (Processo ${processoAtual.processo_ordem}/${processos.length})`;
