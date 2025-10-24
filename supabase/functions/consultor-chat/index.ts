@@ -716,8 +716,17 @@ Deno.serve(async (req: Request) => {
 
     // ======== FALLBACK: Injeção automática de formulário baseada no checklist ========
     // Se usuário confirmou mas formulário não foi exibido, injetar action automaticamente
+    // IMPORTANTE: Verificar se formulário já foi preenchido antes de injetar
     const ensureFormIfConfirmed = (tipo: 'anamnese'|'canvas'|'cadeia_valor') => {
       const cv = checklistValidation || {};
+
+      // Verificar se formulário já foi preenchido no contexto
+      const isAlreadyFilled = isFormAlreadyFilled(tipo, ctxNow);
+      if (isAlreadyFilled) {
+        console.log(`[FALLBACK] ⏭️ Pulando ${tipo} - já preenchido no contexto`);
+        return;
+      }
+
       const needs =
         (tipo === 'anamnese'     && cv.anamnese_usuario_confirmou     && !cv.anamnese_formulario_exibido     && !cv.anamnese_preenchida) ||
         (tipo === 'canvas'       && cv.canvas_usuario_confirmou       && !cv.canvas_formulario_exibido       && !cv.canvas_preenchido)   ||

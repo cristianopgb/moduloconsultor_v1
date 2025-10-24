@@ -255,48 +255,27 @@ export class MarkerProcessor {
     }
   }
 
-  // Award XP by jornada with fallback to conversation-level (compatibility)
+  // Award XP by conversation (jornada-specific RPC doesn't exist)
   async awardXPByJornada(jornadaId: string, xp: number, conquista: string, userId?: string, conversationId?: string) {
     try {
-      if (!this.isValidUserId(userId)) {
-        console.warn('[MARKER] invalid or missing userId; using conversation-level XP RPC');
-        if (!conversationId) return null;
-        try {
-          const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
-            p_conversation_id: conversationId,
-            p_xp_amount: xp,
-            p_conquista_nome: conquista
-          });
-          if (e2) { console.error('[MARKER] XP RPC failed (conversation fallback):', e2); return null; }
-          return d2;
-        } catch (errRpc) {
-          console.error('[MARKER] Exception calling add_xp_to_conversation (fallback):', errRpc);
-          return null;
-        }
+      // NOTE: add_xp_to_jornada RPC does not exist in the database
+      // We use add_xp_to_conversation which works with conversation_id only
+      if (!conversationId) {
+        console.warn('[MARKER] No conversationId provided, cannot award XP');
+        return null;
       }
 
-      let { data, error } = await this.supabase.rpc('add_xp_to_jornada', {
-        p_jornada_id: jornadaId,
+      const { data, error } = await this.supabase.rpc('add_xp_to_conversation', {
+        p_conversation_id: conversationId,
         p_xp_amount: xp,
-        p_conquista_nome: conquista,
-        p_user_id: userId
+        p_conquista_nome: conquista
       });
+
       if (error) {
-        console.warn('[MARKER] add_xp_to_jornada failed, trying add_xp_to_conversation...', error);
-        if (!conversationId) return null;
-        try {
-          const { data: d2, error: e2 } = await this.supabase.rpc('add_xp_to_conversation', {
-            p_conversation_id: conversationId,
-            p_xp_amount: xp,
-            p_conquista_nome: conquista
-          });
-          if (e2) { console.error('[MARKER] XP RPC failed (fallback):', e2); return null; }
-          return d2;
-        } catch (errRpc) {
-          console.error('[MARKER] Exception calling add_xp_to_conversation (fallback):', errRpc);
-          return null;
-        }
+        console.error('[MARKER] add_xp_to_conversation failed:', error);
+        return null;
       }
+
       return data;
     } catch (err) {
       console.error('[MARKER] Exception awarding XP:', err);

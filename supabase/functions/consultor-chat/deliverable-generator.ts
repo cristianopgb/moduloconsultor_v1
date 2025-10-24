@@ -83,7 +83,11 @@ export class DeliverableGenerator {
 
   private async save(jornada_id: string, tipo: string, nome: string, html: string, etapa: string) {
     await this.supabase.from('entregaveis_consultor').insert({
-      jornada_id, tipo, nome, html, etapa
+      jornada_id,
+      tipo,
+      nome,
+      html_conteudo: html,
+      etapa_origem: etapa
     });
     console.log(`[ENTREGAVEL] ✅ Saved deliverable tipo: ${tipo}, nome: ${nome}`);
   }
