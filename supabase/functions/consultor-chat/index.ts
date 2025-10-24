@@ -37,8 +37,8 @@ function isFormAlreadyFilled(tipo: string, ctx: any) {
 async function saveMessages(supabase: any, conversationId: string, userId: string, userMsg: string, assistantMsg: string) {
   try {
     await supabase.from('messages').insert([
-      { conversation_id: conversationId, role: 'user', content: userMsg, user_id: userId },
-      { conversation_id: conversationId, role: 'assistant', content: assistantMsg, user_id: userId }
+      { conversation_id: conversationId, role: 'user', content: userMsg, user_id: userId, message_type: 'chat' },
+      { conversation_id: conversationId, role: 'assistant', content: assistantMsg, user_id: userId, message_type: 'chat' }
     ]);
   } catch (err) {
     console.error('[CONSULTOR-CHAT] Erro ao salvar mensagens:', err);
@@ -370,7 +370,7 @@ Deno.serve(async (req: Request) => {
         // Persist an assistant acknowledgement in the messages table so subsequent reads include it
         try {
           const ack = `Recebi o formulário ${String(form_type || 'generico')} e atualizei o contexto.`;
-          await supabase.from('messages').insert([{ conversation_id: conversation_id, role: 'assistant', content: ack, user_id: user_id }]);
+          await supabase.from('messages').insert([{ conversation_id: conversation_id, role: 'assistant', content: ack, user_id: user_id, message_type: 'chat' }]);
           console.log('[CONSULTOR-CHAT] persisted assistant ack message to messages table');
         } catch (e) {
           console.warn('[CONSULTOR-CHAT] failed to persist assistant ack message (non-fatal):', e);
@@ -636,22 +636,60 @@ Deno.serve(async (req: Request) => {
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
 
-    // Fallback DESABILITADO: Não inferir ações automaticamente
-    // A LLM DEVE usar markers explícitos. Se não usar, é porque não deve enviar ainda.
-    // Este fallback estava causando envio de formulários sem CTA confirmado.
-    // REMOVIDO para garantir fluxo rigoroso do framework
-
     console.log('[CONSULTOR-CHAT] Detected actions:', actions.map(a => a.type));
 
-    // -------- Validações Rigorosas de Transição de Fase ----------
-    const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
+    // ========== FALLBACK INTELIGENTE DE MARKERS ==========
+    // Detecta quando LLM diz "vou abrir/enviar formulário" mas não incluiu o marker explícito
+    // Injeta o marker APENAS se o checklist permitir (CTA confirmado + form não exibido/preenchido)
+    // Isso resolve casos onde a LLM promete mas esquece o marker, sem violar o fluxo do framework
 
-    // Buscar estado do checklist para validações
+    // Buscar checklist ANTES do fallback para validações
     const { data: checklistValidation } = await supabase
       .from('framework_checklist')
       .select('*')
       .eq('conversation_id', conversation_id)
       .maybeSingle();
+
+    const hasFormMarker = actions.some((a: any) => a.type === 'exibir_formulario');
+
+    if (!hasFormMarker) {
+      const saidThatWillOpenAnamnese = /vou (abrir|enviar|preencher).*(formul[aá]rio|anamnese)/i.test(llmResponse);
+      const saidThatWillOpenCanvas = /vou (abrir|enviar|mapear).*(formul[aá]rio|canvas)/i.test(llmResponse);
+      const saidThatWillOpenCadeia = /vou (abrir|enviar|mapear).*(formul[aá]rio|cadeia)/i.test(llmResponse);
+
+      const injectAction = (tipo: string) => {
+        console.log(`[FALLBACK] 🔧 LLM prometeu ${tipo} mas não gerou marker. Injetando ação...`);
+        actions.push({ type: 'exibir_formulario', params: { tipo } });
+      };
+
+      // Só injeta se CTA já foi confirmado E formulário não foi exibido/preenchido
+      if (saidThatWillOpenAnamnese &&
+          checklistValidation?.anamnese_usuario_confirmou &&
+          !checklistValidation?.anamnese_formulario_exibido &&
+          !checklistValidation?.anamnese_preenchida) {
+        injectAction('anamnese');
+      }
+
+      if (saidThatWillOpenCanvas &&
+          checklistValidation?.canvas_usuario_confirmou &&
+          !checklistValidation?.canvas_formulario_exibido &&
+          !checklistValidation?.canvas_preenchido) {
+        injectAction('canvas');
+      }
+
+      if (saidThatWillOpenCadeia &&
+          checklistValidation?.cadeia_valor_usuario_confirmou &&
+          !checklistValidation?.cadeia_valor_formulario_exibida &&
+          !checklistValidation?.cadeia_valor_preenchida) {
+        injectAction('cadeia_valor');
+      }
+    }
+    // ========== FIM DO FALLBACK INTELIGENTE ==========
+
+    // -------- Validações Rigorosas de Transição de Fase ----------
+    const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
+
+    // checklistValidation já foi carregado no fallback acima, não buscar novamente
 
     const filteredActions = actions.filter((a: any) => {
       if (a.type !== 'exibir_formulario') return true;

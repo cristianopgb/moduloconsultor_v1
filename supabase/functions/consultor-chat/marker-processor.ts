@@ -193,17 +193,34 @@ export class MarkerProcessor {
   }
 
   private async timeline(jornada_id: string, fase: string, evento: string, meta?: any) {
-    // timeline_consultor table has columns: jornada_id, evento, fase, timestamp, created_at
-    // NÃO usar campo 'meta' ou 'tipo_evento' que não existem no schema
+    // Estratégia: tentar RPC primeiro (mais estável com RLS), fallback para insert direto
     try {
-      await this.supabase.from('timeline_consultor').insert({
-        jornada_id,
-        fase,
-        evento
+      // Tentar RPC add_timeline_event primeiro
+      const { error: rpcError } = await this.supabase.rpc('add_timeline_event', {
+        p_jornada_id: jornada_id,
+        p_evento: evento,
+        p_fase: fase
       });
-      console.log(`[TIMELINE] Evento registrado: ${evento} (fase: ${fase})`);
+
+      if (rpcError) {
+        console.warn('[TIMELINE] RPC failed, trying direct insert:', rpcError.message);
+        // Fallback: insert direto
+        const { error: insertError } = await this.supabase.from('timeline_consultor').insert({
+          jornada_id,
+          fase,
+          evento
+        });
+
+        if (insertError) {
+          console.warn('[TIMELINE] Direct insert also failed:', insertError.message);
+        } else {
+          console.log(`[TIMELINE] ✅ Evento registrado (via insert direto): ${evento} (fase: ${fase})`);
+        }
+      } else {
+        console.log(`[TIMELINE] ✅ Evento registrado (via RPC): ${evento} (fase: ${fase})`);
+      }
     } catch (e) {
-      console.warn('[TIMELINE] Erro ao registrar evento (não-fatal):', e);
+      console.warn('[TIMELINE] Exception ao registrar evento (não-fatal):', e);
     }
   }
 

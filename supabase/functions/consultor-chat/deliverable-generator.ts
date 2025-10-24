@@ -57,8 +57,8 @@ export class DeliverableGenerator {
     return { html, nome };
   }
 
-  async saveDeliverable(jornada_id: string, slug: string, nome: string, html: string, etapa: string) {
-    await this.save(jornada_id, slug, nome, html, etapa);
+  async saveDeliverable(jornada_id: string, tipo: string, nome: string, html: string, etapa: string) {
+    await this.save(jornada_id, tipo, nome, html, etapa);
   }
 
   private prettyName(tipo: string) {
@@ -81,10 +81,11 @@ export class DeliverableGenerator {
     }
   }
 
-  private async save(jornada_id: string, slug: string, nome: string, html: string, etapa: string) {
+  private async save(jornada_id: string, tipo: string, nome: string, html: string, etapa: string) {
     await this.supabase.from('entregaveis_consultor').insert({
-      jornada_id, slug, nome, html, etapa
+      jornada_id, tipo, nome, html, etapa
     });
+    console.log(`[ENTREGAVEL] ✅ Saved deliverable tipo: ${tipo}, nome: ${nome}`);
   }
 
   private async fillTemplate(template: any, jornada: any, contexto: string, extra?: any): Promise<string> {
