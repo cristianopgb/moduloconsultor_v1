@@ -1922,7 +1922,7 @@ function ChatPage() {
                   role: 'user',
                   content: `Formulário submetido (${String(formType || 'generico')}): ${JSON.stringify(dados)}`,
                   user_id: user.id,
-                  message_type: 'form_submission'
+                  message_type: 'text'
                 });
               } catch (e) {
                 console.warn('[FORMULARIO] falha ao persistir mensagem de form:', e);

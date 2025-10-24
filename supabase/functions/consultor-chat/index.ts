@@ -37,8 +37,8 @@ function isFormAlreadyFilled(tipo: string, ctx: any) {
 async function saveMessages(supabase: any, conversationId: string, userId: string, userMsg: string, assistantMsg: string) {
   try {
     await supabase.from('messages').insert([
-      { conversation_id: conversationId, role: 'user', content: userMsg, user_id: userId, message_type: 'chat' },
-      { conversation_id: conversationId, role: 'assistant', content: assistantMsg, user_id: userId, message_type: 'chat' }
+      { conversation_id: conversationId, role: 'user', content: userMsg, user_id: userId, message_type: 'text' },
+      { conversation_id: conversationId, role: 'assistant', content: assistantMsg, user_id: userId, message_type: 'text' }
     ]);
   } catch (err) {
     console.error('[CONSULTOR-CHAT] Erro ao salvar mensagens:', err);
@@ -248,7 +248,8 @@ Deno.serve(async (req: Request) => {
       }).length;
 
       if (repeatedCTACount >= 2) {
-        console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Detected ${repeatedCTACount} CTA requests. Force-confirming ${formType}.`);
+        console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Detected ${repeatedCTACount} CTA requests. Force-confirming ${formType} and opening form immediately.`);
+
         // Force confirmation to break the loop
         if (formType === 'anamnese') {
           await frameworkGuide.markEvent(conversation_id, 'anamnese_confirmada');
@@ -257,7 +258,20 @@ Deno.serve(async (req: Request) => {
         } else if (formType === 'cadeia_valor') {
           await frameworkGuide.markEvent(conversation_id, 'cadeia_valor_confirmada');
         }
-        console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Force-confirmed ${formType}, will send form marker`);
+
+        console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Force-confirmed ${formType}, returning form action immediately`);
+
+        // Return immediately with form action to break the loop
+        return new Response(JSON.stringify({
+          response: `Perfeito, vamos em frente.`,
+          jornada_id: jornada.id,
+          etapa_atual: jornada.etapa_atual,
+          aguardando_validacao: jornada.aguardando_validacao,
+          actions: [{ type: 'exibir_formulario', params: { tipo: formType } }],
+          gamification: null
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
     }
 
@@ -370,7 +384,7 @@ Deno.serve(async (req: Request) => {
         // Persist an assistant acknowledgement in the messages table so subsequent reads include it
         try {
           const ack = `Recebi o formulário ${String(form_type || 'generico')} e atualizei o contexto.`;
-          await supabase.from('messages').insert([{ conversation_id: conversation_id, role: 'assistant', content: ack, user_id: user_id, message_type: 'chat' }]);
+          await supabase.from('messages').insert([{ conversation_id: conversation_id, role: 'assistant', content: ack, user_id: user_id, message_type: 'text' }]);
           console.log('[CONSULTOR-CHAT] persisted assistant ack message to messages table');
         } catch (e) {
           console.warn('[CONSULTOR-CHAT] failed to persist assistant ack message (non-fatal):', e);
@@ -620,13 +634,22 @@ Deno.serve(async (req: Request) => {
     console.log('[CONSULTOR-CHAT] LLM response received, length:', llmResponse?.length || 0);
 
     // DETECÇÃO AUTOMÁTICA DE CTA: Se LLM pergunta sobre enviar formulário, marcar CTA como enviado
+    // Marcar apenas UMA VEZ para evitar repetição de CTAs
     if (/posso enviar.*formul[aá]rio|vou enviar.*formul[aá]rio|enviar.*formul[aá]rio.*anamnese/i.test(llmResponse)) {
       console.log('[CONSULTOR-CHAT] Detectado CTA de anamnese na resposta LLM, marcando...');
       await frameworkGuide.markEvent(conversation_id, 'anamnese_cta_enviado');
     }
-    if (/posso enviar.*canvas|vou enviar.*canvas|mapear.*canvas/i.test(llmResponse)) {
-      console.log('[CONSULTOR-CHAT] Detectado CTA de canvas na resposta LLM, marcando...');
-      await frameworkGuide.markEvent(conversation_id, 'canvas_cta_enviado');
+    if (/canvas/i.test(llmResponse) && /(posso|podemos).*(enviar|preencher)|vamos.*canvas/i.test(llmResponse)) {
+      const { data: canvasCTA } = await supabase
+        .from('framework_checklist')
+        .select('canvas_cta_enviado')
+        .eq('conversation_id', conversation_id)
+        .single();
+
+      if (!canvasCTA?.canvas_cta_enviado) {
+        console.log('[CONSULTOR-CHAT] Detectado CTA de canvas na resposta LLM (primeira vez), marcando...');
+        await frameworkGuide.markEvent(conversation_id, 'canvas_cta_enviado');
+      }
     }
     if (/posso enviar.*cadeia.*valor|vou enviar.*cadeia/i.test(llmResponse)) {
       console.log('[CONSULTOR-CHAT] Detectado CTA de cadeia de valor na resposta LLM, marcando...');
@@ -690,6 +713,26 @@ Deno.serve(async (req: Request) => {
     const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
 
     // checklistValidation já foi carregado no fallback acima, não buscar novamente
+
+    // ======== FALLBACK: Injeção automática de formulário baseada no checklist ========
+    // Se usuário confirmou mas formulário não foi exibido, injetar action automaticamente
+    const ensureFormIfConfirmed = (tipo: 'anamnese'|'canvas'|'cadeia_valor') => {
+      const cv = checklistValidation || {};
+      const needs =
+        (tipo === 'anamnese'     && cv.anamnese_usuario_confirmou     && !cv.anamnese_formulario_exibido     && !cv.anamnese_preenchida) ||
+        (tipo === 'canvas'       && cv.canvas_usuario_confirmou       && !cv.canvas_formulario_exibido       && !cv.canvas_preenchido)   ||
+        (tipo === 'cadeia_valor' && cv.cadeia_valor_usuario_confirmou && !cv.cadeia_valor_formulario_exibida && !cv.cadeia_valor_preenchida);
+
+      if (needs && !actions.some((a: any) => a.type==='exibir_formulario' && a.params?.tipo===tipo)) {
+        console.log(`[FALLBACK] ✅ Checklist confirmado para ${tipo}. Injetando exibir_formulario.`);
+        actions.push({ type:'exibir_formulario', params:{ tipo } });
+      }
+    };
+
+    ensureFormIfConfirmed('anamnese');
+    ensureFormIfConfirmed('canvas');
+    ensureFormIfConfirmed('cadeia_valor');
+    // ======== FIM FALLBACK ========
 
     const filteredActions = actions.filter((a: any) => {
       if (a.type !== 'exibir_formulario') return true;
