@@ -905,6 +905,22 @@ Deno.serve(async (req: Request) => {
               jornada.contexto_coleta = newCtx;
               jornada.aguardando_validacao = 'priorizacao';
 
+              // CRITICAL: Also set aguardando_validacao_escopo in framework_checklist for UI button display
+              try {
+                const processosNomes = computed.map((p: any) => p.nome || p.processo_nome).filter(Boolean);
+                await supabase.from('framework_checklist').update({
+                  aguardando_validacao_escopo: true,
+                  escopo_processos_nomes: processosNomes,
+                  escopo_quantidade_processos: processosNomes.length,
+                  matriz_priorizacao_preenchida: true,
+                  escopo_priorizacao_definido: true,
+                  escopo_ts: new Date().toISOString()
+                }).eq('conversation_id', conversation_id);
+                console.log('[CONSULTOR-CHAT] ✅ Set aguardando_validacao_escopo = true and stored process names in framework_checklist');
+              } catch (e) {
+                console.warn('[CONSULTOR-CHAT] Failed to update framework_checklist:', e);
+              }
+
               // ⚠️ CRITICAL: Block progression until user validates
               // Do NOT move to 'execucao' yet and do NOT enqueue atributos_processo.
               // The user must VALIDATE the priorização first. Once they validate, the frontend

@@ -463,20 +463,35 @@ function ChatPage() {
       return
     }
 
-    // Verificar estado inicial
+    // Verificar estado inicial - CHECK BOTH SOURCES
     const checkValidationStatus = async () => {
       try {
-        const { data, error } = await supabase
+        // Check framework_checklist
+        const { data: checklistData, error: checklistError } = await supabase
           .from('framework_checklist')
           .select('aguardando_validacao_escopo, escopo_validado_pelo_usuario')
           .eq('conversation_id', current.id)
           .maybeSingle()
 
-        if (!error && data) {
-          const shouldShow = data.aguardando_validacao_escopo === true && data.escopo_validado_pelo_usuario === false
-          setShowValidateScopeButton(shouldShow)
-          console.log('[VALIDATE-SCOPE] Initial check:', { aguardando: data.aguardando_validacao_escopo, validado: data.escopo_validado_pelo_usuario, shouldShow })
-        }
+        // Check jornadas_consultor
+        const { data: jornadaData, error: jornadaError } = await supabase
+          .from('jornadas_consultor')
+          .select('aguardando_validacao')
+          .eq('conversation_id', current.id)
+          .maybeSingle()
+
+        // Show button if EITHER source indicates awaiting validation
+        const checklistNeedsValidation = !checklistError && checklistData?.aguardando_validacao_escopo === true && checklistData?.escopo_validado_pelo_usuario === false
+        const jornadaNeedsValidation = !jornadaError && jornadaData?.aguardando_validacao === 'priorizacao'
+
+        const shouldShow = checklistNeedsValidation || jornadaNeedsValidation
+        setShowValidateScopeButton(shouldShow)
+        console.log('[VALIDATE-SCOPE] Initial check:', {
+          checklistAguardando: checklistData?.aguardando_validacao_escopo,
+          checklistValidado: checklistData?.escopo_validado_pelo_usuario,
+          jornadaAguardando: jornadaData?.aguardando_validacao,
+          shouldShow
+        })
       } catch (err) {
         console.warn('[VALIDATE-SCOPE] Error checking initial status:', err)
       }
@@ -484,7 +499,7 @@ function ChatPage() {
 
     checkValidationStatus()
 
-    // Listener Realtime para mudanças no framework_checklist
+    // Listener Realtime para mudanças em AMBAS as tabelas (framework_checklist E jornadas_consultor)
     const channel = supabase
       .channel(`framework-validation-${current.id}`)
       .on(
@@ -495,18 +510,22 @@ function ChatPage() {
           table: 'framework_checklist',
           filter: `conversation_id=eq.${current.id}`
         },
-        (payload) => {
-          try {
-            console.log('[VALIDATE-SCOPE] Realtime update:', payload)
-            const newData = payload.new as any
-            if (newData) {
-              const shouldShow = newData.aguardando_validacao_escopo === true && newData.escopo_validado_pelo_usuario === false
-              setShowValidateScopeButton(shouldShow)
-              console.log('[VALIDATE-SCOPE] Updated state:', { aguardando: newData.aguardando_validacao_escopo, validado: newData.escopo_validado_pelo_usuario, shouldShow })
-            }
-          } catch (err) {
-            console.error('[VALIDATE-SCOPE] Error processing realtime update:', err)
-          }
+        () => {
+          // Re-check validation status when framework_checklist changes
+          checkValidationStatus()
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'jornadas_consultor',
+          filter: `conversation_id=eq.${current.id}`
+        },
+        () => {
+          // Re-check validation status when jornadas_consultor changes
+          checkValidationStatus()
         }
       )
       .subscribe()

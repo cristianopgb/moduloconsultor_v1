@@ -82,18 +82,21 @@ export class DeliverableGenerator {
   }
 
   private async save(jornada_id: string, tipo: string, nome: string, html: string, etapa: string) {
-    // Generate slug from tipo
+    // Generate slug from tipo: normalize hyphens to underscores, lowercase
     const slug = tipo.replace(/-/g, '_').toLowerCase();
+
+    // CRITICAL: Set both 'titulo' (UI compatibility) and 'nome' (legacy compatibility)
+    const titulo = nome; // titulo is the user-friendly display name
 
     // UPSERT: Insert or update if already exists (based on unique constraint jornada_id + slug)
     const { error } = await this.supabase.from('entregaveis_consultor').upsert({
       jornada_id,
       tipo,
       slug,
-      nome,
+      nome,        // Legacy field for backward compatibility
+      titulo,      // New field for UI display
       html_conteudo: html,
       etapa_origem: etapa,
-      created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }, {
       onConflict: 'jornada_id,slug',
@@ -105,7 +108,7 @@ export class DeliverableGenerator {
       throw error;
     }
 
-    console.log(`[ENTREGAVEL] ✅ Saved deliverable (UPSERT) tipo: ${tipo}, slug: ${slug}, nome: ${nome}`);
+    console.log(`[ENTREGAVEL] ✅ Saved deliverable (UPSERT) tipo: ${tipo}, slug: ${slug}, titulo: ${titulo}`);
   }
 
   private async fillTemplate(template: any, jornada: any, contexto: string, extra?: any): Promise<string> {

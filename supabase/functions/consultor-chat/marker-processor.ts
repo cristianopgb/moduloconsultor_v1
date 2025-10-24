@@ -150,11 +150,15 @@ export class MarkerProcessor {
               .eq('id', jornada.id);
             await this.timeline(jornada.id, 'execucao', `Fase avançada para: execucao`);
 
-            // Mark escopo_validado in framework_checklist
+            // CRITICAL: Mark escopo_validado AND clear aguardando_validacao_escopo in framework_checklist
             if (conversationId) {
               try {
                 await frameworkGuide.markEvent(conversationId, 'escopo_validado');
-                console.log('[MARKER] ✅ Marked escopo_validado in framework_checklist');
+                // Also clear the aguardando flag
+                await this.supabase.from('framework_checklist')
+                  .update({ aguardando_validacao_escopo: false })
+                  .eq('conversation_id', conversationId);
+                console.log('[MARKER] ✅ Marked escopo_validado and cleared aguardando_validacao_escopo in framework_checklist');
               } catch (e) {
                 console.warn('[MARKER] Failed to mark escopo_validado:', e);
               }
@@ -227,6 +231,18 @@ export class MarkerProcessor {
             await this.supabase.from('jornadas_consultor')
               .update({ aguardando_validacao: tipo })
               .eq('id', jornada.id);
+
+            // CRITICAL: Also set aguardando_validacao_escopo in framework_checklist for UI button
+            if (tipo === 'priorizacao' && conversationId) {
+              try {
+                await this.supabase.from('framework_checklist')
+                  .update({ aguardando_validacao_escopo: true })
+                  .eq('conversation_id', conversationId);
+                console.log('[MARKER] ✅ Set aguardando_validacao_escopo = true in framework_checklist');
+              } catch (e) {
+                console.warn('[MARKER] Failed to set aguardando_validacao_escopo:', e);
+              }
+            }
           }
           await this.timeline(jornada.id, jornada.etapa_atual, `Validação definida: ${tipo}`);
           break;
