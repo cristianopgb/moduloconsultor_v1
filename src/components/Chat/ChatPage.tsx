@@ -28,6 +28,7 @@ import type { CreatedRef } from '../References/ReferenceUploader'
 import { FormularioModal } from './FormularioModal'
 import { detectFormMarker, removeFormMarkers } from '../../utils/form-markers'
 import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
+import { ValidateScopeButton } from './ValidateScopeButton'
 
 async function loadXLSX() {
   const mod = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm')
@@ -267,6 +268,9 @@ function ChatPage() {
   const [xpCelebrationData, setXPCelebrationData] = useState<{ xpGanho: number; xpTotal: number; nivel: number; motivo: string } | null>(null)
   const lastKnownXpRef = useRef<number | null>(null)
 
+  // Validação de Escopo - Botão de validação quando aguardando_validacao_escopo = true
+  const [showValidateScopeButton, setShowValidateScopeButton] = useState(false)
+
   // Poller seguro para gamificacao_conversa: tenta algumas vezes com backoff curto
   async function pollGamification(retries = 4, delayMs = 600) {
     if (!current?.id) return false
@@ -446,6 +450,66 @@ function ChatPage() {
       .subscribe()
 
     console.log('[GAMIFICATION] subscribed to channel:', `gamification-${current.id}`)
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [current?.id, chatMode])
+
+  // Listener para detectar quando mostrar botão de validação de escopo
+  useEffect(() => {
+    if (!current?.id || chatMode !== 'consultor') {
+      setShowValidateScopeButton(false)
+      return
+    }
+
+    // Verificar estado inicial
+    const checkValidationStatus = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('framework_checklist')
+          .select('aguardando_validacao_escopo, escopo_validado_pelo_usuario')
+          .eq('conversation_id', current.id)
+          .maybeSingle()
+
+        if (!error && data) {
+          const shouldShow = data.aguardando_validacao_escopo === true && data.escopo_validado_pelo_usuario === false
+          setShowValidateScopeButton(shouldShow)
+          console.log('[VALIDATE-SCOPE] Initial check:', { aguardando: data.aguardando_validacao_escopo, validado: data.escopo_validado_pelo_usuario, shouldShow })
+        }
+      } catch (err) {
+        console.warn('[VALIDATE-SCOPE] Error checking initial status:', err)
+      }
+    }
+
+    checkValidationStatus()
+
+    // Listener Realtime para mudanças no framework_checklist
+    const channel = supabase
+      .channel(`framework-validation-${current.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'framework_checklist',
+          filter: `conversation_id=eq.${current.id}`
+        },
+        (payload) => {
+          try {
+            console.log('[VALIDATE-SCOPE] Realtime update:', payload)
+            const newData = payload.new as any
+            if (newData) {
+              const shouldShow = newData.aguardando_validacao_escopo === true && newData.escopo_validado_pelo_usuario === false
+              setShowValidateScopeButton(shouldShow)
+              console.log('[VALIDATE-SCOPE] Updated state:', { aguardando: newData.aguardando_validacao_escopo, validado: newData.escopo_validado_pelo_usuario, shouldShow })
+            }
+          } catch (err) {
+            console.error('[VALIDATE-SCOPE] Error processing realtime update:', err)
+          }
+        }
+      )
+      .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
@@ -1690,6 +1754,20 @@ function ChatPage() {
                     </div>
                   )
                 })}
+
+                {/* Botão de Validação de Escopo - mostrar quando aguardando validação */}
+                {chatMode === 'consultor' && showValidateScopeButton && current && user && (
+                  <ValidateScopeButton
+                    conversationId={current.id}
+                    userId={user.id}
+                    onValidated={() => {
+                      setShowValidateScopeButton(false)
+                      // Reload messages to show next step
+                      loadMessages(current.id)
+                    }}
+                  />
+                )}
+
                 {/* Show ThinkingAnimation only if NOT in analytics mode with active state */}
                 {loading && !(chatMode === 'analytics' && analysisState !== 'idle') && <ThinkingAnimation />}
                 {generating && <DocumentGeneratingAnimation log={genLog} />}

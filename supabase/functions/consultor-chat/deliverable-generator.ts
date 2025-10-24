@@ -82,56 +82,87 @@ export class DeliverableGenerator {
   }
 
   private async save(jornada_id: string, tipo: string, nome: string, html: string, etapa: string) {
-    await this.supabase.from('entregaveis_consultor').insert({
+    // Generate slug from tipo
+    const slug = tipo.replace(/-/g, '_').toLowerCase();
+
+    // UPSERT: Insert or update if already exists (based on unique constraint jornada_id + slug)
+    const { error } = await this.supabase.from('entregaveis_consultor').upsert({
       jornada_id,
       tipo,
+      slug,
       nome,
       html_conteudo: html,
-      etapa_origem: etapa
+      etapa_origem: etapa,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'jornada_id,slug',
+      ignoreDuplicates: false // Always update if exists
     });
-    console.log(`[ENTREGAVEL] ✅ Saved deliverable tipo: ${tipo}, nome: ${nome}`);
+
+    if (error) {
+      console.error(`[ENTREGAVEL] ❌ Error saving deliverable:`, error);
+      throw error;
+    }
+
+    console.log(`[ENTREGAVEL] ✅ Saved deliverable (UPSERT) tipo: ${tipo}, slug: ${slug}, nome: ${nome}`);
   }
 
   private async fillTemplate(template: any, jornada: any, contexto: string, extra?: any): Promise<string> {
     let html = template.html_template || '';
     const ctx = jornada.contexto_coleta || {};
 
+    // CRITICAL: Extract data from nested structures
+    // Forms are stored as: ctx.anamnese, ctx.canvas, ctx.cadeia_valor
+    const anamneseData = ctx.anamnese || {};
+    const canvasData = ctx.canvas || {};
+    const cadeiaData = ctx.cadeia_valor || ctx.cadeia || {};
+
+    console.log('[DELIVERABLE] Extracting data from contexto_coleta:', {
+      has_anamnese: !!anamneseData,
+      has_canvas: !!canvasData,
+      has_cadeia: !!cadeiaData,
+      anamnese_keys: Object.keys(anamneseData),
+      canvas_keys: Object.keys(canvasData),
+      cadeia_keys: Object.keys(cadeiaData)
+    });
+
     // Build mapping object with all possible data sources
     const data: Record<string, string> = {
       // Date
       data_geracao: new Date().toLocaleDateString('pt-BR'),
 
-      // From jornada context (anamnese form)
-      empresa_nome: ctx.empresa_nome || ctx.nome_empresa || '',
-      nome_usuario: ctx.nome_usuario || '',
-      cargo: ctx.cargo || '',
-      segmento: ctx.segmento || ctx.ramo_atuacao || '',
-      porte: ctx.porte || ctx.numero_funcionarios || '',
-      desafios_principais: ctx.desafios_principais || ctx.desafios || '',
-      desafios_mencionados: ctx.desafios_principais || ctx.desafios || '',
-      proximos_passos: ctx.expectativas || ctx.metas_curto_prazo || 'A definir conforme evolução do projeto',
-      expectativas: ctx.expectativas || '',
-      tempo_mercado: ctx.tempo_mercado || '',
-      metas_curto_prazo: ctx.metas_curto_prazo || '',
-      metas_medio_prazo: ctx.metas_medio_prazo || '',
+      // From anamnese form (CORRECTED: extract from nested anamnese object)
+      empresa_nome: anamneseData.empresa_nome || ctx.empresa_nome || ctx.nome_empresa || '—',
+      nome_usuario: anamneseData.nome_usuario || ctx.nome_usuario || '—',
+      cargo: anamneseData.cargo || ctx.cargo || '—',
+      segmento: anamneseData.segmento || ctx.segmento || ctx.ramo_atuacao || '—',
+      porte: anamneseData.porte || ctx.porte || ctx.numero_funcionarios || '—',
+      desafios_principais: anamneseData.desafios_principais || ctx.desafios_principais || ctx.desafios || '—',
+      desafios_mencionados: anamneseData.desafios_principais || ctx.desafios_principais || ctx.desafios || '—',
+      proximos_passos: anamneseData.expectativas || ctx.expectativas || anamneseData.metas_curto_prazo || ctx.metas_curto_prazo || 'A definir conforme evolução do projeto',
+      expectativas: anamneseData.expectativas || ctx.expectativas || '—',
+      tempo_mercado: anamneseData.tempo_mercado || ctx.tempo_mercado || '—',
+      metas_curto_prazo: anamneseData.metas_curto_prazo || ctx.metas_curto_prazo || '—',
+      metas_medio_prazo: anamneseData.metas_medio_prazo || ctx.metas_medio_prazo || '—',
 
-      // Canvas fields
-      parcerias_principais: ctx.parcerias_chave || ctx.parcerias_principais || '',
-      atividades_principais: ctx.atividades_chave || ctx.atividades_principais || '',
-      proposta_valor: ctx.proposta_valor || '',
-      relacionamento_clientes: ctx.relacionamento || ctx.relacionamento_clientes || '',
-      segmentos_clientes: ctx.segmentos_clientes || '',
-      recursos_principais: ctx.recursos_chave || ctx.recursos_principais || '',
-      canais_distribuicao: ctx.canais || ctx.canais_distribuicao || '',
-      estrutura_custos: ctx.estrutura_custos || '',
-      fontes_receita: ctx.fontes_receita || '',
-      observacoes_canvas: ctx.observacoes || '',
+      // Canvas fields (CORRECTED: extract from nested canvas object)
+      parcerias_principais: canvasData.parcerias_chave || canvasData.parcerias_principais || ctx.parcerias_chave || '—',
+      atividades_principais: canvasData.atividades_chave || canvasData.atividades_principais || ctx.atividades_chave || '—',
+      proposta_valor: canvasData.proposta_valor || ctx.proposta_valor || '—',
+      relacionamento_clientes: canvasData.relacionamento || canvasData.relacionamento_clientes || ctx.relacionamento || '—',
+      segmentos_clientes: canvasData.segmentos_clientes || ctx.segmentos_clientes || '—',
+      recursos_principais: canvasData.recursos_chave || canvasData.recursos_principais || ctx.recursos_chave || '—',
+      canais_distribuicao: canvasData.canais || canvasData.canais_distribuicao || ctx.canais || '—',
+      estrutura_custos: canvasData.estrutura_custos || ctx.estrutura_custos || '—',
+      fontes_receita: canvasData.fontes_receita || ctx.fontes_receita || '—',
+      observacoes_canvas: canvasData.observacoes || ctx.observacoes || '',
 
-      // Cadeia de Valor fields
-      atividades_primarias: ctx.atividades_primarias || '',
-      atividades_suporte: ctx.atividades_suporte || '',
-      inputs_principais: ctx.inputs_principais || '',
-      outputs_esperados: ctx.outputs_esperados || '',
+      // Cadeia de Valor fields (CORRECTED: extract from nested cadeia object)
+      atividades_primarias: cadeiaData.atividades_primarias || cadeiaData.processos_finalisticos || ctx.atividades_primarias || '—',
+      atividades_suporte: cadeiaData.atividades_suporte || cadeiaData.processos_apoio || ctx.atividades_suporte || '—',
+      inputs_principais: cadeiaData.inputs_principais || ctx.inputs_principais || '—',
+      outputs_esperados: cadeiaData.outputs_esperados || ctx.outputs_esperados || '—',
 
       // Matriz de priorização
       matriz_processos: this.buildMatrizTable(extra?.processos || []),
@@ -141,11 +172,13 @@ export class DeliverableGenerator {
     // Replace all placeholders {{key}} with actual values
     for (const [key, value] of Object.entries(data)) {
       const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-      html = html.replace(regex, value || '-');
+      html = html.replace(regex, value || '—');
     }
 
-    // Replace any remaining unfilled placeholders with '-'
-    html = html.replace(/\{\{[^}]+\}\}/g, '-');
+    // Replace any remaining unfilled placeholders with '—'
+    html = html.replace(/\{\{[^}]+\}\}/g, '—');
+
+    console.log('[DELIVERABLE] Template filled successfully');
 
     return html;
   }

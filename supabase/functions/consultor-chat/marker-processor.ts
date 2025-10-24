@@ -34,6 +34,11 @@ export class MarkerProcessor {
     // [EXIBIR_FORMULARIO:tipo]
     const formRx = /\[EXIBIR_FORMULARIO:(anamnese|canvas|cadeia_valor|atributos_processo|diagnostico|plano_acao)\]/gi;
     text = text.replace(formRx, (_m, tipo) => {
+      // CRITICAL: Block diagnostico form - it doesn't exist in the framework
+      if (tipo.toLowerCase() === 'diagnostico') {
+        console.warn('[MARKER] ⛔ Blocked EXIBIR_FORMULARIO:diagnostico - form does not exist, should be auto-generated');
+        return '';
+      }
       actions.push({ type: 'exibir_formulario', params: { tipo } as any });
       return '';
     });
@@ -97,10 +102,35 @@ export class MarkerProcessor {
 
     console.log('[MARKER] executeActions received actions:', actions.map((a:any)=>a.type));
 
+    // Import FrameworkGuide for marking events
+    const { FrameworkGuide } = await import('./framework-guide.ts');
+    const frameworkGuide = new FrameworkGuide(this.supabase);
+
     for (const a of actions) {
       switch (a.type) {
         case 'exibir_formulario': {
           await this.timeline(jornada.id, jornada.etapa_atual, `Formulário exibido: ${a.params.tipo}`);
+
+          // CRITICAL: Mark flags in framework_checklist when form is displayed
+          if (conversationId) {
+            try {
+              if (a.params.tipo === 'anamnese') {
+                await frameworkGuide.markEvent(conversationId, 'anamnese_exibida');
+                console.log('[MARKER] ✅ Marked anamnese_exibida flag');
+              } else if (a.params.tipo === 'canvas') {
+                await frameworkGuide.markEvent(conversationId, 'canvas_exibido');
+                console.log('[MARKER] ✅ Marked canvas_exibido flag');
+              } else if (a.params.tipo === 'cadeia_valor') {
+                await frameworkGuide.markEvent(conversationId, 'cadeia_valor_exibida');
+                console.log('[MARKER] ✅ Marked cadeia_valor_exibida flag');
+              } else if (a.params.tipo === 'matriz_priorizacao') {
+                await frameworkGuide.markEvent(conversationId, 'matriz_exibida');
+                console.log('[MARKER] ✅ Marked matriz_exibida flag');
+              }
+            } catch (e) {
+              console.warn('[MARKER] Failed to mark form display flags:', e);
+            }
+          }
           break;
         }
         case 'gerar_entregavel': {
@@ -119,28 +149,78 @@ export class MarkerProcessor {
               .update({ etapa_atual: 'execucao', aguardando_validacao: null })
               .eq('id', jornada.id);
             await this.timeline(jornada.id, 'execucao', `Fase avançada para: execucao`);
+
+            // Mark escopo_validado in framework_checklist
+            if (conversationId) {
+              try {
+                await frameworkGuide.markEvent(conversationId, 'escopo_validado');
+                console.log('[MARKER] ✅ Marked escopo_validado in framework_checklist');
+              } catch (e) {
+                console.warn('[MARKER] Failed to mark escopo_validado:', e);
+              }
+            }
+
             try {
               gamificationResult = await this.awardXPByJornada(jornada.id, 100, `Fase execucao iniciada`, userId, conversationId);
             } catch (e) {
               console.warn('[MARKER] awardXPByJornada failed on set_validacao:priorizacao', e);
             }
             await this.ensureAreasFromScope(jornada.id);
-            // enqueue atributos_processo after advancing
+
+            // CRITICAL: enqueue atributos_processo with first process pre-filled
             try {
               const ctx = jornada.contexto_coleta || {};
               const processos = ctx?.matriz_priorizacao?.processos || ctx?.priorizacao?.processos || ctx?.escopo?.processos || [];
+
               if (Array.isArray(processos) && processos.length > 0) {
                 const primeiro = processos[0];
-                const pa = { type: 'exibir_formulario', params: { tipo: 'atributos_processo', processo: { id: primeiro.id || null, nome: primeiro.nome || primeiro.processo || primeiro } } };
+                const processoNome = primeiro.nome || primeiro.processo || String(primeiro);
+
+                const pa = {
+                  type: 'exibir_formulario',
+                  params: {
+                    tipo: 'atributos_processo',
+                    defaultProcessoNome: processoNome,
+                    processo: {
+                      id: primeiro.id || null,
+                      nome: processoNome
+                    }
+                  }
+                };
                 postActions.push(pa);
-                console.log('[MARKER] enqueued atributos_processo prefilled with process:', pa.params.processo);
+                console.log('[MARKER] ✅ Enqueued atributos_processo prefilled with first process:', processoNome);
               } else {
-                postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
-                console.log('[MARKER] enqueued atributos_processo without prefilling (no prioritized processes found)');
+                // Fallback: try to get from escopo_processos_nomes in framework_checklist
+                if (conversationId) {
+                  const { data: checklistData } = await this.supabase
+                    .from('framework_checklist')
+                    .select('escopo_processos_nomes')
+                    .eq('conversation_id', conversationId)
+                    .maybeSingle();
+
+                  if (checklistData?.escopo_processos_nomes && checklistData.escopo_processos_nomes.length > 0) {
+                    const primeiroNome = checklistData.escopo_processos_nomes[0];
+                    postActions.push({
+                      type: 'exibir_formulario',
+                      params: {
+                        tipo: 'atributos_processo',
+                        defaultProcessoNome: primeiroNome,
+                        processo: { nome: primeiroNome }
+                      }
+                    });
+                    console.log('[MARKER] ✅ Enqueued atributos_processo from escopo_processos_nomes:', primeiroNome);
+                  } else {
+                    postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+                    console.log('[MARKER] ⚠️ Enqueued atributos_processo without prefilling (no processes found)');
+                  }
+                } else {
+                  postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
+                  console.log('[MARKER] ⚠️ Enqueued atributos_processo without prefilling (no conversationId)');
+                }
               }
             } catch (e) {
               postActions.push({ type: 'exibir_formulario', params: { tipo: 'atributos_processo' } });
-              console.warn('[MARKER] error while trying to enqueue atributos_processo, enqueued empty form instead:', e);
+              console.warn('[MARKER] Error while trying to enqueue atributos_processo, enqueued empty form instead:', e);
             }
           } else {
             updates.aguardando_validacao = tipo;
