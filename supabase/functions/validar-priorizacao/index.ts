@@ -74,6 +74,7 @@ Deno.serve(async (req: Request) => {
       .update({
         etapa_atual: 'execucao',
         aguardando_validacao: null,
+        ultima_interacao: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq('id', jornada.id);

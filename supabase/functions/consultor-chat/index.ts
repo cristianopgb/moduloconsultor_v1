@@ -17,6 +17,7 @@ import { IntelligentPromptBuilder } from './intelligent-prompt-builder.ts';
 import { MarkerProcessor } from './marker-processor.ts';
 import { DeliverableGenerator } from './deliverable-generator.ts';
 import { FrameworkGuide } from './framework-guide.ts';
+import { ConsultorFSM, type FSMContext } from './consultor-fsm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -659,89 +660,52 @@ Deno.serve(async (req: Request) => {
     const markerProcessor = new MarkerProcessor(supabase);
     const { displayContent, actions } = markerProcessor.processResponse(llmResponse);
 
-    console.log('[CONSULTOR-CHAT] Detected actions:', actions.map(a => a.type));
+    console.log('[CONSULTOR-CHAT] Detected actions from LLM:', actions.map(a => a.type));
 
-    // ========== FALLBACK INTELIGENTE DE MARKERS ==========
-    // Detecta quando LLM diz "vou abrir/enviar formulário" mas não incluiu o marker explícito
-    // Injeta o marker APENAS se o checklist permitir (CTA confirmado + form não exibido/preenchido)
-    // Isso resolve casos onde a LLM promete mas esquece o marker, sem violar o fluxo do framework
+    // ========== FSM DETERMINÍSTICO ==========
+    // A FSM (Finite State Machine) é a ÚNICA fonte de verdade sobre o fluxo
+    // Ela determina as próximas ações baseada no estado e contexto, independente da IA
 
-    // Buscar checklist ANTES do fallback para validações
+    // Buscar checklist para contexto completo
     const { data: checklistValidation } = await supabase
       .from('framework_checklist')
       .select('*')
       .eq('conversation_id', conversation_id)
       .maybeSingle();
 
-    const hasFormMarker = actions.some((a: any) => a.type === 'exibir_formulario');
-
-    if (!hasFormMarker) {
-      const saidThatWillOpenAnamnese = /vou (abrir|enviar|preencher).*(formul[aá]rio|anamnese)/i.test(llmResponse);
-      const saidThatWillOpenCanvas = /vou (abrir|enviar|mapear).*(formul[aá]rio|canvas)/i.test(llmResponse);
-      const saidThatWillOpenCadeia = /vou (abrir|enviar|mapear).*(formul[aá]rio|cadeia)/i.test(llmResponse);
-
-      const injectAction = (tipo: string) => {
-        console.log(`[FALLBACK] 🔧 LLM prometeu ${tipo} mas não gerou marker. Injetando ação...`);
-        actions.push({ type: 'exibir_formulario', params: { tipo } });
-      };
-
-      // Só injeta se CTA já foi confirmado E formulário não foi exibido/preenchido
-      if (saidThatWillOpenAnamnese &&
-          checklistValidation?.anamnese_usuario_confirmou &&
-          !checklistValidation?.anamnese_formulario_exibido &&
-          !checklistValidation?.anamnese_preenchida) {
-        injectAction('anamnese');
-      }
-
-      if (saidThatWillOpenCanvas &&
-          checklistValidation?.canvas_usuario_confirmou &&
-          !checklistValidation?.canvas_formulario_exibido &&
-          !checklistValidation?.canvas_preenchido) {
-        injectAction('canvas');
-      }
-
-      if (saidThatWillOpenCadeia &&
-          checklistValidation?.cadeia_valor_usuario_confirmou &&
-          !checklistValidation?.cadeia_valor_formulario_exibida &&
-          !checklistValidation?.cadeia_valor_preenchida) {
-        injectAction('cadeia_valor');
-      }
-    }
-    // ========== FIM DO FALLBACK INTELIGENTE ==========
-
-    // -------- Validações Rigorosas de Transição de Fase ----------
     const ctxNow = (jornada && jornada.contexto_coleta) ? jornada.contexto_coleta : {};
 
-    // checklistValidation já foi carregado no fallback acima, não buscar novamente
-
-    // ======== FALLBACK: Injeção automática de formulário baseada no checklist ========
-    // Se usuário confirmou mas formulário não foi exibido, injetar action automaticamente
-    // IMPORTANTE: Verificar se formulário já foi preenchido antes de injetar
-    const ensureFormIfConfirmed = (tipo: 'anamnese'|'canvas'|'cadeia_valor') => {
-      const cv = checklistValidation || {};
-
-      // Verificar se formulário já foi preenchido no contexto
-      const isAlreadyFilled = isFormAlreadyFilled(tipo, ctxNow);
-      if (isAlreadyFilled) {
-        console.log(`[FALLBACK] ⏭️ Pulando ${tipo} - já preenchido no contexto`);
-        return;
-      }
-
-      const needs =
-        (tipo === 'anamnese'     && cv.anamnese_usuario_confirmou     && !cv.anamnese_formulario_exibido     && !cv.anamnese_preenchida) ||
-        (tipo === 'canvas'       && cv.canvas_usuario_confirmou       && !cv.canvas_formulario_exibido       && !cv.canvas_preenchido)   ||
-        (tipo === 'cadeia_valor' && cv.cadeia_valor_usuario_confirmou && !cv.cadeia_valor_formulario_exibida && !cv.cadeia_valor_preenchida);
-
-      if (needs && !actions.some((a: any) => a.type==='exibir_formulario' && a.params?.tipo===tipo)) {
-        console.log(`[FALLBACK] ✅ Checklist confirmado para ${tipo}. Injetando exibir_formulario.`);
-        actions.push({ type:'exibir_formulario', params:{ tipo } });
-      }
+    // Construir contexto para a FSM
+    const fsmContext: FSMContext = {
+      jornada: jornada,
+      contexto_coleta: ctxNow,
+      aguardando_validacao: jornada.aguardando_validacao,
+      checklist: checklistValidation
     };
 
-    ensureFormIfConfirmed('anamnese');
-    ensureFormIfConfirmed('canvas');
-    ensureFormIfConfirmed('cadeia_valor');
-    // ======== FIM FALLBACK ========
+    // Obter ações corretas da FSM (determinístico)
+    const fsmActions = ConsultorFSM.getNextActions(fsmContext);
+    console.log('[FSM] Determined actions:', fsmActions.map(a => `${a.type}(${a.reason})`));
+
+    // Merge: Manter actions da IA + adicionar actions da FSM que não existem
+    for (const fsmAction of fsmActions) {
+      // Skip noop actions
+      if (fsmAction.type === 'noop') continue;
+
+      // Check if this action already exists in actions array
+      const exists = actions.some((a: any) =>
+        a.type === fsmAction.type &&
+        JSON.stringify(a.params) === JSON.stringify(fsmAction.params)
+      );
+
+      if (!exists) {
+        console.log(`[FSM] Injecting missing action: ${fsmAction.type} (reason: ${fsmAction.reason})`);
+        actions.push({ type: fsmAction.type, params: fsmAction.params });
+      }
+    }
+
+    console.log('[CONSULTOR-CHAT] Final actions (LLM + FSM):', actions.map(a => a.type));
+    // ========== FIM FSM DETERMINÍSTICO ==========
 
     const filteredActions = actions.filter((a: any) => {
       if (a.type !== 'exibir_formulario') return true;
