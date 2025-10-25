@@ -1,5 +1,5 @@
 // supabase/functions/consultor-chat/deliverable-generator.ts
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 export class DeliverableGenerator {
   constructor(

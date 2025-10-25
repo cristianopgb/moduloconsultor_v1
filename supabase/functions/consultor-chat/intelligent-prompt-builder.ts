@@ -1,5 +1,5 @@
 // supabase/functions/consultor-chat/intelligent-prompt-builder.ts
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 /**
  * IntelligentPromptBuilder V2 - Baseado exclusivamente no Framework Checklist

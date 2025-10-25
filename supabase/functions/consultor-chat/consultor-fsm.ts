@@ -119,21 +119,23 @@ export class ConsultorFSM {
    * Ação: Exibir formulário de anamnese se ainda não preenchido
    */
   private static handleAnamneseState(contexto: any, checklist: any): FSMAction[] {
-    const hasAnamnese = !!(contexto?.anamnese || contexto?.empresa);
     const anamnesePreenchida = checklist?.anamnese_preenchida;
-    const anamneseExibida = checklist?.anamnese_formulario_exibido;
+    const anamneseConfirmado = checklist?.anamnese_usuario_confirmou;
 
-    if (hasAnamnese || anamnesePreenchida) {
+    if (anamnesePreenchida) {
       console.log('[FSM] Anamnese already filled, should advance to modelagem');
       return [{ type: 'avancar_fase', params: { fase: 'modelagem' }, reason: 'anamnese_complete' }];
     }
 
-    if (!anamneseExibida) {
-      console.log('[FSM] Opening anamnese form');
-      return [{ type: 'exibir_formulario', params: { tipo: 'anamnese' }, reason: 'anamnese_needed' }];
+    // Se ainda não confirmou, não retornar action (LLM vai enviar CTA)
+    if (!anamneseConfirmado) {
+      console.log('[FSM] Anamnese awaiting user confirmation, no action');
+      return [];
     }
 
-    return [];
+    // Se confirmou, retornar action para abrir form
+    console.log('[FSM] Anamnese confirmed, opening form');
+    return [{ type: 'exibir_formulario', params: { tipo: 'anamnese' }, reason: 'anamnese_confirmed' }];
   }
 
   /**
@@ -143,37 +145,39 @@ export class ConsultorFSM {
   private static handleModelagemState(contexto: any, checklist: any): FSMAction[] {
     const actions: FSMAction[] = [];
 
-    // 1. Verificar Canvas
-    const hasCanvas = !!(contexto?.canvas);
+    // 1. Verificar Canvas - usar SOMENTE checklist (não contexto)
     const canvasPreenchido = checklist?.canvas_preenchido;
-    const canvasExibido = checklist?.canvas_formulario_exibido;
+    const canvasConfirmado = checklist?.canvas_usuario_confirmou;
 
-    if (!hasCanvas && !canvasPreenchido) {
-      if (!canvasExibido) {
-        console.log('[FSM] Opening canvas form');
-        return [{ type: 'exibir_formulario', params: { tipo: 'canvas' }, reason: 'canvas_needed' }];
+    if (!canvasPreenchido) {
+      // Se ainda não confirmou, não retornar action (LLM vai enviar CTA)
+      if (!canvasConfirmado) {
+        console.log('[FSM] Canvas awaiting user confirmation, no action');
+        return [];
       }
-      console.log('[FSM] Canvas form already shown, waiting for user to fill');
-      return [];
+      // Se confirmou mas form não foi exibido, retornar action
+      console.log('[FSM] Canvas confirmed, opening form');
+      return [{ type: 'exibir_formulario', params: { tipo: 'canvas' }, reason: 'canvas_confirmed' }];
     }
 
-    // 2. Verificar Cadeia de Valor
-    const hasCadeia = !!(contexto?.cadeia_valor || contexto?.cadeia);
+    // 2. Verificar Cadeia de Valor - usar SOMENTE checklist
     const cadeiaPreenchida = checklist?.cadeia_valor_preenchida;
-    const cadeiaExibida = checklist?.cadeia_valor_formulario_exibida;
+    const cadeiaConfirmado = checklist?.cadeia_valor_usuario_confirmou;
 
-    if (!hasCadeia && !cadeiaPreenchida) {
-      if (!cadeiaExibida) {
-        console.log('[FSM] Canvas filled, opening cadeia_valor form');
-        return [{ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' }, reason: 'cadeia_needed_after_canvas' }];
+    if (!cadeiaPreenchida) {
+      // Se ainda não confirmou, não retornar action (LLM vai enviar CTA)
+      if (!cadeiaConfirmado) {
+        console.log('[FSM] Cadeia awaiting user confirmation, no action');
+        return [];
       }
-      console.log('[FSM] Cadeia form already shown, waiting for user to fill');
-      return [];
+      // Se confirmou mas form não foi exibido, retornar action
+      console.log('[FSM] Cadeia confirmed, opening form');
+      return [{ type: 'exibir_formulario', params: { tipo: 'cadeia_valor' }, reason: 'cadeia_confirmed' }];
     }
 
-    // 3. Se ambos preenchidos, gerar Matriz + Escopo automaticamente
-    if ((hasCanvas || canvasPreenchido) && (hasCadeia || cadeiaPreenchida)) {
-      console.log('[FSM] Canvas + Cadeia complete, generating matriz + escopo');
+    // 3. Se ambos preenchidos no CHECKLIST, gerar Matriz + Escopo automaticamente
+    if (canvasPreenchido && cadeiaPreenchida) {
+      console.log('[FSM] ✅ Checklist: Canvas + Cadeia complete, generating matriz + escopo');
       actions.push({
         type: 'gerar_entregavel',
         params: { tipo: 'matriz_priorizacao' },

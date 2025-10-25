@@ -1,5 +1,5 @@
 // supabase/functions/gerar-bpmn/index.ts
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 /**
  * Gera BPMN AS-IS (XML) para uma área (ou processo específico) e cria/atualiza o entregável.

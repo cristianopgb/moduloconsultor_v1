@@ -238,6 +238,7 @@ Deno.serve(async (req: Request) => {
     const awaitingStatus = await frameworkGuide.isAwaitingConfirmation(conversation_id);
 
     // ANTI-LOOP ESCAPE HATCH: Count recent assistant messages asking about the same form
+    // CRITICAL: Only force confirm if user ACTUALLY confirmed (not just repeated questions)
     if (awaitingStatus.awaiting && !isFormSubmission) {
       const recentMessages = (conversationHistory || []).slice(-10);
       const recentAssistantMessages = recentMessages.filter((m: any) => m.role === 'assistant');
@@ -248,7 +249,10 @@ Deno.serve(async (req: Request) => {
         return ctaKeywords.some(kw => content.includes(kw));
       }).length;
 
-      if (repeatedCTACount >= 2) {
+      // Check if user's CURRENT message is a confirmation
+      const isUserConfirming = frameworkGuide.isUserConfirmation(message);
+
+      if (repeatedCTACount >= 3 && isUserConfirming) {
         console.log(`[CONSULTOR-CHAT] 🚨 ANTI-LOOP: Detected ${repeatedCTACount} CTA requests. Force-confirming ${formType} and opening form immediately.`);
 
         // Force confirmation to break the loop
@@ -741,6 +745,21 @@ Deno.serve(async (req: Request) => {
         return false;
       }
 
+      // CRITICAL: Permitir formulários SOMENTE se o usuário já confirmou
+      // Checklist deve ter xxx_usuario_confirmou = true
+      if (tipo === 'anamnese' && !checklistValidation?.anamnese_usuario_confirmou) {
+        console.log('[CONSULTOR-CHAT] ⛔ Bloqueando anamnese - usuário ainda não confirmou');
+        return false;
+      }
+      if (tipo === 'canvas' && !checklistValidation?.canvas_usuario_confirmou) {
+        console.log('[CONSULTOR-CHAT] ⛔ Bloqueando canvas - usuário ainda não confirmou');
+        return false;
+      }
+      if (tipo === 'cadeia_valor' && !checklistValidation?.cadeia_valor_usuario_confirmou) {
+        console.log('[CONSULTOR-CHAT] ⛔ Bloqueando cadeia_valor - usuário ainda não confirmou');
+        return false;
+      }
+
       return true;
     });
 
@@ -768,10 +787,15 @@ Deno.serve(async (req: Request) => {
       .eq('tipo', 'matriz_priorizacao')
       .maybeSingle();
 
+    // CRITICAL: Verificar no checklist ao invés de contexto_coleta para evitar geração prematura
+    const checklistComplete = checklistValidation?.anamnese_preenchida &&
+                              checklistValidation?.canvas_preenchido &&
+                              checklistValidation?.cadeia_valor_preenchida;
+
     if ((jornada.etapa_atual === 'modelagem' || jornada.etapa_atual === 'mapeamento')
-        && hasCadeia && hasCanvas && hasAnamnese
+        && checklistComplete
         && !matrizExistente) {
-      console.log('[CONSULTOR-CHAT] Anamnese + Canvas + Cadeia completos, gerando Matriz automaticamente');
+      console.log('[CONSULTOR-CHAT] ✅ Checklist completo (anamnese + canvas + cadeia), gerando Matriz automaticamente');
 
       // Gerar matriz e escopo automaticamente
       if (!filteredActions.some((a:any)=> a.type==='gerar_entregavel' && a.params?.tipo==='matriz_priorizacao')) {

@@ -1,5 +1,5 @@
 // supabase/functions/consultor-chat/marker-processor.ts
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 export type MarkerAction =
   | { type: 'exibir_formulario'; params: { tipo: 'anamnese'|'canvas'|'cadeia_valor'|'atributos_processo'|'diagnostico'|'plano_acao' } }
