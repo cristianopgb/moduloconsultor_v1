@@ -7,9 +7,18 @@ const corsHeaders = {
 };
 
 interface GerarDiagnosticoRequest {
-  area_id: string;
+  jornada_id: string;
+  processo_nome: string;
+  conversation_id?: string;
 }
 
+/**
+ * Geração AUTOMÁTICA de Diagnóstico (SEM FORMULÁRIO)
+ *
+ * Chamado automaticamente após BPMN ser gerado
+ * Usa dados de: atributos_processo + entregável BPMN
+ * Salva com UPSERT idempotente (por jornada_id + slug)
+ */
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -20,50 +29,73 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { area_id }: GerarDiagnosticoRequest = await req.json();
+    const { jornada_id, processo_nome, conversation_id }: GerarDiagnosticoRequest = await req.json();
 
-    if (!area_id) {
-      throw new Error('Campo obrigatório: area_id');
+    if (!jornada_id || !processo_nome) {
+      throw new Error('Campos obrigatórios: jornada_id, processo_nome');
     }
 
-    const { data: area, error: areaError } = await supabase
-      .from('areas_trabalho')
+    console.log('[GERAR-DIAGNOSTICO] Request:', { jornada_id, processo_nome });
+
+    // 1. Buscar jornada e contexto
+    const { data: jornada } = await supabase
+      .from('jornadas_consultor')
       .select('*')
-      .eq('id', area_id)
+      .eq('id', jornada_id)
       .single();
 
-    if (areaError || !area) {
-      throw new Error('Área não encontrada');
+    if (!jornada) {
+      throw new Error('Jornada não encontrada');
     }
 
-    const { data: processos, error: processosError } = await supabase
-      .from('processos_mapeados')
-      .select('*')
-      .eq('area_id', area_id);
+    // 2. Buscar atributos do processo no contexto_coleta
+    const contexto = jornada.contexto_coleta || {};
+    const atributos = contexto.atributos_processo?.[processo_nome];
 
-    if (processosError) throw processosError;
-
-    if (!processos || processos.length === 0) {
-      throw new Error('Nenhum processo mapeado para esta área');
+    if (!atributos) {
+      throw new Error(`Atributos do processo "${processo_nome}" não encontrados no contexto`);
     }
+
+    console.log('[GERAR-DIAGNOSTICO] Atributos encontrados:', Object.keys(atributos));
+
+    // 3. Buscar entregável BPMN (se existir)
+    const { data: bpmnEntregavel } = await supabase
+      .from('entregaveis_consultor')
+      .select('html_conteudo')
+      .eq('jornada_id', jornada_id)
+      .eq('tipo', 'bpmn')
+      .maybeSingle();
+
+    console.log('[GERAR-DIAGNOSTICO] BPMN encontrado:', !!bpmnEntregavel);
 
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiKey) throw new Error('OPENAI_API_KEY não configurada');
 
-    const processosTexto = processos.map(p => `
-**${p.nome_processo}**
-- Input: ${p.input || 'N/A'}
-- Output: ${p.output || 'N/A'}
-- Ferramentas: ${p.ferramentas || 'N/A'}
-- Métricas: ${p.metricas || 'N/A'}
-- Regras: ${p.regras_negocio || 'N/A'}
-- Fluxo: ${p.fluxo_detalhado || 'N/A'}
-- Pessoas: ${p.pessoas_envolvidas || 'N/A'}
-`).join('\n');
+    // 4. Preparar dados para IA
+    const dadosProcesso = `
+**Processo: ${processo_nome}**
 
-    const prompt = `Você é um consultor especialista em transformação organizacional. Analise os processos da área **${area.nome_area}** e gere um diagnóstico completo.
+**Atributos:**
+- Objetivo: ${atributos.objetivo || '—'}
+- Responsável: ${atributos.responsavel || '—'}
+- Input: ${atributos.input || '—'}
+- Output: ${atributos.output || '—'}
+- Ferramentas: ${atributos.ferramentas || '—'}
+- Frequência: ${atributos.frequencia || '—'}
+- Tempo Médio: ${atributos.tempo_medio || '—'}
+- Pessoas Envolvidas: ${atributos.pessoas_envolvidas || '—'}
+- Documentação: ${atributos.documentacao || 'Não'}
+- Sistemas: ${atributos.sistemas || '—'}
+- Métricas: ${atributos.metricas || '—'}
+- Problemas: ${atributos.problemas || '—'}
+- Gargalos: ${atributos.gargalos || '—'}
 
-**Processos Mapeados:**${processosTexto}
+${bpmnEntregavel ? '**Nota:** Modelagem BPMN AS-IS também foi realizada para este processo.' : ''}
+`;
+
+    const prompt = `Você é um consultor especialista em transformação organizacional. Analise o processo **${processo_nome}** e gere um diagnóstico completo baseado nos atributos coletados.
+
+**Dados do Processo:**${dadosProcesso}
 
 **Estrutura do Diagnóstico:**
 
@@ -125,52 +157,81 @@ Gere o diagnóstico agora:`;
 
     const diagnostico = JSON.parse(diagnosticoTexto);
 
-    const { data: diagnosticoDb, error: diagnosticoError } = await supabase
-      .from('diagnosticos_area')
-      .insert({
-        area_id: area.id,
-        pontos_fortes: diagnostico.pontos_fortes || [],
-        gaps_criticos: diagnostico.gaps_criticos || [],
-        riscos: diagnostico.riscos || [],
-        oportunidades: diagnostico.oportunidades || [],
-        recomendacoes: diagnostico.recomendacoes || [],
-        status: 'pendente'
-      })
-      .select()
-      .single();
+    console.log('[GERAR-DIAGNOSTICO] Diagnóstico gerado pela IA');
 
-    if (diagnosticoError) throw diagnosticoError;
+    // 6. Gerar HTML do diagnóstico
+    const htmlConteudo = gerarHtmlDiagnostico(processo_nome, diagnostico);
 
-    const htmlConteudo = gerarHtmlDiagnostico(area, diagnostico);
+    // 7. Salvar entregável com UPSERT idempotente
+    const slug = `diagnostico-${processo_nome.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const titulo = `Diagnóstico: ${processo_nome}`;
 
     const { data: entregavel, error: entregavelError } = await supabase
       .from('entregaveis_consultor')
-      .insert({
-        jornada_id: area.jornada_id,
-        area_id: area.id,
-        nome: `Diagnóstico - ${area.nome_area}`,
+      .upsert({
+        jornada_id: jornada_id,
+        slug: slug,
         tipo: 'diagnostico',
+        nome: titulo,
+        titulo: titulo,
         html_conteudo: htmlConteudo,
-        etapa_origem: 'analise',
-        data_geracao: new Date().toISOString()
+        etapa_origem: 'execucao',
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'jornada_id,slug',
+        ignoreDuplicates: false
       })
       .select()
       .single();
 
-    if (entregavelError) throw entregavelError;
+    if (entregavelError) {
+      console.error('[GERAR-DIAGNOSTICO] Error saving deliverable:', entregavelError);
+      throw entregavelError;
+    }
+
+    console.log('[GERAR-DIAGNOSTICO] ✅ Diagnóstico salvo (UPSERT):', slug);
+
+    // 8. Atualizar processo_checklist (marcar diagnóstico gerado)
+    if (conversation_id) {
+      try {
+        await supabase
+          .from('processo_checklist')
+          .update({
+            diagnostico_preenchido: true,
+            diagnostico_ts: new Date().toISOString()
+          })
+          .eq('conversation_id', conversation_id)
+          .eq('processo_nome', processo_nome);
+
+        console.log('[GERAR-DIAGNOSTICO] ✅ processo_checklist atualizado');
+      } catch (e) {
+        console.warn('[GERAR-DIAGNOSTICO] Warning updating processo_checklist:', e);
+      }
+    }
+
+    // 9. Registrar evento na timeline
+    try {
+      await supabase.from('timeline_consultor').insert({
+        jornada_id: jornada_id,
+        fase: 'execucao',
+        evento: `Diagnóstico gerado automaticamente: ${processo_nome}`
+      });
+    } catch (e) {
+      console.warn('[GERAR-DIAGNOSTICO] Timeline insert failed (non-critical):', e);
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        diagnostico_id: diagnosticoDb.id,
         entregavel_id: entregavel.id,
-        diagnostico
+        slug: slug,
+        diagnostico: diagnostico
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error: any) {
-    console.error('Erro ao gerar diagnóstico:', error);
+    console.error('[GERAR-DIAGNOSTICO] ERROR:', error);
     return new Response(
       JSON.stringify({ error: error.message || 'Erro ao gerar diagnóstico' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -178,18 +239,18 @@ Gere o diagnóstico agora:`;
   }
 });
 
-function gerarHtmlDiagnostico(area: any, diagnostico: any): string {
-  const pontosHtml = diagnostico.pontos_fortes.map((p: string) => `<li class="sucesso">✅ ${p}</li>`).join('');
-  const gapsHtml = diagnostico.gaps_criticos.map((g: string) => `<li class="critico">⚠️ ${g}</li>`).join('');
-  const riscosHtml = diagnostico.riscos.map((r: string) => `<li class="risco">🚨 ${r}</li>`).join('');
-  const oportunidadesHtml = diagnostico.oportunidades.map((o: string) => `<li class="oportunidade">💡 ${o}</li>`).join('');
-  const recomendacoesHtml = diagnostico.recomendacoes.map((r: string, idx: number) => `<li class="recomendacao"><strong>${idx + 1}.</strong> ${r}</li>`).join('');
+function gerarHtmlDiagnostico(processoNome: string, diagnostico: any): string {
+  const pontosHtml = (diagnostico.pontos_fortes || []).map((p: string) => `<li class="sucesso">✅ ${p}</li>`).join('');
+  const gapsHtml = (diagnostico.gaps_criticos || []).map((g: string) => `<li class="critico">⚠️ ${g}</li>`).join('');
+  const riscosHtml = (diagnostico.riscos || []).map((r: string) => `<li class="risco">🚨 ${r}</li>`).join('');
+  const oportunidadesHtml = (diagnostico.oportunidades || []).map((o: string) => `<li class="oportunidade">💡 ${o}</li>`).join('');
+  const recomendacoesHtml = (diagnostico.recomendacoes || []).map((r: string, idx: number) => `<li class="recomendacao"><strong>${idx + 1}.</strong> ${r}</li>`).join('');
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Diagnóstico - ${area.nome_area}</title>
+  <title>Diagnóstico - ${processoNome}</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
     h1 { color: #2563eb; border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
@@ -210,9 +271,9 @@ function gerarHtmlDiagnostico(area: any, diagnostico: any): string {
   </style>
 </head>
 <body>
-  <h1>Diagnóstico da Área</h1>
-  <p><strong>Área:</strong> ${area.nome_area}</p>
-  <p><em>Gerado em: ${new Date().toLocaleDateString('pt-BR')}</em></p>
+  <h1>Diagnóstico do Processo</h1>
+  <p><strong>Processo:</strong> ${processoNome}</p>
+  <p><em>Gerado automaticamente em: ${new Date().toLocaleDateString('pt-BR')}</em></p>
 
   <div class="section sucesso-section">
     <h2>Pontos Fortes</h2>
