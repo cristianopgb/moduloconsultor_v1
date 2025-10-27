@@ -51,184 +51,363 @@ Deno.serve(async (req: Request) => {
 
     const { message, conversation_id, user_id, sessao_id, form_data, action } = body;
 
-    if (!user_id || !message) {
+    if (!message || !user_id) {
       return new Response(
-        JSON.stringify({ error: 'user_id and message are required' }),
+        JSON.stringify({ error: 'message e user_id são obrigatórios' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Inicializar componentes
-    const orchestrator = new ConsultorOrchestrator(supabase);
+    console.log('[CONSULTOR-RAG] Request:', {
+      user_id,
+      conversation_id,
+      sessao_id,
+      has_form: !!form_data,
+      action
+    });
+
+    // Inicializa componentes
+    const orchestrator = new ConsultorOrchestrator(supabase, openaiKey);
     const ragEngine = new RAGEngine(supabase, openaiKey);
 
-    // 1. Buscar ou criar sessão
-    let sessao;
-    if (sessao_id) {
-      const { data } = await supabase
-        .from('consultor_sessoes')
-        .select('*')
-        .eq('id', sessao_id)
-        .eq('user_id', user_id)
-        .single();
-      sessao = data;
+    // Busca ou cria sessão
+    let sessao = await buscarOuCriarSessao(
+      supabase,
+      user_id,
+      conversation_id,
+      sessao_id,
+      message
+    );
+
+    console.log('[CONSULTOR-RAG] Sessão:', {
+      id: sessao.id,
+      estado: sessao.estado_atual,
+      progresso: sessao.progresso
+    });
+
+    // Atualiza contexto se houver form_data
+    if (form_data && Object.keys(form_data).length > 0) {
+      sessao = await atualizarContextoSessao(supabase, sessao, form_data);
     }
 
-    if (!sessao) {
-      // Criar nova sessão
-      const { data, error } = await supabase
-        .from('consultor_sessoes')
-        .insert({
-          user_id,
-          conversation_id,
-          titulo_problema: message.substring(0, 100),
-          contexto_negocio: form_data || {},
-          estado_atual: 'coleta',
-          progresso: 0
-        })
-        .select()
-        .single();
+    // Determina próximas ações via orquestrador
+    const acoesOrquestradas = await orchestrator.determinarProximasAcoes(sessao);
 
-      if (error) throw error;
-      sessao = data;
-    } else if (form_data) {
-      // Atualizar contexto com form_data
-      const novoContexto = { ...sessao.contexto_negocio, ...form_data };
-      const { data } = await supabase
-        .from('consultor_sessoes')
-        .update({ contexto_negocio: novoContexto })
-        .eq('id', sessao.id)
-        .select()
-        .single();
-      sessao = data;
-    }
+    console.log('[CONSULTOR-RAG] Ações orquestradas:', acoesOrquestradas.length);
 
-    // 2. Orquestrador determina próximas ações
-    const acoes = await orchestrator.determinarProximasAcoes(sessao);
-    const acaoPrincipal = acoes[0];
-
-    // 3. RAG busca conhecimento relevante
+    // Busca conhecimento relevante via RAG
     const resultadoRAG = await ragEngine.buscarDocumentos(
-      message + ' ' + (acaoPrincipal?.entrada?.query || ''),
+      `${sessao.titulo_problema} ${message}`,
       {
-        contexto: sessao.contexto_negocio,
-        estado: sessao.estado_atual
+        categorias: ['metodologia', 'framework', 'best_practice'],
+        limite: 3
       }
     );
 
-    // 4. Construir prompt enriquecido
-    const promptSistema = `Você é um consultor empresarial expert em BPM e gestão de processos.
+    console.log('[CONSULTOR-RAG] RAG:', {
+      documentos: resultadoRAG.documentos.length,
+      tokens: resultadoRAG.tokens_usados
+    });
 
-ESTADO DA CONSULTORIA:
-- Fase atual: ${sessao.estado_atual}
-- Progresso: ${sessao.progresso}%
-- Problema: ${sessao.titulo_problema}
+    // Constrói prompt para LLM com contexto enriquecido
+    const promptSystem = construirPromptSystem(sessao, resultadoRAG, acoesOrquestradas);
+    const promptUser = construirPromptUser(message, sessao);
 
-CONTEXTO DO NEGÓCIO:
+    // Chama LLM
+    const respostaLLM = await chamarLLM(promptSystem, promptUser, openaiKey);
+
+    // Processa ações pendentes
+    let acoesFront: any[] = [];
+    if (acoesOrquestradas.length > 0) {
+      const acaoPrincipal = acoesOrquestradas[0];
+
+      // Executa ação principal
+      const resultadoAcao = await orchestrator.executarAcao(sessao, acaoPrincipal);
+
+      // Converte para formato do front-end
+      acoesFront = converterAcoesParaFront(resultadoAcao, acaoPrincipal);
+    }
+
+    // Atualiza progresso
+    const novoProgresso = await orchestrator.atualizarProgresso(sessao);
+
+    // Salva mensagens
+    await salvarMensagens(supabase, conversation_id, user_id, message, respostaLLM);
+
+    // Resposta
+    return new Response(
+      JSON.stringify({
+        response: respostaLLM,
+        sessao_id: sessao.id,
+        estado_atual: sessao.estado_atual,
+        progresso: novoProgresso,
+        actions: acoesFront,
+        rag_info: {
+          documentos_usados: resultadoRAG.documentos.length,
+          tempo_busca: resultadoRAG.tempo_busca_ms
+        }
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error: any) {
+    console.error('[CONSULTOR-RAG ERROR]', error);
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+        details: error.stack
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
+
+async function buscarOuCriarSessao(
+  supabase: any,
+  userId: string,
+  conversationId?: string,
+  sessaoId?: string,
+  message?: string
+): Promise<any> {
+  // Tenta buscar sessão existente
+  if (sessaoId) {
+    const { data, error } = await supabase
+      .from('consultor_sessoes')
+      .select('*')
+      .eq('id', sessaoId)
+      .eq('user_id', userId)
+      .single();
+
+    if (!error && data) {
+      return data;
+    }
+  }
+
+  // Tenta buscar por conversation_id
+  if (conversationId) {
+    const { data, error } = await supabase
+      .from('consultor_sessoes')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .eq('ativo', true)
+      .single();
+
+    if (!error && data) {
+      return data;
+    }
+  }
+
+  // Cria nova sessão
+  const tituloProblem a = message ? extrairTitulo(message) : 'Nova Consultoria';
+
+  const { data: novaSessao, error: createError } = await supabase
+    .from('consultor_sessoes')
+    .insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      titulo_problema: tituloProblem a,
+      estado_atual: 'coleta',
+      contexto_negocio: {},
+      metodologias_aplicadas: [],
+      documentos_usados: [],
+      historico_rag: [],
+      entregaveis_gerados: [],
+      progresso: 0,
+      ativo: true
+    })
+    .select()
+    .single();
+
+  if (createError) {
+    throw new Error(`Erro ao criar sessão: ${createError.message}`);
+  }
+
+  return novaSessao;
+}
+
+async function atualizarContextoSessao(
+  supabase: any,
+  sessao: any,
+  formData: any
+): Promise<any> {
+  const contextoAtualizado = {
+    ...sessao.contexto_negocio,
+    ...formData,
+    ultima_atualizacao: new Date().toISOString()
+  };
+
+  const { data, error } = await supabase
+    .from('consultor_sessoes')
+    .update({ contexto_negocio: contextoAtualizado })
+    .eq('id', sessao.id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[CONSULTOR-RAG] Erro ao atualizar contexto:', error);
+    return sessao;
+  }
+
+  return data;
+}
+
+function construirPromptSystem(
+  sessao: any,
+  resultadoRAG: any,
+  acoes: any[]
+): string {
+  let prompt = `# Você é o Proceda AI Consultant
+
+Especialista sênior em consultoria empresarial com 20+ anos de experiência em BPM, estratégia, processos e metodologias de melhoria contínua.
+
+## Contexto da Sessão
+- **Problema:** ${sessao.titulo_problema}
+- **Estado Atual:** ${sessao.estado_atual}
+- **Progresso:** ${sessao.progresso}%
+- **Metodologias Aplicadas:** ${sessao.metodologias_aplicadas.join(', ') || 'Nenhuma ainda'}
+
+## Contexto do Negócio
 ${JSON.stringify(sessao.contexto_negocio, null, 2)}
 
-METODOLOGIAS JÁ APLICADAS:
-${sessao.metodologias_aplicadas?.join(', ') || 'Nenhuma ainda'}
+## Conhecimento Disponível (RAG)
+${resultadoRAG.contexto_construido}
 
-PRÓXIMA AÇÃO RECOMENDADA:
-Tipo: ${acaoPrincipal?.tipo_acao}
-${acaoPrincipal?.entrada ? JSON.stringify(acaoPrincipal.entrada, null, 2) : ''}
+## Próximas Ações Recomendadas
+${acoes.map((a, i) => `${i + 1}. ${a.descricao} (${a.tipo})`).join('\n')}
 
-CONHECIMENTO RELEVANTE DA BASE:
-${resultadoRAG.documentos.map(doc => `
-## ${doc.title}
-${doc.content.substring(0, 500)}...`).join('\n')}
+## Seu Papel
+- Seja direto, consultivo e prático
+- Use o conhecimento da base (RAG) para fundamentar suas recomendações
+- Siga as ações recomendadas pelo orquestrador
+- Adapte sua comunicação ao perfil do cliente
+- Não repita informações já coletadas
+- Seja proativo em identificar problemas ocultos
 
-Sua resposta deve:
-1. Ser conversacional e empática
-2. Usar o conhecimento da base quando aplicável
-3. Seguir a ação recomendada pelo orquestrador
-4. Ser concisa mas completa
-5. Fazer perguntas específicas quando necessário`;
+## Tom
+Profissional, motivador, sem rodeios, focado em resultados.
+`;
 
-    // 5. Chamar LLM
-    const llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+  return prompt;
+}
+
+function construirPromptUser(message: string, sessao: any): string {
+  return `Mensagem do cliente: "${message}"
+
+Por favor, responda de forma contextual e relevante, considerando o estado atual da sessão e as próximas ações recomendadas.`;
+}
+
+async function chamarLLM(
+  systemPrompt: string,
+  userPrompt: string,
+  openaiKey: string
+): Promise<string> {
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
-          { role: 'system', content: promptSistema },
-          { role: 'user', content: message }
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
         ],
         temperature: 0.7,
         max_tokens: 1000
       })
     });
 
-    if (!llmResponse.ok) {
-      const error = await llmResponse.text();
-      throw new Error(`OpenAI API error: ${error}`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`OpenAI API error: ${JSON.stringify(errorData)}`);
     }
 
-    const llmData = await llmResponse.json();
-    const resposta = llmData.choices[0].message.content;
-
-    // 6. Executar ação principal
-    let acaoExecutada = null;
-    if (acaoPrincipal && action !== 'skip_action') {
-      acaoExecutada = await orchestrator.executarAcao(sessao, acaoPrincipal);
-    }
-
-    // 7. Log da ação no orquestrador
-    await supabase.from('orquestrador_acoes').insert({
-      sessao_id: sessao.id,
-      tipo_acao: acaoPrincipal?.tipo_acao || 'resposta_livre',
-      entrada: { message, ...acaoPrincipal?.entrada },
-      documentos_consultados: resultadoRAG.documentos.map(d => d.id),
-      saida: { resposta, acao_executada: acaoExecutada },
-      sucesso: true
-    });
-
-    // 8. Atualizar progresso
-    if (acaoExecutada?.novo_estado) {
-      await supabase
-        .from('consultor_sessoes')
-        .update({
-          estado_atual: acaoExecutada.novo_estado,
-          progresso: Math.min(sessao.progresso + 20, 100)
-        })
-        .eq('id', sessao.id);
-    }
-
-    // 9. Retornar resposta completa
-    return new Response(
-      JSON.stringify({
-        response: resposta,
-        sessao_id: sessao.id,
-        estado_atual: acaoExecutada?.novo_estado || sessao.estado_atual,
-        progresso: Math.min(sessao.progresso + (acaoExecutada ? 20 : 5), 100),
-        actions: acoes.slice(0, 3).map(a => ({
-          type: a.tipo_acao,
-          params: a.entrada
-        })),
-        rag_info: {
-          documentos_usados: resultadoRAG.documentos.map(d => d.title),
-          tokens_usados: resultadoRAG.tokens_usados,
-          tempo_busca_ms: resultadoRAG.tempo_busca_ms
-        }
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
-  } catch (error) {
-    console.error('Error in consultor-rag:', error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
+    const data = await response.json();
+    return data.choices[0].message.content;
+  } catch (err) {
+    console.error('[CONSULTOR-RAG] LLM call failed:', err);
+    throw err;
   }
-});
+}
+
+function converterAcoesParaFront(resultadoAcao: any, acao: any): any[] {
+  const acoes: any[] = [];
+
+  if (resultadoAcao.tipo === 'pergunta') {
+    // Não retorna action, deixa LLM fazer a pergunta naturalmente
+    return [];
+  }
+
+  if (resultadoAcao.tipo === 'metodologia_aplicada') {
+    // Pode exibir modal com instruções da metodologia
+    acoes.push({
+      type: 'exibir_metodologia',
+      params: {
+        metodologia: resultadoAcao.metodologia,
+        instrucoes: resultadoAcao.instrucoes
+      }
+    });
+  }
+
+  if (resultadoAcao.tipo === 'entregavel_pendente') {
+    acoes.push({
+      type: 'gerar_entregavel',
+      params: {
+        tipo: resultadoAcao.tipo_entregavel
+      }
+    });
+  }
+
+  return acoes;
+}
+
+async function salvarMensagens(
+  supabase: any,
+  conversationId: string | undefined,
+  userId: string,
+  userMsg: string,
+  assistantMsg: string
+): Promise<void> {
+  if (!conversationId) return;
+
+  try {
+    await supabase.from('messages').insert([
+      {
+        conversation_id: conversationId,
+        role: 'user',
+        content: userMsg,
+        user_id: userId,
+        message_type: 'text'
+      },
+      {
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: assistantMsg,
+        user_id: userId,
+        message_type: 'text'
+      }
+    ]);
+  } catch (err) {
+    console.error('[CONSULTOR-RAG] Erro ao salvar mensagens:', err);
+  }
+}
+
+function extrairTitulo(message: string): string {
+  // Extrai título do problema da mensagem
+  const palavrasChave = ['problema', 'desafio', 'dificuldade', 'melhorar', 'otimizar'];
+
+  for (const palavra of palavrasChave) {
+    if (message.toLowerCase().includes(palavra)) {
+      // Pega até 50 caracteres após a palavra-chave
+      const index = message.toLowerCase().indexOf(palavra);
+      const titulo = message.substring(index, Math.min(index + 50, message.length));
+      return titulo.trim();
+    }
+  }
+
+  // Fallback: primeiras 50 caracteres
+  return message.substring(0, Math.min(50, message.length)).trim() + '...';
+}

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Home, BarChart3, Users, Settings, FileText, File, Brain, Crown, User, LogOut,
-  Database, MessageSquare, Zap, LayoutGrid as Layout, Shield, Bell, Calculator, Sparkles, Activity, BookOpen, Briefcase
+  Database, MessageSquare, Zap, LayoutGrid as Layout, Shield, Bell, Calculator, Sparkles, Activity
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
@@ -76,8 +76,6 @@ export function Sidebar({ isOpen, onToggle, isMaster = false }: SidebarProps) {
     { id: 'dashboard',       label: 'Dashboard',            icon: Home,          path: '/dashboard' },
     { id: 'database-test',   label: 'Teste DB',             icon: Database,      path: '/database-test' },
     { id: 'analysis-health', label: 'Saúde das Análises',   icon: Activity,      path: '/admin/analysis-health' },
-    { id: 'knowledge',       label: 'Base de Conhecimento', icon: BookOpen,      path: '/admin/knowledge' },
-    { id: 'sector-adapters', label: 'Adapters por Setor',   icon: Briefcase,     path: '/admin/sector-adapters' },
     { id: 'alerts',          label: 'Alertas Inteligentes', icon: Bell,          path: '/alerts' },
     { id: 'backup',          label: 'Backup & Restore',     icon: Database,      path: '/backup' },
     { id: 'ai-integrations', label: 'Integrações IA',       icon: Brain,         path: '/ai-integrations' },

@@ -27,18 +27,20 @@ export interface SessaoConsultor {
 }
 
 export interface AcaoOrquestrador {
-  tipo_acao: 'coletar_info' | 'aplicar_metodologia' | 'gerar_entregavel' | 'validar' | 'transicao_estado';
+  tipo: 'coletar_info' | 'aplicar_metodologia' | 'gerar_entregavel' | 'validar' | 'transicao_estado';
   prioridade: number;
   descricao: string;
-  entrada: any;
+  parametros: any;
   requer_confirmacao?: boolean;
 }
 
 export class ConsultorOrchestrator {
   private supabase: ReturnType<typeof createClient>;
+  private openaiKey: string;
 
-  constructor(supabase: ReturnType<typeof createClient>) {
+  constructor(supabase: ReturnType<typeof createClient>, openaiKey: string) {
     this.supabase = supabase;
+    this.openaiKey = openaiKey;
   }
 
   /**
@@ -93,10 +95,10 @@ export class ConsultorOrchestrator {
     for (const info of infoEssenciais) {
       if (!contexto[info.campo]) {
         acoes.push({
-          tipo_acao: 'coletar_info',
+          tipo: 'coletar_info',
           prioridade: 10,
           descricao: `Coletar: ${info.campo}`,
-          entrada: {
+          parametros: {
             campo: info.campo,
             pergunta: info.pergunta,
             tipo_resposta: 'texto'
@@ -109,10 +111,10 @@ export class ConsultorOrchestrator {
     const todasColetadas = infoEssenciais.every(info => contexto[info.campo]);
     if (todasColetadas) {
       acoes.push({
-        tipo_acao: 'transicao_estado',
+        tipo: 'transicao_estado',
         prioridade: 9,
         descricao: 'Transicionar para análise',
-        entrada: {
+        parametros: {
           novo_estado: 'analise',
           motivo: 'Informações básicas coletadas'
         },
@@ -136,10 +138,10 @@ export class ConsultorOrchestrator {
       // Verifica se já foi aplicada
       if (!sessao.metodologias_aplicadas.includes(metodologia.title)) {
         acoes.push({
-          tipo_acao: 'aplicar_metodologia',
+          tipo: 'aplicar_metodologia',
           prioridade: 8,
           descricao: `Aplicar metodologia: ${metodologia.title}`,
-          entrada: {
+          parametros: {
             documento_id: metodologia.id,
             metodologia: metodologia.title,
             categoria: metodologia.category
@@ -152,10 +154,10 @@ export class ConsultorOrchestrator {
     // Se pelo menos uma metodologia foi aplicada, pode ir para diagnóstico
     if (sessao.metodologias_aplicadas.length > 0) {
       acoes.push({
-        tipo_acao: 'transicao_estado',
+        tipo: 'transicao_estado',
         prioridade: 7,
         descricao: 'Transicionar para diagnóstico',
-        entrada: {
+        parametros: {
           novo_estado: 'diagnostico',
           motivo: 'Metodologias aplicadas, pronto para diagnóstico'
         }
@@ -173,10 +175,10 @@ export class ConsultorOrchestrator {
 
     // Gerar diagnóstico baseado nas metodologias aplicadas
     acoes.push({
-      tipo_acao: 'gerar_entregavel',
+      tipo: 'gerar_entregavel',
       prioridade: 9,
       descricao: 'Gerar diagnóstico situacional',
-      entrada: {
+      parametros: {
         tipo_entregavel: 'diagnostico',
         baseado_em: sessao.metodologias_aplicadas
       }
@@ -184,10 +186,10 @@ export class ConsultorOrchestrator {
 
     // Identificar gaps e oportunidades
     acoes.push({
-      tipo_acao: 'aplicar_metodologia',
+      tipo: 'aplicar_metodologia',
       prioridade: 8,
       descricao: 'Análise de gaps',
-      entrada: {
+      parametros: {
         metodologia: 'analise_gaps',
         objetivo: 'Identificar lacunas entre estado atual e desejado'
       }
@@ -195,10 +197,10 @@ export class ConsultorOrchestrator {
 
     // Transição para recomendação
     acoes.push({
-      tipo_acao: 'transicao_estado',
+      tipo: 'transicao_estado',
       prioridade: 7,
       descricao: 'Transicionar para recomendações',
-      entrada: {
+      parametros: {
         novo_estado: 'recomendacao',
         motivo: 'Diagnóstico concluído'
       },
@@ -216,10 +218,10 @@ export class ConsultorOrchestrator {
 
     // Gerar plano de ação 5W2H
     acoes.push({
-      tipo_acao: 'gerar_entregavel',
+      tipo: 'gerar_entregavel',
       prioridade: 10,
       descricao: 'Gerar plano de ação (5W2H)',
-      entrada: {
+      parametros: {
         tipo_entregavel: 'plano_acao',
         metodologia: '5W2H'
       }
@@ -227,10 +229,10 @@ export class ConsultorOrchestrator {
 
     // Priorização de ações
     acoes.push({
-      tipo_acao: 'aplicar_metodologia',
+      tipo: 'aplicar_metodologia',
       prioridade: 9,
       descricao: 'Matriz de priorização',
-      entrada: {
+      parametros: {
         metodologia: 'matriz_priorizacao',
         criterios: ['impacto', 'esforco', 'urgencia']
       }
@@ -238,10 +240,10 @@ export class ConsultorOrchestrator {
 
     // Transição para execução
     acoes.push({
-      tipo_acao: 'transicao_estado',
+      tipo: 'transicao_estado',
       prioridade: 8,
       descricao: 'Transicionar para execução',
-      entrada: {
+      parametros: {
         novo_estado: 'execucao',
         motivo: 'Plano de ação definido'
       },
@@ -259,10 +261,10 @@ export class ConsultorOrchestrator {
 
     // Acompanhamento de ações
     acoes.push({
-      tipo_acao: 'aplicar_metodologia',
+      tipo: 'aplicar_metodologia',
       prioridade: 10,
       descricao: 'Acompanhar execução',
-      entrada: {
+      parametros: {
         metodologia: 'kanban',
         objetivo: 'Acompanhar progresso das ações'
       }
@@ -270,10 +272,10 @@ export class ConsultorOrchestrator {
 
     // Validação de resultados
     acoes.push({
-      tipo_acao: 'validar',
+      tipo: 'validar',
       prioridade: 9,
       descricao: 'Validar resultados',
-      entrada: {
+      parametros: {
         tipo_validacao: 'resultados',
         criterios: ['meta_atingida', 'prazo_cumprido', 'qualidade']
       }
@@ -323,7 +325,7 @@ export class ConsultorOrchestrator {
     let sucesso = true;
 
     try {
-      switch (acao.tipo_acao) {
+      switch (acao.tipo) {
         case 'coletar_info':
           resultado = await this.executarColetaInfo(sessao, acao);
           break;
@@ -360,8 +362,8 @@ export class ConsultorOrchestrator {
   private async executarColetaInfo(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
     return {
       tipo: 'pergunta',
-      campo: acao.entrada.campo,
-      pergunta: acao.entrada.pergunta,
+      campo: acao.parametros.campo,
+      pergunta: acao.parametros.pergunta,
       aguardando_resposta: true
     };
   }
@@ -371,12 +373,12 @@ export class ConsultorOrchestrator {
     const { data: documento } = await this.supabase
       .from('knowledge_base_documents')
       .select('*')
-      .eq('id', acao.entrada.documento_id)
+      .eq('id', acao.parametros.documento_id)
       .single();
 
     return {
       tipo: 'metodologia_aplicada',
-      metodologia: acao.entrada.metodologia,
+      metodologia: acao.parametros.metodologia,
       documento: documento,
       instrucoes: documento?.content
     };
@@ -385,7 +387,7 @@ export class ConsultorOrchestrator {
   private async executarGeracaoEntregavel(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
     return {
       tipo: 'entregavel_pendente',
-      tipo_entregavel: acao.entrada.tipo_entregavel,
+      tipo_entregavel: acao.parametros.tipo_entregavel,
       aguardando_geracao: true
     };
   }
@@ -394,7 +396,7 @@ export class ConsultorOrchestrator {
     // Atualiza estado da sessão
     const { error } = await this.supabase
       .from('consultor_sessoes')
-      .update({ estado_atual: acao.entrada.novo_estado })
+      .update({ estado_atual: acao.parametros.novo_estado })
       .eq('id', sessao.id);
 
     if (error) {
@@ -404,16 +406,16 @@ export class ConsultorOrchestrator {
     return {
       tipo: 'transicao_concluida',
       estado_anterior: sessao.estado_atual,
-      novo_estado: acao.entrada.novo_estado,
-      motivo: acao.entrada.motivo
+      novo_estado: acao.parametros.novo_estado,
+      motivo: acao.parametros.motivo
     };
   }
 
   private async executarValidacao(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
     return {
       tipo: 'validacao_pendente',
-      tipo_validacao: acao.entrada.tipo_validacao,
-      criterios: acao.entrada.criterios
+      tipo_validacao: acao.parametros.tipo_validacao,
+      criterios: acao.parametros.criterios
     };
   }
 
@@ -429,8 +431,8 @@ export class ConsultorOrchestrator {
   ): Promise<void> {
     await this.supabase.from('orquestrador_acoes').insert({
       sessao_id: sessaoId,
-      tipo_acao: acao.tipo_acao,
-      entrada: acao.entrada,
+      tipo_acao: acao.tipo,
+      entrada: acao.parametros,
       documentos_consultados: [],
       saida: resultado,
       sucesso,
