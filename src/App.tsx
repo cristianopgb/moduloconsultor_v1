@@ -22,6 +22,8 @@ import { MainLayout } from './components/Layout/MainLayout'
 import { DatasetsPage } from './components/Datasets/DatasetsPage'
 import { LearningPage } from './components/Admin/LearningPage'
 import AnalysisHealthDashboard from './components/Admin/AnalysisHealthDashboard'
+import { KnowledgeManagementPage } from './components/Admin/KnowledgeManagementPage'
+import { SectorAdaptersPage } from './components/Admin/SectorAdaptersPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -282,7 +284,29 @@ function AppContent() {
           }
         />
 
-        <Route 
+        <Route
+          path="/admin/knowledge"
+          element={
+            <ProtectedRoute>
+              <ProtectedPage requireMaster={true}>
+                <KnowledgeManagementPage />
+              </ProtectedPage>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/sector-adapters"
+          element={
+            <ProtectedRoute>
+              <ProtectedPage requireMaster={true}>
+                <SectorAdaptersPage />
+              </ProtectedPage>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/system" 
           element={
             <ProtectedRoute>
