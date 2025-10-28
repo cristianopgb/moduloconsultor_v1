@@ -1951,13 +1951,27 @@ function ChatPage() {
 
             setLoading(true);
             try {
-              // Persistir uma mensagem de usuário com resumo do formulário para que
-              // o ConversationHistory do backend inclua essa informação
+              // Structure payload with is_form_submission flag
+              const payload = {
+                tipo_form: formType,
+                dados,
+                is_form_submission: true
+              };
+
+              // Create formatted message for display
+              const formattedMessage = [
+                '💾 **Formulário enviado**',
+                '```json',
+                JSON.stringify(payload, null, 2),
+                '```'
+              ].join('\n');
+
+              // Persistir uma mensagem de usuário com o payload estruturado
               try {
                 await supabase.from('messages').insert({
                   conversation_id: current.id,
                   role: 'user',
-                  content: `Formulário submetido (${String(formType || 'generico')}): ${JSON.stringify(dados)}`,
+                  content: formattedMessage,
                   user_id: user.id,
                   message_type: 'text'
                 });
@@ -1967,9 +1981,10 @@ function ChatPage() {
 
               const { data: consultorData, error: consultorError } = await supabase.functions.invoke('consultor-chat', {
                 body: {
-                  message: `Formulário ${formType} preenchido`,
+                  text: formattedMessage,
                   conversation_id: current.id,
                   user_id: user.id,
+                  is_form_submission: true,
                   form_type: formType,
                   form_data: dados
                 }

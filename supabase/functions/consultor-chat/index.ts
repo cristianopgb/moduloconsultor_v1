@@ -94,7 +94,32 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { message, conversation_id, user_id, form_data, form_type } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const text: string = (body?.text || body?.message || '').toString();
+    let formPayload: any = null;
+    let isFormSubmission = body?.is_form_submission || false;
+
+    // Try to detect form submission from structured payload in text
+    if (!isFormSubmission && text) {
+      try {
+        const match = text.match(/```json([\s\S]*?)```/i);
+        const raw = match ? match[1] : text;
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.is_form_submission) {
+          isFormSubmission = true;
+          formPayload = parsed;
+        }
+      } catch {
+        // Not JSON, continue with normal flow
+      }
+    }
+
+    // Extract form data from body or parsed payload
+    const form_data = formPayload?.dados || body?.form_data;
+    const form_type = formPayload?.tipo_form || body?.form_type;
+    const message = text || body?.message || '';
+    const conversation_id = body?.conversation_id;
+    const user_id = body?.user_id;
 
     if (!message || !conversation_id || !user_id) {
       return new Response(JSON.stringify({ error: 'Parâmetros obrigatórios ausentes' }), {
@@ -103,9 +128,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    console.log('[CONSULTOR-CHAT] Request received:', { user_id, conversation_id, has_form_data: !!form_data, message_preview: message?.substring(0, 50) });
+    console.log('[CONSULTOR-CHAT] Request received:', {
+      user_id,
+      conversation_id,
+      is_form_submission: isFormSubmission,
+      form_type,
+      has_form_data: !!form_data,
+      message_preview: message?.substring(0, 50)
+    });
 
-    const isFormSubmission = Boolean(form_data && Object.keys(form_data).length > 0);
+    // Update form submission detection
+    if (!isFormSubmission && form_data && Object.keys(form_data).length > 0) {
+      isFormSubmission = true;
+    }
 
     // DEBOUNCE: Block if last form was submitted less than 5 seconds ago
     if (isFormSubmission) {
