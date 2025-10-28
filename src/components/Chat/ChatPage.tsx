@@ -29,6 +29,7 @@ import { FormularioModal } from './FormularioModal'
 import { detectFormMarker, removeFormMarkers } from '../../utils/form-markers'
 import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
 import { ValidateScopeButton } from './ValidateScopeButton'
+import { callConsultorRAG, getOrCreateSessao } from '../../lib/consultor/rag-adapter'
 
 async function loadXLSX() {
   const mod = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm')
@@ -271,41 +272,11 @@ function ChatPage() {
   // Validação de Escopo - Botão de validação quando aguardando_validacao_escopo = true
   const [showValidateScopeButton, setShowValidateScopeButton] = useState(false)
 
-  // Poller seguro para gamificacao_conversa: tenta algumas vezes com backoff curto
-  async function pollGamification(retries = 4, delayMs = 600) {
-    if (!current?.id) return false
-    for (let i = 0; i < retries; i++) {
-      try {
-        const { data: gamData, error: gamErr } = await supabase
-          .from('gamificacao_conversa')
-          .select('*')
-          .eq('conversation_id', current.id)
-          .maybeSingle()
-        if (gamErr) {
-          console.warn('[GAMIFICATION] poll fetch erro:', gamErr)
-        } else if (gamData) {
-          const nowXp = gamData.xp_total ?? 0
-          const last = lastKnownXpRef.current ?? 0
-          if (nowXp > last) {
-            const xpGanho = nowXp - last
-            console.log('[GAMIFICATION] poll detectou ganho de XP:', xpGanho, '->', nowXp)
-            setXPCelebrationData({ xpGanho, xpTotal: nowXp, nivel: gamData.nivel ?? 1, motivo: 'Progresso na jornada!' })
-            setShowXPCelebration(true)
-            lastKnownXpRef.current = nowXp
-            // notify other UI parts (lateral) to refresh
-            try { window.dispatchEvent(new CustomEvent('gamification:updated', { detail: { conversationId: current.id, xpTotal: nowXp } })) } catch(e){}
-            return true
-          }
-          // Atualiza último XP conhecido mesmo sem ganho para comparar depois
-          lastKnownXpRef.current = nowXp
-        }
-      } catch (e) {
-        console.warn('[GAMIFICATION] poll erro:', e)
-      }
-      // esperar antes da próxima tentativa
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise(r => setTimeout(r, delayMs))
-    }
+  // Note: gamificacao_conversa table removed - gamification now at jornada level only
+  // Keeping stub for backward compatibility during transition
+  async function pollGamification() {
+    // No longer polls gamificacao_conversa (table removed)
+    // Gamification is now handled per jornada via gamificacao_consultor table
     return false
   }
 
@@ -413,46 +384,12 @@ function ChatPage() {
   useEffect(() => {
     if (!current?.id || chatMode !== 'consultor') return
 
-    const channel = supabase
-      .channel(`gamification-${current.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'gamificacao_conversa',
-          filter: `conversation_id=eq.${current.id}`
-        },
-        (payload) => {
-          try {
-            console.log('[GAMIFICATION] realtime payload:', payload)
-            const newData = payload.new as any
-            const oldData = payload.old as any
-
-            // Guardar último XP conhecido
-            lastKnownXpRef.current = newData.xp_total ?? lastKnownXpRef.current
-
-            if ((newData.xp_total ?? 0) > (oldData.xp_total ?? 0)) {
-              const xpGanho = (newData.xp_total ?? 0) - (oldData.xp_total ?? 0)
-              setXPCelebrationData({
-                xpGanho,
-                xpTotal: newData.xp_total,
-                nivel: newData.nivel,
-                motivo: 'Progresso na jornada!'
-              })
-              setShowXPCelebration(true)
-            }
-          } catch (err) {
-            console.error('[GAMIFICATION] erro ao processar payload realtime:', err)
-          }
-        }
-      )
-      .subscribe()
-
-    console.log('[GAMIFICATION] subscribed to channel:', `gamification-${current.id}`)
+    // gamificacao_conversa table removed - no realtime subscription needed
+    // Gamification now handled at jornada level via gamificacao_consultor
+    console.log('[GAMIFICATION] realtime subscription disabled (gamificacao_conversa removed)')
 
     return () => {
-      supabase.removeChannel(channel)
+      // No cleanup needed
     }
   }, [current?.id, chatMode])
 
@@ -539,20 +476,8 @@ function ChatPage() {
     if (!current?.id) { resetForConversation(); return }
     resetForConversation()
     ;(async () => {
-      // Inicializa lastKnownXpRef consultando gamificacao_conversa para esta conversa
-      try {
-        const { data: gamData } = await supabase
-          .from('gamificacao_conversa')
-          .select('*')
-          .eq('conversation_id', current.id)
-          .maybeSingle()
-        if (gamData && typeof gamData.xp_total === 'number') {
-          lastKnownXpRef.current = gamData.xp_total
-          console.log('[GAMIFICATION] initial xp for conversation', current.id, lastKnownXpRef.current)
-        }
-      } catch (e) {
-        console.warn('[GAMIFICATION] failed to init xp for conversation', e)
-      }
+      // gamificacao_conversa removed - gamification now at jornada level
+      lastKnownXpRef.current = 0
       setLoadingAnalyses(true)
       const { data, error } = await supabase
         .from('messages')
@@ -620,18 +545,8 @@ function ChatPage() {
     const { data, error } = await supabase.from('conversations').insert([{ user_id: user.id, title: 'Nova Conversa', chat_mode: 'analytics' }]).select().single()
     if (error) { setErr(error.message); return }
 
-    // 🔧 RESET apenas da tabela REAL de gamificação por conversa.
-    // ❌ Não tentar apagar a view "gamificacao_jornada" (gera erro 55000).
-    await supabase.from('gamificacao_conversa').delete().eq('conversation_id', data.id)
-
-    // Criar gamificação zerada da conversa
-    const { error: gamError } = await supabase.from('gamificacao_conversa').insert({
-      conversation_id: data.id,
-      xp_total: 0,
-      nivel: 1,
-      conquistas: []
-    })
-    if (gamError) console.error('[GAMIFICATION] Erro ao criar:', gamError)
+    // gamificacao_conversa table removed - gamification now at jornada level only
+    // No need to create conversation-level gamification records anymore
 
     setCurrent(data)
     setChatMode(data.chat_mode || 'analytics')
@@ -1064,26 +979,51 @@ function ChatPage() {
 
     try {
       if (isConsultorMode) {
-        console.log('[CONSULTOR MODE] Chamando consultor-chat...');
+        console.log('[CONSULTOR MODE] Chamando consultor-rag (sistema inteligente)...');
 
-        const { data: consultorData, error: consultorError } = await supabase.functions.invoke('consultor-chat', {
-          body: {
-            message: text,
-            conversation_id: current.id,
-            user_id: user?.id
-          }
+        // Buscar ou criar sessão RAG para esta conversa
+        const sessaoId = await getOrCreateSessao(user!.id, current.id, text);
+
+        if (!sessaoId) {
+          throw new Error('Falha ao criar sessão de consultoria RAG');
+        }
+
+        // Chamar sistema RAG inteligente
+        const ragResponse = await callConsultorRAG({
+          message: text,
+          userId: user!.id,
+          conversationId: current.id,
+          sessaoId: sessaoId
         });
 
-        if (consultorError) throw consultorError;
+        console.log('[CONSULTOR MODE] RAG response:', {
+          sessaoId: ragResponse.sessaoId,
+          estado: ragResponse.estado,
+          progresso: ragResponse.progresso,
+          methodologies: ragResponse.ragInfo?.methodologies
+        });
 
-        console.log('[CONSULTOR MODE] consultorData completo:', consultorData);
+        const reply = ragResponse.text || 'Não consegui processar sua mensagem.';
+        const etapaAtual = ragResponse.estado; // coleta, analise, diagnostico, recomendacao, execucao
+        const jornadaId = null; // RAG usa sessaoId ao invés de jornadaId
 
-        const reply = consultorData?.response || 'Não consegui processar sua mensagem.';
-        const etapaAtual = consultorData?.etapa_atual;
-        const jornadaId = consultorData?.jornada_id;
-        const actions = consultorData?.actions || [];
-  // store actions temporarily so UI can render CTAs (e.g., Validar Priorização)
-  setPendingConsultorActions(actions || null);
+        // Transformar flags RAG em actions compatíveis com UI
+        const actions: any[] = [];
+        if (ragResponse.needsForm) {
+          actions.push({
+            type: 'exibir_formulario',
+            params: { tipo: ragResponse.formType }
+          });
+        }
+        if (ragResponse.shouldGenerateDeliverable) {
+          actions.push({
+            type: 'gerar_entregavel',
+            params: { tipo: ragResponse.deliverableType }
+          });
+        }
+
+        // store actions temporarily so UI can render CTAs
+        setPendingConsultorActions(actions.length > 0 ? actions : null);
 
         // If backend returned jornada_id, fetch its contexto_coleta to use for modal processes
         if (jornadaId) {
