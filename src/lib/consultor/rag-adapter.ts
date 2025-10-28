@@ -64,6 +64,20 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
       hasFormData: !!request.formData
     });
 
+    // Load conversation history to provide context
+    let conversationHistory: Array<{role: string, content: string}> = [];
+    if (request.conversationId) {
+      const { data: messages } = await supabase
+        .from('messages')
+        .select('role, content')
+        .eq('conversation_id', request.conversationId)
+        .order('created_at', { ascending: true })
+        .limit(10);
+
+      conversationHistory = messages || [];
+      console.log('[RAG-ADAPTER] Loaded', conversationHistory.length, 'previous messages');
+    }
+
     const { data, error } = await supabase.functions.invoke('consultor-rag', {
       body: {
         message: request.message,
@@ -71,7 +85,8 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
         conversation_id: request.conversationId,
         sessao_id: request.sessaoId,
         form_data: request.formData,
-        action: request.action
+        action: request.action,
+        conversation_history: conversationHistory
       }
     });
 

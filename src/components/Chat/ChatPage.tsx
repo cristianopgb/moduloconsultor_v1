@@ -1043,7 +1043,7 @@ function ChatPage() {
 
         // Fallback: tentar detectar ganho de XP com polling seguro
         try {
-          if (!consultorData?.gamification && current?.id) {
+          if (!ragResponse?.gamification && current?.id) {
             // pollGamification atualiza lastKnownXpRef e dispara popup se detectar ganho
             void pollGamification(4, 600)
           }

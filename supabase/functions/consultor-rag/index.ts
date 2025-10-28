@@ -30,6 +30,7 @@ interface RequestBody {
   sessao_id?: string;
   form_data?: any;
   action?: string;
+  conversation_history?: Array<{role: string, content: string}>;
 }
 
 Deno.serve(async (req: Request) => {
@@ -49,7 +50,7 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const body: RequestBody = await req.json();
 
-    const { message, conversation_id, user_id, sessao_id, form_data, action } = body;
+    const { message, conversation_id, user_id, sessao_id, form_data, action, conversation_history } = body;
 
     if (!user_id || !message) {
       return new Response(
@@ -139,14 +140,35 @@ ${resultadoRAG.documentos.map(doc => `
 ## ${doc.title}
 ${doc.content.substring(0, 500)}...`).join('\n')}
 
+REGRAS CRÍTICAS:
+1. NUNCA repita informações que já foram coletadas anteriormente
+2. NUNCA faça resumos - o usuário odeia isso
+3. Consulte o CONTEXTO DO NEGÓCIO acima antes de perguntar qualquer coisa
+4. Se uma informação já existe no contexto, NÃO pergunte novamente
+5. Seja direto e objetivo - usuários querem ação, não conversa
+
 Sua resposta deve:
 1. Ser conversacional e empática
 2. Usar o conhecimento da base quando aplicável
 3. Seguir a ação recomendada pelo orquestrador
 4. Ser concisa mas completa
-5. Fazer perguntas específicas quando necessário`;
+5. Fazer perguntas específicas quando necessário
+6. LEMBRAR o que já foi dito na conversa`;
 
-    // 5. Chamar LLM
+    // 5. Construir histórico de mensagens para LLM
+    const llmMessages: Array<{role: string, content: string}> = [
+      { role: 'system', content: promptSistema }
+    ];
+
+    // Adicionar histórico da conversa se disponível
+    if (conversation_history && conversation_history.length > 0) {
+      llmMessages.push(...conversation_history);
+    }
+
+    // Adicionar mensagem atual
+    llmMessages.push({ role: 'user', content: message });
+
+    // 6. Chamar LLM
     const llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -155,10 +177,7 @@ Sua resposta deve:
       },
       body: JSON.stringify({
         model: 'gpt-4',
-        messages: [
-          { role: 'system', content: promptSistema },
-          { role: 'user', content: message }
-        ],
+        messages: llmMessages,
         temperature: 0.7,
         max_tokens: 1000
       })
@@ -172,7 +191,71 @@ Sua resposta deve:
     const llmData = await llmResponse.json();
     const resposta = llmData.choices[0].message.content;
 
-    // 6. Executar ação principal
+    // 6. Extrair informações do contexto da mensagem do usuário
+    const contextoAtualizado = { ...sessao.contexto_negocio };
+    let contextChanged = false;
+
+    // Extração simples de informações chave
+    const msgLower = message.toLowerCase();
+
+    // Detectar nome da empresa (padrões comuns)
+    if (!contextoAtualizado.empresa_nome) {
+      // Padrões: "empresa X", "trabalho na X", "sou da X", "na X", ou simplesmente "X" em mensagens curtas
+      const empresaPatterns = [
+        /(?:empresa|trabalho na|sou da|na|da empresa)\s+([A-Za-z0-9À-ÿ\s]+?)(?:\s*,|\s*\.|\s*$)/i,
+        /^([A-Za-z0-9À-ÿ]+(?:\s+[A-Za-z0-9À-ÿ]+){0,3})(?:\s*,|\s+e\s+|$)/i
+      ];
+
+      for (const pattern of empresaPatterns) {
+        const match = message.match(pattern);
+        if (match && match[1] && match[1].trim().length > 2) {
+          contextoAtualizado.empresa_nome = match[1].trim();
+          contextChanged = true;
+          console.log('[CONTEXT-EXTRACT] Empresa detectada:', contextoAtualizado.empresa_nome);
+          break;
+        }
+      }
+    }
+
+    // Detectar segmento
+    if (!contextoAtualizado.segmento) {
+      const segmentos = ['e-commerce', 'varejo', 'indústria', 'serviços', 'saúde', 'educação', 'tecnologia',
+                        'logística', 'transportes', 'alimentos', 'construção', 'consultoria', 'financeiro'];
+      for (const seg of segmentos) {
+        if (msgLower.includes(seg)) {
+          contextoAtualizado.segmento = seg;
+          contextChanged = true;
+          console.log('[CONTEXT-EXTRACT] Segmento detectado:', seg);
+          break;
+        }
+      }
+    }
+
+    // Detectar porte
+    if (!contextoAtualizado.porte) {
+      if (msgLower.includes('micro') || msgLower.includes('pequena') || msgLower.includes('pme')) {
+        contextoAtualizado.porte = 'pequena';
+        contextChanged = true;
+      } else if (msgLower.includes('média')) {
+        contextoAtualizado.porte = 'média';
+        contextChanged = true;
+      } else if (msgLower.includes('grande')) {
+        contextoAtualizado.porte = 'grande';
+        contextChanged = true;
+      }
+    }
+
+    // Atualizar sessão se contexto mudou
+    if (contextChanged) {
+      await supabase
+        .from('consultor_sessoes')
+        .update({ contexto_negocio: contextoAtualizado })
+        .eq('id', sessao.id);
+
+      console.log('[CONTEXT-EXTRACT] Contexto atualizado:', contextoAtualizado);
+    }
+
+    // 7. Executar ação principal
     let acaoExecutada = null;
     if (acaoPrincipal && action !== 'skip_action') {
       acaoExecutada = await orchestrator.executarAcao(sessao, acaoPrincipal);
