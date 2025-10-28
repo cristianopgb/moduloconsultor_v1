@@ -161,17 +161,9 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
       try {
         const cid = e?.detail?.conversationId
         if (cid === conversationId) {
-          // reload gamificacao
-          (async () => {
-            try {
-              const { data } = await supabase.from('gamificacao_conversa').select('*').eq('conversation_id', conversationId).maybeSingle();
-              if (data) {
-                setConvXpTotal(data.xp_total ?? null)
-                setConvNivel(data.nivel ?? null)
-                setLastUpdate(new Date())
-              }
-            } catch (err) {}
-          })()
+          // gamificacao_conversa removida - gamificação agora é por jornada
+          // mantém apenas lastUpdate para trigger de re-render
+          setLastUpdate(new Date())
         }
       } catch {}
     }
@@ -188,41 +180,12 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
       channelRef.current = null
     }
 
-    // Inicializa valores de gamificação por conversa
-    ;(async () => {
-      try {
-        const { data: gamData } = await supabase
-          .from('gamificacao_conversa')
-          .select('*')
-          .eq('conversation_id', conversationId)
-          .maybeSingle()
-        if (gamData) {
-          setConvXpTotal(gamData.xp_total ?? 0)
-          setConvNivel(gamData.nivel ?? 1)
-        }
-      } catch (e) {
-        // não fatal
-        // console.warn('[LateralConsultor] falha ao buscar gamificacao_conversa', e)
-      }
-    })()
+    // gamificacao_conversa removida - gamificação agora é por jornada apenas
+    // não há mais gamificação no nível de conversa
 
     const ch = supabase
       .channel(`consultor:${conversationId}:${jornada.id}`)
-      // Conversa-level gamification updates (para atualizar o painel lateral)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'gamificacao_conversa', filter: `conversation_id=eq.${conversationId}` },
-        (payload) => {
-          try {
-            const newData = payload.new as any
-            setConvXpTotal(newData.xp_total ?? null)
-            setConvNivel(newData.nivel ?? null)
-            setLastUpdate(new Date())
-          } catch (err) {
-            // ignore
-          }
-        }
-      )
+      // gamificacao_conversa removida - gamificação agora é por jornada apenas via gamificacao_consultor
       // Jornada atualizada
       .on(
         'postgres_changes',

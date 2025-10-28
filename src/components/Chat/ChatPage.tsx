@@ -1084,6 +1084,23 @@ function ChatPage() {
         };
 
         setMessages(prev => [...prev, assistantMessage]);
+
+        // CRÍTICO: Salvar ambas mensagens (user + assistant) no banco para o RAG adapter poder carregar histórico
+        await supabase.from('messages').insert([
+          {
+            conversation_id: current.id,
+            role: 'user',
+            content: text,
+            message_type: 'text'
+          },
+          {
+            conversation_id: current.id,
+            role: 'assistant',
+            content: cleanReply,
+            message_type: 'text'
+          }
+        ]);
+
         setLoading(false);
 
         // open modal after rendering assistant message so user reads it before the form appears

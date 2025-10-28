@@ -331,6 +331,16 @@ Sua resposta deve ser APENAS texto natural e conversacional, sem JSON, sem metad
       acaoExecutada = await orchestrator.executarAcao(sessao, acaoPrincipal);
     }
 
+    // CRÍTICO: Adicionar markers na resposta para compatibilidade com frontend
+    // O frontend detecta tanto actions quanto markers no texto
+    if (acaoPrincipal && acaoPrincipal.tipo_acao === 'coletar_info') {
+      const tipoForm = acaoPrincipal.entrada?.tipo_form;
+      if (tipoForm === 'anamnese' || tipoForm === 'matriz_priorizacao') {
+        // Adiciona marker invisível no final para o frontend detectar
+        resposta = resposta + `\n[EXIBIR_FORMULARIO:${tipoForm}]`;
+      }
+    }
+
     // 7. Log da ação no orquestrador
     await supabase.from('orquestrador_acoes').insert({
       sessao_id: sessao.id,
