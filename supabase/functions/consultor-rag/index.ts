@@ -23,6 +23,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey'
 };
 
+/**
+ * Limpa a resposta do LLM removendo qualquer conteúdo técnico vazado
+ */
+function cleanResponse(response: string): string {
+  let cleaned = response;
+
+  // Remove blocos JSON isolados
+  cleaned = cleaned.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '');
+  cleaned = cleaned.replace(/\{[\s\n]*"campo"[\s\S]*?\}/g, '');
+  cleaned = cleaned.replace(/\{[\s\n]*"tipo"[\s\S]*?\}/g, '');
+
+  // Remove marcadores técnicos
+  cleaned = cleaned.replace(/PRÓXIMA AÇÃO RECOMENDADA:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '');
+  cleaned = cleaned.replace(/Tipo:\s*(coletar_info|aplicar_metodologia|gerar_entregavel|transicao_estado)/gi, '');
+  cleaned = cleaned.replace(/\btype:\s*["']?\w+["']?/gi, '');
+  cleaned = cleaned.replace(/\bcampo:\s*["']?\w+["']?/gi, '');
+  cleaned = cleaned.replace(/\bentrada:\s*\{[\s\S]*?\}/gi, '');
+
+  // Remove linhas que são claramente JSON
+  cleaned = cleaned.split('\n').filter(line => {
+    const trimmed = line.trim();
+    return !trimmed.match(/^[\{\}\[\],]$/) &&
+           !trimmed.match(/^"[\w_]+"\s*:/) &&
+           !trimmed.match(/^\w+_\w+:/);
+  }).join('\n');
+
+  // Remove múltiplas linhas vazias consecutivas
+  cleaned = cleaned.replace(/\n\n\n+/g, '\n\n');
+
+  // Remove espaços no início e fim
+  cleaned = cleaned.trim();
+
+  // Log warning se detectou limpeza
+  if (cleaned !== response) {
+    console.warn('[CLEAN-RESPONSE] Technical content removed from LLM response');
+    console.warn('[CLEAN-RESPONSE] Original length:', response.length, 'Cleaned length:', cleaned.length);
+  }
+
+  return cleaned;
+}
+
 interface RequestBody {
   message: string;
   conversation_id?: string;
@@ -118,42 +159,68 @@ Deno.serve(async (req: Request) => {
     );
 
     // 4. Construir prompt enriquecido
+
+    // Traduzir ação do orquestrador para instrução natural
+    let instrucoesNaturais = '';
+    if (acaoPrincipal) {
+      switch (acaoPrincipal.tipo_acao) {
+        case 'coletar_info':
+          const campo = acaoPrincipal.entrada?.campo || 'informação';
+          const pergunta = acaoPrincipal.entrada?.pergunta || `Pergunte sobre ${campo}`;
+          instrucoesNaturais = `Você precisa coletar a seguinte informação: ${campo}. Use uma abordagem natural e conversacional. Sugestão de pergunta: "${pergunta}"`;
+          break;
+        case 'aplicar_metodologia':
+          instrucoesNaturais = `Você deve aplicar a metodologia ${acaoPrincipal.entrada?.metodologia || 'recomendada'} para ajudar o cliente. Explique de forma natural como essa metodologia pode ajudar.`;
+          break;
+        case 'gerar_entregavel':
+          instrucoesNaturais = `É hora de gerar um entregável do tipo ${acaoPrincipal.entrada?.tipo_entregavel || 'diagnóstico'}. Prepare o cliente para isso de forma natural.`;
+          break;
+        case 'transicao_estado':
+          instrucoesNaturais = `A consultoria está avançando para a próxima fase: ${acaoPrincipal.entrada?.novo_estado || 'análise'}. Comunique isso de forma natural e positiva.`;
+          break;
+        default:
+          instrucoesNaturais = 'Continue a conversa de forma natural baseada no contexto.';
+      }
+    }
+
     const promptSistema = `Você é um consultor empresarial expert em BPM e gestão de processos.
 
-ESTADO DA CONSULTORIA:
-- Fase atual: ${sessao.estado_atual}
-- Progresso: ${sessao.progresso}%
-- Problema: ${sessao.titulo_problema}
+INFORMAÇÕES COLETADAS ATÉ AGORA:
+${Object.keys(sessao.contexto_negocio || {}).length > 0 ? Object.entries(sessao.contexto_negocio).map(([key, value]) => `- ${key}: ${value}`).join('\n') : '- Nenhuma informação coletada ainda'}
 
-CONTEXTO DO NEGÓCIO:
-${JSON.stringify(sessao.contexto_negocio, null, 2)}
-
-METODOLOGIAS JÁ APLICADAS:
-${sessao.metodologias_aplicadas?.join(', ') || 'Nenhuma ainda'}
-
-PRÓXIMA AÇÃO RECOMENDADA:
-Tipo: ${acaoPrincipal?.tipo_acao}
-${acaoPrincipal?.entrada ? JSON.stringify(acaoPrincipal.entrada, null, 2) : ''}
+FASE ATUAL DA CONSULTORIA: ${sessao.estado_atual}
+PROGRESSO: ${sessao.progresso}%
+METODOLOGIAS APLICADAS: ${sessao.metodologias_aplicadas?.join(', ') || 'Nenhuma ainda'}
 
 CONHECIMENTO RELEVANTE DA BASE:
 ${resultadoRAG.documentos.map(doc => `
 ## ${doc.title}
 ${doc.content.substring(0, 500)}...`).join('\n')}
 
-REGRAS CRÍTICAS:
-1. NUNCA repita informações que já foram coletadas anteriormente
-2. NUNCA faça resumos - o usuário odeia isso
-3. Consulte o CONTEXTO DO NEGÓCIO acima antes de perguntar qualquer coisa
-4. Se uma informação já existe no contexto, NÃO pergunte novamente
-5. Seja direto e objetivo - usuários querem ação, não conversa
+REGRAS CRÍTICAS - SIGA RIGOROSAMENTE:
+1. NUNCA exponha JSON, estruturas técnicas ou metadados ao usuário
+2. NUNCA repita informações que já foram coletadas (veja INFORMAÇÕES COLETADAS acima)
+3. NUNCA faça resumos desnecessários - usuários querem ação
+4. NUNCA mencione termos técnicos como "tipo_acao", "campo", "entrada", "orquestrador"
+5. SEMPRE consulte as informações coletadas antes de perguntar algo
+6. SEMPRE seja direto, natural e conversacional
+7. SEMPRE mantenha o foco no problema do cliente
 
-Sua resposta deve:
-1. Ser conversacional e empática
-2. Usar o conhecimento da base quando aplicável
-3. Seguir a ação recomendada pelo orquestrador
-4. Ser concisa mas completa
-5. Fazer perguntas específicas quando necessário
-6. LEMBRAR o que já foi dito na conversa`;
+SUA PRÓXIMA AÇÃO:
+${instrucoesNaturais}
+
+EXEMPLO DE BOA RESPOSTA:
+"Ótimo! Agora que entendo melhor o contexto, vamos avançar. Quantos funcionários sua empresa tem atualmente?"
+
+EXEMPLO DE RESPOSTA RUIM (NUNCA FAÇA ISSO):
+"PRÓXIMA AÇÃO RECOMENDADA:
+Tipo: coletar_info
+{
+  \"campo\": \"tamanho_empresa\",
+  \"pergunta\": \"Quantos funcionários sua empresa tem?\"
+}"
+
+Sua resposta deve ser APENAS texto natural e conversacional, sem JSON, sem metadados, sem estruturas técnicas.`;
 
     // 5. Construir histórico de mensagens para LLM
     const llmMessages: Array<{role: string, content: string}> = [
@@ -189,7 +256,10 @@ Sua resposta deve:
     }
 
     const llmData = await llmResponse.json();
-    const resposta = llmData.choices[0].message.content;
+    let resposta = llmData.choices[0].message.content;
+
+    // Limpar resposta de qualquer conteúdo técnico vazado
+    resposta = cleanResponse(resposta);
 
     // 6. Extrair informações do contexto da mensagem do usuário
     const contextoAtualizado = { ...sessao.contexto_negocio };
