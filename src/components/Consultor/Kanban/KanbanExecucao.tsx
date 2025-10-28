@@ -25,7 +25,8 @@ interface KanbanCard {
 }
 
 interface KanbanExecucaoProps {
-  jornadaId: string;
+  jornadaId?: string;
+  sessaoId?: string;
 }
 
 const STATUS_CONFIG = {
@@ -35,24 +36,27 @@ const STATUS_CONFIG = {
   done: { label: 'Concluído', color: 'bg-green-50 border-green-300' }
 };
 
-export function KanbanExecucao({ jornadaId }: KanbanExecucaoProps) {
+export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
 
+  const activeId = sessaoId || jornadaId;
+  const filterField = sessaoId ? 'sessao_id' : 'jornada_id';
+
   useEffect(() => {
-    if (!jornadaId) return;
+    if (!activeId) return;
 
     loadCards();
 
     // Realtime subscription
     const channel = supabase
-      .channel(`kanban-${jornadaId}`)
+      .channel(`kanban-${activeId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'kanban_cards',
-        filter: `jornada_id=eq.${jornadaId}`
+        filter: `${filterField}=eq.${activeId}`
       }, () => {
         loadCards();
       })
@@ -61,15 +65,17 @@ export function KanbanExecucao({ jornadaId }: KanbanExecucaoProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [jornadaId]);
+  }, [activeId, filterField]);
 
   async function loadCards() {
+    if (!activeId) return;
+
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('kanban_cards')
         .select('*')
-        .eq('jornada_id', jornadaId)
+        .eq(filterField, activeId)
         .order('ordem', { ascending: true });
 
       if (error) throw error;

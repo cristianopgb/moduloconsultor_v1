@@ -30,6 +30,7 @@ import { detectFormMarker, removeFormMarkers } from '../../utils/form-markers'
 import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
 import { ValidateScopeButton } from './ValidateScopeButton'
 import { callConsultorRAG, getOrCreateSessao } from '../../lib/consultor/rag-adapter'
+import { executeRAGActions, updateSessaoContext } from '../../lib/consultor/rag-executor'
 
 async function loadXLSX() {
   const mod = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm')
@@ -1025,6 +1026,33 @@ function ChatPage() {
         // store actions temporarily so UI can render CTAs
         setPendingConsultorActions(actions.length > 0 ? actions : null);
 
+        // CRITICAL: Execute RAG actions immediately
+        if (actions.length > 0 && sessaoId) {
+          console.log('[RAG-EXECUTOR] Executing', actions.length, 'actions from RAG...');
+          try {
+            // Get sessao context for execution
+            const { data: sessaoData } = await supabase
+              .from('consultor_sessoes')
+              .select('contexto_negocio, estado_atual')
+              .eq('id', sessaoId)
+              .single();
+
+            const contexto = {
+              ...(sessaoData?.contexto_negocio || {}),
+              estado_atual: sessaoData?.estado_atual || 'coleta'
+            };
+
+            // Execute all actions
+            await executeRAGActions(actions, sessaoId, user!.id, contexto);
+            console.log('[RAG-EXECUTOR] All actions executed successfully');
+
+            // Trigger UI refresh for deliverables panel
+            window.dispatchEvent(new CustomEvent('entregavel:created', { detail: { sessaoId } }));
+          } catch (execError) {
+            console.error('[RAG-EXECUTOR] Failed to execute actions:', execError);
+          }
+        }
+
         // If backend returned jornada_id, fetch its contexto_coleta to use for modal processes
         if (jornadaId) {
           try {
@@ -1996,21 +2024,77 @@ function ChatPage() {
                 console.warn('[FORMULARIO] falha ao persistir mensagem de form:', e);
               }
 
-              const { data: consultorData, error: consultorError } = await supabase.functions.invoke('consultor-chat', {
-                body: {
-                  text: formattedMessage,
-                  conversation_id: current.id,
-                  user_id: user.id,
-                  is_form_submission: true,
-                  form_type: formType,
-                  form_data: dados
+              // CRITICAL: Call consultor-rag (not consultor-chat) with form data
+              // First, update sessao context
+              if (isConsultorMode) {
+                const sessaoId = await getOrCreateSessao(user.id, current.id, formattedMessage);
+                if (sessaoId) {
+                  await updateSessaoContext(sessaoId, dados);
+                  console.log('[FORMULARIO] Context updated in sessao:', sessaoId);
                 }
-              });
 
-              if (consultorError) throw consultorError;
+                // Now call RAG with form submission action
+                const ragResponse = await callConsultorRAG({
+                  message: formattedMessage,
+                  userId: user.id,
+                  conversationId: current.id,
+                  sessaoId: sessaoId,
+                  formData: dados,
+                  action: 'form_submitted'
+                });
 
-              const reply = consultorData?.response || 'Formulário recebido com sucesso!';
-              const cleanReply = removeFormMarkers(reply);
+                const reply = ragResponse.text || 'Formulário recebido com sucesso!';
+                const cleanReply = removeFormMarkers(reply);
+
+                // Execute any actions returned by RAG
+                if (ragResponse.sessaoId) {
+                  const actions: any[] = [];
+                  if (ragResponse.needsForm) {
+                    actions.push({
+                      type: 'coletar_info',
+                      params: { tipo_form: ragResponse.formType }
+                    });
+                  }
+                  if (ragResponse.shouldGenerateDeliverable) {
+                    actions.push({
+                      type: 'gerar_entregavel',
+                      params: { tipo_entregavel: ragResponse.deliverableType }
+                    });
+                  }
+
+                  if (actions.length > 0) {
+                    const { data: sessaoData } = await supabase
+                      .from('consultor_sessoes')
+                      .select('contexto_negocio, estado_atual')
+                      .eq('id', ragResponse.sessaoId)
+                      .single();
+
+                    const contexto = {
+                      ...(sessaoData?.contexto_negocio || {}),
+                      estado_atual: sessaoData?.estado_atual || 'coleta'
+                    };
+
+                    await executeRAGActions(actions, ragResponse.sessaoId, user.id, contexto);
+                    window.dispatchEvent(new CustomEvent('entregavel:created', { detail: { sessaoId: ragResponse.sessaoId } }));
+                  }
+                }
+              } else {
+                // Fallback to old consultor-chat for non-consultor mode
+                const { data: consultorData, error: consultorError } = await supabase.functions.invoke('consultor-chat', {
+                  body: {
+                    text: formattedMessage,
+                    conversation_id: current.id,
+                    user_id: user.id,
+                    is_form_submission: true,
+                    form_type: formType,
+                    form_data: dados
+                  }
+                });
+
+                if (consultorError) throw consultorError;
+                var reply = consultorData?.response || 'Formulário recebido com sucesso!';
+                var cleanReply = removeFormMarkers(reply);
+              }
 
               // Add user message showing form was submitted
               const userMessage: Message = {
@@ -2036,15 +2120,17 @@ function ChatPage() {
               // Tentar detectar prêmio/XP via polling (caso backend não retorne gamification no response)
               try { void pollGamification(4, 600) } catch (e) { console.warn('[GAMIFICATION] poll after form erro:', e) }
 
-              // Check for new form actions
-              const actions = consultorData?.actions || [];
-              const formAction = actions.find((a: any) => a.type === 'exibir_formulario' && a.params?.tipo !== 'matriz_priorizacao');
+              // Check for new form actions (only in non-consultor mode)
+              if (!isConsultorMode) {
+                const actions = (consultorData as any)?.actions || [];
+                const formAction = actions.find((a: any) => a.type === 'exibir_formulario' && a.params?.tipo !== 'matriz_priorizacao');
                 if (formAction && formAction.params?.tipo) {
-                console.log('[FORMULARIO] Novo formulário detectado:', formAction.params.tipo);
-                setFormType(formAction.params.tipo as any);
-                if (formAction.params?.processo) setFormInitialProcesso(formAction.params.processo);
-                else setFormInitialProcesso(null);
-                setShowFormModal(true);
+                  console.log('[FORMULARIO] Novo formulário detectado:', formAction.params.tipo);
+                  setFormType(formAction.params.tipo as any);
+                  if (formAction.params?.processo) setFormInitialProcesso(formAction.params.processo);
+                  else setFormInitialProcesso(null);
+                  setShowFormModal(true);
+                }
               }
             } catch (error: any) {
               console.error('[FORMULARIO] Erro ao enviar:', error);

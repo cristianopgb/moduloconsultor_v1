@@ -9,10 +9,11 @@ import { BpmnViewer } from '../BpmnViewer';
 
 interface PainelEntregaveisProps {
   jornadaId?: string;
+  sessaoId?: string;
   onRefresh: () => void;
 }
 
-export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisProps) {
+export function PainelEntregaveis({ jornadaId, sessaoId, onRefresh }: PainelEntregaveisProps) {
   const [entregaveis, setEntregaveis] = useState<EntregavelConsultor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,32 +22,33 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
   const [bpmnXml, setBpmnXml] = useState<string>('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  const activeId = sessaoId || jornadaId;
+  const filterField = sessaoId ? 'sessao_id' : 'jornada_id';
+
   useEffect(() => {
-    if (!jornadaId) return;
+    if (!activeId) return;
 
     void loadEntregaveis();
     const unsubscribe = setupRealtimeSubscription();
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jornadaId]);
+  }, [activeId, filterField]);
 
   function setupRealtimeSubscription() {
-    if (!jornadaId) return () => {};
+    if (!activeId) return () => {};
 
     const channel = supabase
-      .channel(`entregaveis:${jornadaId}`)
+      .channel(`entregaveis:${activeId}`)
       .on(
         'postgres_changes',
         {
-          event: '*', // INSERT/UPDATE/DELETE
+          event: '*',
           schema: 'public',
           table: 'entregaveis_consultor',
-          filter: `jornada_id=eq.${jornadaId}`,
+          filter: `${filterField}=eq.${activeId}`,
         },
         (_payload) => {
-          // recarrega lista local
           void loadEntregaveis();
-          // notifica o componente pai para recalcular badge / jornada (LateralConsultor tem sua própria lógica)
           try { onRefresh(); } catch (e) { /* ignore */ }
         }
       )
@@ -58,14 +60,14 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
   }
 
   async function loadEntregaveis() {
-    if (!jornadaId) return;
+    if (!activeId) return;
 
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('entregaveis_consultor')
         .select('*')
-        .eq('jornada_id', jornadaId)
+        .eq(filterField, activeId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -100,7 +102,7 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
         // recarrega lista local e notifica o pai para recalcular badge/jornada
         void loadEntregaveis();
         try { onRefresh(); } catch (e) { /* ignore */ }
-        try { window.dispatchEvent(new CustomEvent('entregavel:visualizado', { detail: { entregavelId: entregavel.id, jornadaId } })); } catch (e) {}
+        try { window.dispatchEvent(new CustomEvent('entregavel:visualizado', { detail: { entregavelId: entregavel.id, jornadaId, sessaoId } })); } catch (e) {}
       }
     } catch (err: any) {
       console.error('Erro ao visualizar:', err);
@@ -296,11 +298,11 @@ export function PainelEntregaveis({ jornadaId, onRefresh }: PainelEntregaveisPro
     return acc;
   }, {} as Record<string, EntregavelConsultor[]>);
 
-  if (!jornadaId) {
+  if (!activeId) {
     return (
       <div className="p-6 text-center text-gray-400">
         <FileText className="w-12 h-12 mx-auto mb-3 text-gray-600" />
-        <p className="text-sm">Nenhuma jornada ativa.</p>
+        <p className="text-sm">Nenhuma jornada ou sessão ativa.</p>
       </div>
     );
   }
