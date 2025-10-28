@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Plus, Save, Trash2, Edit, X,
-  Loader, AlertCircle, TrendingUp, HelpCircle, Target
+  Loader, AlertCircle, TrendingUp, HelpCircle, Target, Upload, Download
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -141,6 +141,124 @@ export function SectorAdaptersPage() {
     }
   }
 
+  async function handleBulkImport(jsonData: any[]) {
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+
+      for (const item of jsonData) {
+        try {
+          const { error } = await supabase
+            .from('sector_adapters')
+            .insert({
+              setor_nome: item.setor_nome,
+              setor_descricao: item.setor_descricao,
+              kpis: item.kpis || [],
+              perguntas_anamnese: item.perguntas_anamnese || [],
+              metodologias_recomendadas: item.metodologias_recomendadas || [],
+              problemas_comuns: item.problemas_comuns || [],
+              entregaveis_tipicos: item.entregaveis_tipicos || [],
+              tags: item.tags || [],
+              prioridade: item.prioridade || 5,
+              ativo: item.ativo !== false
+            });
+
+          if (error) {
+            if (error.code === '23505') {
+              errors.push(`${item.setor_nome}: Já existe (pulado)`);
+            } else {
+              errorCount++;
+              errors.push(`${item.setor_nome}: ${error.message}`);
+            }
+          } else {
+            successCount++;
+          }
+        } catch (err: any) {
+          errorCount++;
+          errors.push(`${item.setor_nome}: ${err.message}`);
+        }
+      }
+
+      let message = `Importação concluída!\n\n`;
+      message += `✅ Sucesso: ${successCount}\n`;
+      if (errorCount > 0) message += `❌ Erros: ${errorCount}\n`;
+      if (errors.length > 0) {
+        message += `\nDetalhes:\n${errors.slice(0, 5).join('\n')}`;
+        if (errors.length > 5) message += `\n... e mais ${errors.length - 5}`;
+      }
+
+      alert(message);
+      loadAdapters();
+    } catch (error: any) {
+      console.error('Erro na importação em massa:', error);
+      alert('Erro na importação: ' + error.message);
+    }
+  }
+
+  function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const jsonData = JSON.parse(e.target?.result as string);
+        const adaptersArray = Array.isArray(jsonData) ? jsonData : [jsonData];
+
+        if (adaptersArray.length === 0) {
+          alert('Arquivo vazio ou formato inválido');
+          return;
+        }
+
+        const confirm_msg = `Deseja importar ${adaptersArray.length} adapter(s)?\n\nSetores:\n${adaptersArray.map((a: any) => `- ${a.setor_nome}`).slice(0, 10).join('\n')}`;
+        if (confirm(confirm_msg)) {
+          handleBulkImport(adaptersArray);
+        }
+      } catch (error) {
+        alert('Erro ao ler arquivo JSON: formato inválido');
+        console.error('Erro JSON:', error);
+      }
+    };
+    reader.readAsText(file);
+
+    // Reset input para permitir reimportar o mesmo arquivo
+    event.target.value = '';
+  }
+
+  function handleExport() {
+    try {
+      const exportData = adapters.map(a => ({
+        setor_nome: a.setor_nome,
+        setor_descricao: a.setor_descricao,
+        kpis: a.kpis,
+        perguntas_anamnese: a.perguntas_anamnese,
+        metodologias_recomendadas: a.metodologias_recomendadas,
+        problemas_comuns: a.problemas_comuns,
+        entregaveis_tipicos: a.entregaveis_tipicos,
+        tags: a.tags,
+        prioridade: a.prioridade,
+        ativo: a.ativo
+      }));
+
+      const json = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sector-adapters-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error('Erro ao exportar:', error);
+      alert('Erro ao exportar adapters');
+    }
+  }
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   function resetForm() {
     setFormData({
       setor_nome: '',
@@ -222,17 +340,45 @@ export function SectorAdaptersPage() {
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              resetForm();
-              setEditing(null);
-              setShowAddForm(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            <Plus className="w-4 h-4" />
-            Novo Adapter
-          </button>
+          <div className="flex items-center gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              title="Importar adapters de arquivo JSON"
+            >
+              <Upload className="w-4 h-4" />
+              Importar JSON
+            </button>
+
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+              title="Exportar todos os adapters para JSON"
+            >
+              <Download className="w-4 h-4" />
+              Exportar
+            </button>
+
+            <button
+              onClick={() => {
+                resetForm();
+                setEditing(null);
+                setShowAddForm(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <Plus className="w-4 h-4" />
+              Novo Adapter
+            </button>
+          </div>
         </div>
 
         <div className="text-sm text-gray-600">

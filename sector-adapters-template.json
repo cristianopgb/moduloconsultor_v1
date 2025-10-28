@@ -1,0 +1,75 @@
+[
+  {
+    "setor_nome": "Nome do Setor",
+    "setor_descricao": "Descrição detalhada do setor e tipos de empresas",
+    "kpis": [
+      {
+        "nome": "Nome do KPI",
+        "descricao": "O que este KPI mede",
+        "formula": "Como calcular (ex: (A / B) × 100)",
+        "meta_ideal": "Meta ou benchmark ideal (ex: > 80%)"
+      },
+      {
+        "nome": "Outro KPI",
+        "descricao": "Descrição",
+        "formula": "Fórmula de cálculo",
+        "meta_ideal": "Meta"
+      }
+    ],
+    "perguntas_anamnese": [
+      {
+        "campo": "nome_do_campo",
+        "pergunta": "Pergunta específica do setor?",
+        "tipo": "text",
+        "opcoes": []
+      },
+      {
+        "campo": "campo_select",
+        "pergunta": "Pergunta com opções múltiplas?",
+        "tipo": "select",
+        "opcoes": ["Opção 1", "Opção 2", "Opção 3"]
+      },
+      {
+        "campo": "campo_multiselect",
+        "pergunta": "Pergunta com múltiplas escolhas?",
+        "tipo": "multiselect",
+        "opcoes": ["Escolha A", "Escolha B", "Escolha C"]
+      },
+      {
+        "campo": "campo_numero",
+        "pergunta": "Pergunta numérica?",
+        "tipo": "number",
+        "opcoes": []
+      }
+    ],
+    "metodologias_recomendadas": [
+      "SIPOC",
+      "Business Model Canvas",
+      "5W2H",
+      "Cadeia de Valor",
+      "Matriz de Priorização",
+      "5 Porquês"
+    ],
+    "problemas_comuns": [
+      "Problema típico 1 do setor",
+      "Problema típico 2 do setor",
+      "Problema típico 3 do setor",
+      "Desafio comum 4",
+      "Dificuldade comum 5"
+    ],
+    "entregaveis_tipicos": [
+      "Entregável típico 1 para este setor",
+      "Entregável típico 2",
+      "Documento comum 3",
+      "Plano específico 4"
+    ],
+    "tags": [
+      "tag1",
+      "tag2",
+      "tag3",
+      "palavra-chave"
+    ],
+    "prioridade": 5,
+    "ativo": true
+  }
+]
