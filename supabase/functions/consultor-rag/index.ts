@@ -1,21 +1,21 @@
 /**
- * Consultor RAG - Nova Implementação com RAG + Orquestração
+ * CONSULTOR RAG - ARQUITETURA DE 3 CAMADAS ADAPTATIVAS
  *
- * Esta edge function implementa o novo sistema de consultoria
- * baseado em RAG (Retrieval-Augmented Generation) + Orquestração
+ * 1. ESTRATEGISTA: Carrega Adapter por Setor + Knowledge Base RAG
+ * 2. TÁTICO: LLM decide ações baseado em portfólio adaptativo
+ * 3. EXECUTOR: Frontend executa actions retornadas (gerar entregáveis, kanban, etc.)
  *
  * Fluxo:
- * 1. Recebe mensagem do usuário
- * 2. Identifica/cria sessão de consultoria
- * 3. Orquestrador determina próximas ações
- * 4. RAG busca conhecimento relevante
- * 5. LLM processa com contexto enriquecido
- * 6. Retorna resposta + ações para o front
+ * 1. Recebe mensagem do usuário + sessão
+ * 2. Carrega Adapter do setor (KPIs, perguntas, metodologias)
+ * 3. Busca Knowledge Base por tags relevantes
+ * 4. Monta prompt especializado com contexto
+ * 5. LLM retorna resposta + actions[] (nunca vazio, Enforcer garante)
+ * 6. Frontend executa actions via rag-executor
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
 import { ConsultorOrchestrator } from './orchestrator.ts';
-import { RAGEngine } from './rag-engine.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,360 +23,155 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey'
 };
 
-/**
- * Limpa a resposta do LLM removendo qualquer conteúdo técnico vazado
- */
-function cleanResponse(response: string): string {
-  let cleaned = response;
-
-  // Remove blocos JSON isolados
-  cleaned = cleaned.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '');
-  cleaned = cleaned.replace(/\{[\s\n]*"campo"[\s\S]*?\}/g, '');
-  cleaned = cleaned.replace(/\{[\s\n]*"tipo"[\s\S]*?\}/g, '');
-
-  // Remove marcadores técnicos
-  cleaned = cleaned.replace(/PRÓXIMA AÇÃO RECOMENDADA:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '');
-  cleaned = cleaned.replace(/Tipo:\s*(coletar_info|aplicar_metodologia|gerar_entregavel|transicao_estado)/gi, '');
-  cleaned = cleaned.replace(/\btype:\s*["']?\w+["']?/gi, '');
-  cleaned = cleaned.replace(/\bcampo:\s*["']?\w+["']?/gi, '');
-  cleaned = cleaned.replace(/\bentrada:\s*\{[\s\S]*?\}/gi, '');
-
-  // Remove linhas que são claramente JSON
-  cleaned = cleaned.split('\n').filter(line => {
-    const trimmed = line.trim();
-    return !trimmed.match(/^[\{\}\[\],]$/) &&
-           !trimmed.match(/^"[\w_]+"\s*:/) &&
-           !trimmed.match(/^\w+_\w+:/);
-  }).join('\n');
-
-  // Remove múltiplas linhas vazias consecutivas
-  cleaned = cleaned.replace(/\n\n\n+/g, '\n\n');
-
-  // Remove espaços no início e fim
-  cleaned = cleaned.trim();
-
-  // Log warning se detectou limpeza
-  if (cleaned !== response) {
-    console.warn('[CLEAN-RESPONSE] Technical content removed from LLM response');
-    console.warn('[CLEAN-RESPONSE] Original length:', response.length, 'Cleaned length:', cleaned.length);
-  }
-
-  return cleaned;
-}
-
 interface RequestBody {
-  message: string;
-  conversation_id?: string;
-  user_id: string;
-  sessao_id?: string;
-  form_data?: any;
-  action?: string;
-  conversation_history?: Array<{role: string, content: string}>;
+  sessao: {
+    id: string;
+    empresa?: string | null;
+    setor?: string | null;
+    estado?: string | null;
+  };
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const openaiKey = Deno.env.get('OPENAI_API_KEY')!;
+    const SUPA_URL = Deno.env.get('SUPABASE_URL')!;
+    const SUPA_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const OPENAI_KEY = Deno.env.get('OPENAI_API_KEY')!;
 
-    if (!openaiKey) {
+    if (!OPENAI_KEY) {
       throw new Error('OPENAI_API_KEY not configured');
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: false } });
     const body: RequestBody = await req.json();
 
-    const { message, conversation_id, user_id, sessao_id, form_data, action, conversation_history } = body;
+    const { sessao, messages } = body;
 
-    if (!user_id || !message) {
+    if (!sessao?.id || !messages || messages.length === 0) {
       return new Response(
-        JSON.stringify({ error: 'user_id and message are required' }),
+        JSON.stringify({ error: 'sessao.id and messages are required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Inicializar componentes
+    // 1. ESTRATEGISTA: Inicializar orchestrator e carregar contexto
     const orchestrator = new ConsultorOrchestrator(supabase);
-    const ragEngine = new RAGEngine(supabase, openaiKey);
 
-    // 1. Buscar ou criar sessão
-    let sessao;
-    if (sessao_id) {
-      const { data } = await supabase
-        .from('consultor_sessoes')
-        .select('*')
-        .eq('id', sessao_id)
-        .eq('user_id', user_id)
-        .single();
-      sessao = data;
-    }
+    // Carrega adapter por setor
+    const adapter = await orchestrator.loadAdapterFor({
+      setor: sessao.setor,
+      empresa: sessao.empresa
+    });
 
-    if (!sessao) {
-      // Criar nova sessão
-      const { data, error } = await supabase
-        .from('consultor_sessoes')
-        .insert({
-          user_id,
-          conversation_id,
-          titulo_problema: message.substring(0, 100),
-          contexto_negocio: form_data || {},
-          estado_atual: 'coleta',
-          progresso: 0
-        })
-        .select()
-        .single();
+    // Carrega Knowledge Base relevante
+    const tagsRelevantes = [
+      ...(adapter?.setor ? [adapter.setor] : []),
+      ...(adapter?.tags ?? []),
+      ...(sessao.setor ? [sessao.setor] : [])
+    ].filter(Boolean) as string[];
 
-      if (error) throw error;
-      sessao = data;
-    } else if (form_data) {
-      // Atualizar contexto com form_data
-      const novoContexto = { ...sessao.contexto_negocio, ...form_data };
-      const { data } = await supabase
-        .from('consultor_sessoes')
-        .update({ contexto_negocio: novoContexto })
-        .eq('id', sessao.id)
-        .select()
-        .single();
-      sessao = data;
-    }
-
-    // 2. Orquestrador determina próximas ações
-    const acoes = await orchestrator.determinarProximasAcoes(sessao);
-    const acaoPrincipal = acoes[0];
-
-    // 3. RAG busca conhecimento relevante
-    const resultadoRAG = await ragEngine.buscarDocumentos(
-      message + ' ' + (acaoPrincipal?.entrada?.query || ''),
-      {
-        contexto: sessao.contexto_negocio,
-        estado: sessao.estado_atual
-      }
+    const kb = await orchestrator.loadKnowledgeBaseBlocs(
+      [...new Set(tagsRelevantes)].slice(0, 5),
+      6
     );
 
-    // 4. Construir prompt enriquecido
+    console.log('[CONSULTOR-RAG] Loaded:', {
+      adapter: adapter?.setor || 'none',
+      kb_docs: kb.length,
+      estado: sessao.estado || 'anamnese'
+    });
 
-    // Traduzir ação do orquestrador para instrução natural
-    let instrucoesNaturais = '';
-    if (acaoPrincipal) {
-      switch (acaoPrincipal.tipo_acao) {
-        case 'coletar_info':
-          const campo = acaoPrincipal.entrada?.campo || 'informação';
-          const pergunta = acaoPrincipal.entrada?.pergunta || `Pergunte sobre ${campo}`;
-          instrucoesNaturais = `Você precisa coletar a seguinte informação: ${campo}. Use uma abordagem natural e conversacional. Sugestão de pergunta: "${pergunta}"`;
-          break;
-        case 'aplicar_metodologia':
-          instrucoesNaturais = `Você deve aplicar a metodologia ${acaoPrincipal.entrada?.metodologia || 'recomendada'} para ajudar o cliente. Explique de forma natural como essa metodologia pode ajudar.`;
-          break;
-        case 'gerar_entregavel':
-          instrucoesNaturais = `É hora de gerar um entregável do tipo ${acaoPrincipal.entrada?.tipo_entregavel || 'diagnóstico'}. Prepare o cliente para isso de forma natural.`;
-          break;
-        case 'transicao_estado':
-          instrucoesNaturais = `A consultoria está avançando para a próxima fase: ${acaoPrincipal.entrada?.novo_estado || 'análise'}. Comunique isso de forma natural e positiva.`;
-          break;
-        default:
-          instrucoesNaturais = 'Continue a conversa de forma natural baseada no contexto.';
-      }
-    }
+    // 2. TÁTICO: Montar prompt do Estrategista
+    const systemPrompt = orchestrator.getSystemPrompt({
+      empresa: sessao.empresa,
+      setor: sessao.setor,
+      adapter,
+      kb
+    });
 
-    const promptSistema = orchestrator.getSystemPrompt() + `\n\nINFORMAÇÕES COLETADAS ATÉ AGORA:
-${Object.keys(sessao.contexto_negocio || {}).length > 0 ? Object.entries(sessao.contexto_negocio).map(([key, value]) => `- ${key}: ${value}`).join('\n') : '- Nenhuma informação coletada ainda'}
+    // Construir histórico para LLM
+    const userContent = messages.map((m: any) =>
+      `${m.role.toUpperCase()}: ${m.content}`
+    ).join('\n');
 
-FASE ATUAL DA CONSULTORIA: ${sessao.estado_atual}
-PROGRESSO: ${sessao.progresso}%
-METODOLOGIAS APLICADAS: ${sessao.metodologias_aplicadas?.join(', ') || 'Nenhuma ainda'}
+    // 3. Chamar LLM (TÁTICO decide actions)
+    const model = Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini';
+    console.log('[CONSULTOR-RAG] Calling LLM:', model);
 
-CONHECIMENTO RELEVANTE DA BASE:
-${resultadoRAG.documentos.map(doc => `
-## ${doc.title}
-${doc.content.substring(0, 500)}...`).join('\n')}
-
-${orchestrator.getFewShotExample()}`;
-
-    // 5. Construir histórico de mensagens para LLM
-    const llmMessages: Array<{role: string, content: string}> = [
-      { role: 'system', content: promptSistema }
-    ];
-
-    // Adicionar histórico da conversa se disponível
-    if (conversation_history && conversation_history.length > 0) {
-      llmMessages.push(...conversation_history);
-    }
-
-    // Adicionar mensagem atual
-    llmMessages.push({ role: 'user', content: message });
-
-    // 6. Chamar LLM
-    const llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    const llmResp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`
       },
       body: JSON.stringify({
-        model: 'gpt-4',
-        messages: llmMessages,
-        temperature: 0.7,
-        max_tokens: 1000
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
+        ],
+        temperature: 0.3,
+        max_tokens: 2000
       })
     });
 
-    if (!llmResponse.ok) {
-      const error = await llmResponse.text();
-      throw new Error(`OpenAI API error: ${error}`);
+    if (!llmResp.ok) {
+      const err = await llmResp.text();
+      console.error('[CONSULTOR-RAG] LLM error:', err);
+      throw new Error(`LLM API error: ${llmResp.status}`);
     }
 
-    const llmData = await llmResponse.json();
-    let respostaCompleta = llmData.choices[0].message.content;
+    const llmData = await llmResp.json();
+    const fullText = String(llmData?.choices?.[0]?.message?.content ?? '');
 
-    // Parse actions from response
-    let { actions, contexto_incremental } = orchestrator.parseActionsBlock(respostaCompleta);
+    console.log('[CONSULTOR-RAG] LLM response length:', fullText.length);
 
-    // Enforcer: if no actions, synthesize fallback
+    // 4. TÁTICO: Parse actions (sempre retorna algo)
+    let { actions, contexto_incremental } = orchestrator.parseActionsBlock(fullText);
+
+    // 5. ENFORCER: Se LLM não retornou actions, sintetiza fallback
+    const estadoAtual = String(sessao.estado || 'anamnese');
+    const ultimaMensagemUser = String(messages.at(-1)?.content ?? '');
+
     if (!Array.isArray(actions) || actions.length === 0) {
-      console.warn('[ENFORCER] LLM did not provide actions, synthesizing fallback...');
-      actions = orchestrator.synthesizeFallbackActions(sessao.estado_atual, message);
+      console.warn('[ENFORCER] LLM não retornou actions, sintetizando fallback...');
+      actions = orchestrator.synthesizeFallbackActions(estadoAtual, ultimaMensagemUser);
     }
 
-    // Extract clean response (text before ---)
-    let resposta = respostaCompleta.split('\n---')[0].trim();
+    // Extrai texto limpo (antes de [PARTE B])
+    const replyText = fullText.split('[PARTE B]')[0]?.trim() || 'Avançando com a próxima ação.';
 
-    // Limpar resposta de qualquer conteúdo técnico vazado
-    resposta = cleanResponse(resposta);
-
-    // 6. Extrair informações do contexto da mensagem do usuário
-    const contextoAtualizado = { ...sessao.contexto_negocio };
-    let contextChanged = false;
-
-    // Extração simples de informações chave
-    const msgLower = message.toLowerCase();
-
-    // Detectar nome da empresa (padrões comuns)
-    if (!contextoAtualizado.empresa_nome) {
-      // Padrões: "empresa X", "trabalho na X", "sou da X", "na X", ou simplesmente "X" em mensagens curtas
-      const empresaPatterns = [
-        /(?:empresa|trabalho na|sou da|na|da empresa)\s+([A-Za-z0-9À-ÿ\s]+?)(?:\s*,|\s*\.|\s*$)/i,
-        /^([A-Za-z0-9À-ÿ]+(?:\s+[A-Za-z0-9À-ÿ]+){0,3})(?:\s*,|\s+e\s+|$)/i
-      ];
-
-      for (const pattern of empresaPatterns) {
-        const match = message.match(pattern);
-        if (match && match[1] && match[1].trim().length > 2) {
-          contextoAtualizado.empresa_nome = match[1].trim();
-          contextChanged = true;
-          console.log('[CONTEXT-EXTRACT] Empresa detectada:', contextoAtualizado.empresa_nome);
-          break;
-        }
-      }
-    }
-
-    // Detectar segmento
-    if (!contextoAtualizado.segmento) {
-      const segmentos = ['e-commerce', 'varejo', 'indústria', 'serviços', 'saúde', 'educação', 'tecnologia',
-                        'logística', 'transportes', 'alimentos', 'construção', 'consultoria', 'financeiro'];
-      for (const seg of segmentos) {
-        if (msgLower.includes(seg)) {
-          contextoAtualizado.segmento = seg;
-          contextChanged = true;
-          console.log('[CONTEXT-EXTRACT] Segmento detectado:', seg);
-          break;
-        }
-      }
-    }
-
-    // Detectar porte
-    if (!contextoAtualizado.porte) {
-      if (msgLower.includes('micro') || msgLower.includes('pequena') || msgLower.includes('pme')) {
-        contextoAtualizado.porte = 'pequena';
-        contextChanged = true;
-      } else if (msgLower.includes('média')) {
-        contextoAtualizado.porte = 'média';
-        contextChanged = true;
-      } else if (msgLower.includes('grande')) {
-        contextoAtualizado.porte = 'grande';
-        contextChanged = true;
-      }
-    }
-
-    // Atualizar sessão se contexto mudou
-    if (contextChanged) {
-      await supabase
-        .from('consultor_sessoes')
-        .update({ contexto_negocio: contextoAtualizado })
-        .eq('id', sessao.id);
-
-      console.log('[CONTEXT-EXTRACT] Contexto atualizado:', contextoAtualizado);
-    }
-
-    // 7. Executar ação principal
-    let acaoExecutada = null;
-    if (acaoPrincipal && action !== 'skip_action') {
-      acaoExecutada = await orchestrator.executarAcao(sessao, acaoPrincipal);
-    }
-
-    // CRÍTICO: Adicionar markers na resposta para compatibilidade com frontend
-    // O frontend detecta tanto actions quanto markers no texto
-    if (acaoPrincipal && acaoPrincipal.tipo_acao === 'coletar_info') {
-      const tipoForm = acaoPrincipal.entrada?.tipo_form;
-      if (tipoForm === 'anamnese' || tipoForm === 'matriz_priorizacao') {
-        // Adiciona marker invisível no final para o frontend detectar
-        resposta = resposta + `\n[EXIBIR_FORMULARIO:${tipoForm}]`;
-      }
-    }
-
-    // 7. Log da ação no orquestrador
-    await supabase.from('orquestrador_acoes').insert({
-      sessao_id: sessao.id,
-      tipo_acao: acaoPrincipal?.tipo_acao || 'resposta_livre',
-      entrada: { message, ...acaoPrincipal?.entrada },
-      documentos_consultados: resultadoRAG.documentos.map(d => d.id),
-      saida: { resposta, acao_executada: acaoExecutada },
-      sucesso: true
+    console.log('[CONSULTOR-RAG] Returning:', {
+      reply_length: replyText.length,
+      actions_count: actions.length,
+      etapa: estadoAtual
     });
 
-    // 8. Atualizar progresso
-    if (acaoExecutada?.novo_estado) {
-      await supabase
-        .from('consultor_sessoes')
-        .update({
-          estado_atual: acaoExecutada.novo_estado,
-          progresso: Math.min(sessao.progresso + 20, 100)
-        })
-        .eq('id', sessao.id);
-    }
+    // 6. Retornar para frontend (EXECUTOR executará as actions)
+    return new Response(JSON.stringify({
+      reply: replyText,
+      actions: actions,
+      contexto_incremental,
+      etapa: estadoAtual,
+      sessao_id: sessao.id
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
 
-    // 9. Retornar resposta completa com actions do enforcer
-    return new Response(
-      JSON.stringify({
-        response: resposta,
-        sessao_id: sessao.id,
-        estado_atual: acaoExecutada?.novo_estado || sessao.estado_atual,
-        progresso: Math.min(sessao.progresso + (acaoExecutada ? 20 : 5), 100),
-        actions: actions, // Use parsed/enforced actions
-        contexto_incremental: contexto_incremental,
-        rag_info: {
-          documentos_usados: resultadoRAG.documentos.map(d => d.title),
-          tokens_usados: resultadoRAG.tokens_usados,
-          tempo_busca_ms: resultadoRAG.tempo_busca_ms
-        }
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
-  } catch (error) {
-    console.error('Error in consultor-rag:', error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
+  } catch (e: any) {
+    console.error('[consultor-rag] ERROR:', e);
+    return new Response(JSON.stringify({
+      reply: 'Não consegui processar sua mensagem agora. Por favor, tente novamente.',
+      actions: [],
+      error: e.message
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200 // Return 200 to not break frontend
+    });
   }
 });

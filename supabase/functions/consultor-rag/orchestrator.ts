@@ -1,12 +1,20 @@
 /**
- * Orquestrador de Fluxo do Consultor
+ * ARQUITETURA DE 3 CAMADAS ADAPTATIVAS
  *
- * Responsável por:
- * 1. Determinar próxima ação baseado no estado da sessão
- * 2. Decidir quais metodologias aplicar via RAG
- * 3. Gerenciar transições de estado
- * 4. Coordenar coleta de informações
- * 5. Acionar geração de entregáveis
+ * 1. ESTRATEGISTA (Planner): Decide qual abordagem usar baseado no contexto
+ *    - Identifica domínio (Receita, Operações, Financeiro, Pessoas)
+ *    - Define objetivos, hipóteses e evidências necessárias
+ *    - Escolhe métodos apropriados do portfólio adaptativo
+ *
+ * 2. TÁTICO (Action Router): Converte plano em ações executáveis
+ *    - Usa portfólio flexível de métodos (não força Ishikawa/SIPOC/BPMN)
+ *    - Escolhe alternativas se ferramenta não se aplica
+ *    - Limita a 1 pergunta por turno, assume hipóteses com needsValidation
+ *
+ * 3. EXECUTOR (Function Registry): Executa ações e gera evidências
+ *    - query_sql, analyze_dataset, compute_kpis, pareto, what_if, etc.
+ *    - Cada ação retorna evidência (resultado + fonte + confiança)
+ *    - Gera entregáveis que referenciam evidências
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
@@ -16,6 +24,8 @@ export interface SessaoConsultor {
   user_id: string;
   conversation_id: string | null;
   titulo_problema: string;
+  empresa?: string | null;
+  setor?: string | null;
   contexto_negocio: any;
   metodologias_aplicadas: string[];
   estado_atual: string;
@@ -26,12 +36,23 @@ export interface SessaoConsultor {
   ativo: boolean;
 }
 
-export interface AcaoOrquestrador {
-  tipo_acao: 'coletar_info' | 'aplicar_metodologia' | 'gerar_entregavel' | 'validar' | 'transicao_estado';
-  prioridade: number;
-  descricao: string;
-  entrada: any;
-  requer_confirmacao?: boolean;
+export interface AdapterSetor {
+  id: string;
+  setor: string;
+  prioridade?: number;
+  tags?: string[];
+  kpis?: string[];
+  perguntas?: string[];
+  metodologias?: string[];
+}
+
+export interface KBDoc {
+  id: string;
+  title: string;
+  category: string;
+  content: string;
+  tags?: string[];
+  aplicabilidade?: any;
 }
 
 export class ConsultorOrchestrator {
@@ -42,28 +63,162 @@ export class ConsultorOrchestrator {
   }
 
   /**
-   * System prompt with strong anti-interrogation rules
+   * ESTRATEGISTA: Carrega adapter por setor
    */
-  getSystemPrompt(): string {
-    return `Você é o Consultor Proceda. Sua missão é CONDUZIR o projeto com método e gerar entregáveis úteis.
+  async loadAdapterFor(sessao: { setor?: string|null; empresa?: string|null }): Promise<AdapterSetor | null> {
+    const setor = String(sessao?.setor || '').trim().toLowerCase();
+    if (!setor) return null;
 
-Regras duras:
-1) No MÁXIMO 1 pergunta objetiva por turno, e só se for CRÍTICA para avançar. Se faltar dado não-crítico, ASSUMA uma hipótese razoável e anote needsValidation:true.
-2) Sempre que houver insumo suficiente, EMITA ações:
-   - gerar_entregavel: ishikawa | sipoc | bpmn_as_is | bpmn_to_be | gut | 5w2h | okr | bsc | escopo | diagnostico
-   - transicao_estado: anamnese | as_is | diagnostico | to_be | plano | execucao
-   - ensure_kanban: cards do plano (5W2H/OKR) por sessão
-3) Saída OBRIGATÓRIA em duas partes:
-[PARTE A: texto consultivo claro, aplicado ao caso]
----
-[PARTE B: JSON estrito]
-{ "actions": [...], "contexto_incremental": {...} }
-4) Anti-loop: NÃO repita a mesma pergunta no turno seguinte; avance com hipótese + needsValidation:true.
-5) Aplique RAG (playbook Proceda + boas práticas por área) SEM copiar trechos; sintetize ao caso do cliente.`;
+    const { data, error } = await this.supabase
+      .from('adapters_setor')
+      .select('id,setor,prioridade,tags,kpis,perguntas,metodologias')
+      .ilike('setor', `%${setor}%`)
+      .order('prioridade', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) console.warn('[ORCH] adapter error', error);
+    return data || null;
   }
 
   /**
-   * Few-shot example for logistics sector
+   * ESTRATEGISTA: Carrega documentos da Knowledge Base
+   */
+  async loadKnowledgeBaseBlocs(tagsDesejadas: string[], limit = 6): Promise<KBDoc[]> {
+    if (!tagsDesejadas?.length) return [];
+
+    const { data, error } = await this.supabase
+      .from('knowledge_base_documents')
+      .select('id,title,category,content,tags,aplicabilidade')
+      .overlaps('tags', tagsDesejadas)
+      .eq('ativo', true)
+      .limit(limit);
+
+    if (error) {
+      console.warn('[ORCH] kb error', error);
+      return [];
+    }
+    return (data ?? []) as KBDoc[];
+  }
+
+  /**
+   * ESTRATEGISTA: System prompt com especialização por setor e portfólio adaptativo
+   */
+  getSystemPrompt(params: {
+    empresa?: string|null;
+    setor?: string|null;
+    adapter?: AdapterSetor|null;
+    kb?: KBDoc[];
+  }): string {
+    const setor = String(params.setor || '').trim() || 'negócio do cliente';
+    const empresa = String(params.empresa || '').trim() || 'empresa';
+    const kpis = (params.adapter?.kpis ?? []).slice(0,8).join(', ');
+    const perguntas = (params.adapter?.perguntas ?? []).slice(0,6).map((p,i)=>`${i+1}. ${p}`).join('\n');
+    const metod = (params.adapter?.metodologias ?? []).slice(0,8).join(', ');
+
+    const kbSnippets = (params.kb ?? []).slice(0,5).map(d =>
+`### ${d.title} (${d.category})
+${(d.content||'').slice(0,800)}...`).join('\n\n');
+
+    return `Você é "Rafael", consultor sênior do PROCEda especializado em ${setor}.
+
+# ARQUITETURA DE 3 CAMADAS
+
+## 1. ESTRATEGISTA (você agora)
+- Identifique domínio principal: Receita/Comercial | Operações/Logística | Financeiro/FP&A | Pessoas/HR
+- Defina hipóteses baseadas no contexto: problemas prováveis, causas raiz, oportunidades
+- Escolha métodos do PORTFÓLIO ADAPTATIVO (não force ferramentas fixas)
+
+## 2. PORTFÓLIO DE MÉTODOS (escolha o mais adequado)
+
+**Receita/Comercial:**
+- AARRR (pirata metrics): aquisição, ativação, retenção, receita, referral
+- Funil de conversão por etapa
+- Pareto de perdas (onde concentra 80%)
+- Teste de proposta / ICP (ideal customer profile)
+- CAC vs LTV, Payback period
+- Análise de canais
+
+**Operações/Logística:**
+- OTIF (on-time in-full)
+- Lead time, takt time
+- Mapeamento de desperdícios (muda)
+- Curva ABC de SKU
+- Balanceamento de carga
+- Picking accuracy
+
+**Financeiro/FP&A:**
+- DRE e fluxo de caixa
+- AR/AP aging policy
+- Driver tree de margem
+- Projeção de cenários (what-if)
+- Ponto de equilíbrio
+
+**Pessoas/HR:**
+- Absenteísmo e turnover
+- Matriz 9-box
+- Curva de aprendizagem
+- RACI (responsabilidade)
+
+**Ferramentas Clássicas (use SE fizer sentido):**
+- Ishikawa: quando causas difusas, múltiplas variáveis
+- SIPOC: quando processo bem definido mas não documentado
+- BPMN: quando precisa mapear fluxo complexo
+- GUT: priorização simples
+- 5W2H: plano de ação estruturado
+
+## 3. POLÍTICA ANTI-INTERROGATÓRIO
+
+**CRÍTICO:**
+- Máximo **1 pergunta** por turno, SOMENTE se destravar próxima ação
+- Se dado não-crítico faltar: ASSUMA hipótese razoável com needsValidation:true
+- Pareto de informação: peça apenas arquivos/dados que destravam análise IMEDIATA
+- Nunca repita mesma pergunta: se usuário não respondeu, assuma e prossiga
+- **SEMPRE** retorne actions[] úteis (nunca vazio)
+
+## 4. CONTEXTO SETORIAL
+
+**Setor:** ${setor}
+**Empresa:** ${empresa}
+**KPIs-chave:** ${kpis || '(não cadastrado)'}
+
+**Perguntas úteis do setor:**
+${perguntas || '-'}
+
+**Metodologias preferidas:** ${metod || '-'}
+
+## 5. BASE DE CONHECIMENTO (trechos relevantes)
+
+${kbSnippets || '(sem documentos relevantes)'}
+
+## 6. FORMATO DE RESPOSTA (OBRIGATÓRIO)
+
+[PARTE A]
+Texto curto ao usuário (sem jargão). Explique o que vai fazer agora e por quê.
+
+[PARTE B]
+{
+  "actions": [
+    // Exemplos de actions válidas:
+    {"type":"diagnose","area":"comercial","goals":["aumentar conversão"],"hypotheses":["ICP difuso"],"needsValidation":true},
+    {"type":"analyze_dataset","source":"upload|table:public.vendas","tasks":[{"op":"kpi","name":"taxa_conversao","groupBy":"etapa"}]},
+    {"type":"compute_kpis","kpis":["CAC","LTV","Payback","TicketMedio"]},
+    {"type":"what_if","model":"receita","assumptions":{"taxa_conv":"+2pp","ticket":"+8%"},"horizon":"6m"},
+    {"type":"design_process_map","style":"as_is|to_be","granularity":"alto_nivel","deliver":"diagram|text"},
+    {"type":"create_doc","docType":"diagnostico_exec","format":"markdown","sections":["resumo_exec","achados_top5","roadmap_90d"]},
+    {"type":"update_kanban","board":"execucao","cards":[{"title":"Padronizar proposta","owner":"Comercial","due":"+7d"}]},
+    {"type":"transicao_estado","to":"diagnostico"}
+  ],
+  "contexto_incremental": { "empresa":"${empresa}","setor":"${setor}","needsValidation":false }
+}
+
+## 7. ANTI-LOOP
+
+Se você não souber o que fazer: gere ações genéricas para coleta de evidência (analyze_dataset, compute_kpis, create_doc). Nunca retorne actions vazio.`;
+  }
+
+  /**
+   * TÁTICO: Few-shot example para transportadora (sem forçar Ishikawa)
    */
   getFewShotExample(): string {
     return `[EXEMPLO – TRANSPORTES/LOGÍSTICA]
@@ -88,7 +243,7 @@ Vamos atacar duas frentes em paralelo:
   }
 
   /**
-   * Parse actions from LLM response
+   * TÁTICO: Parse actions from LLM response
    */
   parseActionsBlock(textoLLM: string): { actions: any[], contexto_incremental: any } {
     let idx = textoLLM.indexOf('\n---');
@@ -122,469 +277,62 @@ Vamos atacar duas frentes em paralelo:
   }
 
   /**
-   * Synthesize fallback actions when LLM doesn't comply
+   * TÁTICO: Synthesize fallback actions (Enforcer anti-loop)
+   * Gera ações genéricas adaptadas à fase, SEM forçar ferramentas específicas
    */
   synthesizeFallbackActions(estadoAtual: string, userMsg: string): any[] {
-    if (estadoAtual === 'anamnese' || estadoAtual === 'coleta') {
+    // Fallback genérico: evidência primeiro, ferramentas depois
+    const basicDiag = [
+      { type: 'create_doc', docType: 'diagnostico_exec', format: 'markdown',
+        sections: ['resumo_exec','achados_top5','oportunidades_top5','roadmap_90d'] }
+    ];
+
+    if (estadoAtual === 'apresentacao' || estadoAtual === 'anamnese' || estadoAtual === 'coleta') {
       return [
-        { type: 'gerar_entregavel', deliverableType: 'escopo', contexto: { resumo: userMsg } },
+        { type: 'diagnose', area: 'geral', goals: ['mapear situação'], hypotheses: ['múltiplas causas'], needsValidation: true },
+        ...basicDiag,
         { type: 'transicao_estado', to: 'as_is' }
       ];
     }
+
     if (estadoAtual === 'as_is') {
       return [
-        { type: 'gerar_entregavel', deliverableType: 'sipoc', contexto: { process: 'Comercial: Pré-venda → Proposta → Fechamento → Onboarding' } },
-        { type: 'gerar_entregavel', deliverableType: 'bpmn_as_is', contexto: { nome: 'Comercial – AS IS' } },
+        { type: 'design_process_map', style: 'as_is', granularity: 'alto_nivel', deliver: 'text' },
+        { type: 'analyze_dataset', source: 'upload', tasks: [{op:'pareto', field:'problema'}]},
         { type: 'transicao_estado', to: 'diagnostico' }
       ];
     }
+
     if (estadoAtual === 'diagnostico') {
       return [
-        { type: 'gerar_entregavel', deliverableType: 'ishikawa', contexto: { problema: 'Conversão baixa e retrabalho financeiro' } },
-        { type: 'gerar_entregavel', deliverableType: 'gut', contexto: { tema: 'Priorização Comercial/Financeiro' } },
+        { type: 'compute_kpis', kpis: ['taxa_conversao','lead_time','custo_medio','satisfacao'] },
+        { type: 'analyze_dataset', source: 'upload', tasks: [{op:'pareto', field:'motivo_problema'}]},
+        ...basicDiag,
         { type: 'transicao_estado', to: 'to_be' }
       ];
     }
+
     if (estadoAtual === 'to_be') {
       return [
-        { type: 'gerar_entregavel', deliverableType: 'bpmn_to_be', contexto: { nome: 'Comercial – TO BE' } },
+        { type: 'design_process_map', style: 'to_be', granularity: 'alto_nivel', deliver: 'text' },
+        { type: 'what_if', model: 'melhoria', assumptions: {}, horizon: '3m' },
         { type: 'transicao_estado', to: 'plano' }
       ];
     }
+
     if (estadoAtual === 'plano') {
       return [
-        { type: 'gerar_entregavel', deliverableType: '5w2h', contexto: { itens: [] } },
-        { type: 'ensure_kanban', sessaoId: 'RUNTIME', plano: { cards: [] } },
+        { type: 'create_doc', docType: '5w2h', format: 'markdown', sections: ['plan_table'] },
+        { type: 'update_kanban', board: 'execucao',
+          cards: [
+            { title: 'Executar ação prioritária 1', owner: 'Time', due: '+7d'},
+            { title: 'Executar ação prioritária 2', owner: 'Time', due: '+14d'}
+          ]},
         { type: 'transicao_estado', to: 'execucao' }
       ];
     }
-    return [];
+
+    return basicDiag;
   }
 
-  /**
-   * Determina próximas ações baseado no estado da sessão
-   */
-  async determinarProximasAcoes(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {
-    const acoes: AcaoOrquestrador[] = [];
-
-    // Análise do estado atual
-    switch (sessao.estado_atual) {
-      case 'coleta':
-        acoes.push(...await this.acoesParaColeta(sessao));
-        break;
-
-      case 'analise':
-        acoes.push(...await this.acoesParaAnalise(sessao));
-        break;
-
-      case 'diagnostico':
-        acoes.push(...await this.acoesParaDiagnostico(sessao));
-        break;
-
-      case 'recomendacao':
-        acoes.push(...await this.acoesParaRecomendacao(sessao));
-        break;
-
-      case 'execucao':
-        acoes.push(...await this.acoesParaExecucao(sessao));
-        break;
-    }
-
-    // Ordena por prioridade
-    return acoes.sort((a, b) => b.prioridade - a.prioridade);
-  }
-
-  /**
-   * Ações para fase de coleta
-   */
-  private async acoesParaColeta(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {
-    const acoes: AcaoOrquestrador[] = [];
-    const contexto = sessao.contexto_negocio || {};
-
-    // Verifica informações essenciais faltantes
-    const infoEssenciais = [
-      { campo: 'empresa_nome', pergunta: 'Como se chama sua empresa?' },
-      { campo: 'segmento', pergunta: 'Qual o segmento/ramo de atuação?' },
-      { campo: 'porte', pergunta: 'Qual o porte da empresa? (micro, pequena, média, grande)' },
-      { campo: 'descricao_problema', pergunta: 'Descreva o problema ou desafio que está enfrentando' },
-      { campo: 'objetivo_principal', pergunta: 'Qual o principal objetivo que deseja alcançar?' }
-    ];
-
-    for (const info of infoEssenciais) {
-      if (!contexto[info.campo]) {
-        acoes.push({
-          tipo_acao: 'coletar_info',
-          prioridade: 10,
-          descricao: `Coletar: ${info.campo}`,
-          entrada: {
-            campo: info.campo,
-            pergunta: info.pergunta,
-            tipo_resposta: 'texto'
-          }
-        });
-      }
-    }
-
-    // Se todas essas informações foram coletadas, transiciona para análise
-    const todasColetadas = infoEssenciais.every(info => contexto[info.campo]);
-    if (todasColetadas) {
-      acoes.push({
-        tipo_acao: 'transicao_estado',
-        prioridade: 9,
-        descricao: 'Transicionar para análise',
-        entrada: {
-          novo_estado: 'analise',
-          motivo: 'Informações básicas coletadas'
-        },
-        requer_confirmacao: false
-      });
-    }
-
-    return acoes;
-  }
-
-  /**
-   * Ações para fase de análise
-   */
-  private async acoesParaAnalise(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {
-    const acoes: AcaoOrquestrador[] = [];
-
-    // Consulta RAG para identificar metodologias aplicáveis
-    const metodologiasRecomendadas = await this.buscarMetodologiasAplicaveis(sessao);
-
-    for (const metodologia of metodologiasRecomendadas) {
-      // Verifica se já foi aplicada
-      if (!sessao.metodologias_aplicadas.includes(metodologia.title)) {
-        acoes.push({
-          tipo_acao: 'aplicar_metodologia',
-          prioridade: 8,
-          descricao: `Aplicar metodologia: ${metodologia.title}`,
-          entrada: {
-            documento_id: metodologia.id,
-            metodologia: metodologia.title,
-            categoria: metodologia.category
-          },
-          requer_confirmacao: true
-        });
-      }
-    }
-
-    // Se pelo menos uma metodologia foi aplicada, pode ir para diagnóstico
-    if (sessao.metodologias_aplicadas.length > 0) {
-      acoes.push({
-        tipo_acao: 'transicao_estado',
-        prioridade: 7,
-        descricao: 'Transicionar para diagnóstico',
-        entrada: {
-          novo_estado: 'diagnostico',
-          motivo: 'Metodologias aplicadas, pronto para diagnóstico'
-        }
-      });
-    }
-
-    return acoes;
-  }
-
-  /**
-   * Ações para fase de diagnóstico
-   */
-  private async acoesParaDiagnostico(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {
-    const acoes: AcaoOrquestrador[] = [];
-
-    // Gerar diagnóstico baseado nas metodologias aplicadas
-    acoes.push({
-      tipo_acao: 'gerar_entregavel',
-      prioridade: 9,
-      descricao: 'Gerar diagnóstico situacional',
-      entrada: {
-        tipo_entregavel: 'diagnostico',
-        baseado_em: sessao.metodologias_aplicadas
-      }
-    });
-
-    // Identificar gaps e oportunidades
-    acoes.push({
-      tipo_acao: 'aplicar_metodologia',
-      prioridade: 8,
-      descricao: 'Análise de gaps',
-      entrada: {
-        metodologia: 'analise_gaps',
-        objetivo: 'Identificar lacunas entre estado atual e desejado'
-      }
-    });
-
-    // Transição para recomendação
-    acoes.push({
-      tipo_acao: 'transicao_estado',
-      prioridade: 7,
-      descricao: 'Transicionar para recomendações',
-      entrada: {
-        novo_estado: 'recomendacao',
-        motivo: 'Diagnóstico concluído'
-      },
-      requer_confirmacao: true
-    });
-
-    return acoes;
-  }
-
-  /**
-   * Ações para fase de recomendação
-   */
-  private async acoesParaRecomendacao(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {
-    const acoes: AcaoOrquestrador[] = [];
-
-    // Gerar plano de ação 5W2H
-    acoes.push({
-      tipo_acao: 'gerar_entregavel',
-      prioridade: 10,
-      descricao: 'Gerar plano de ação (5W2H)',
-      entrada: {
-        tipo_entregavel: 'plano_acao',
-        metodologia: '5W2H'
-      }
-    });
-
-    // Priorização de ações
-    acoes.push({
-      tipo_acao: 'aplicar_metodologia',
-      prioridade: 9,
-      descricao: 'Matriz de priorização',
-      entrada: {
-        metodologia: 'matriz_priorizacao',
-        criterios: ['impacto', 'esforco', 'urgencia']
-      }
-    });
-
-    // Transição para execução
-    acoes.push({
-      tipo_acao: 'transicao_estado',
-      prioridade: 8,
-      descricao: 'Transicionar para execução',
-      entrada: {
-        novo_estado: 'execucao',
-        motivo: 'Plano de ação definido'
-      },
-      requer_confirmacao: true
-    });
-
-    return acoes;
-  }
-
-  /**
-   * Ações para fase de execução
-   */
-  private async acoesParaExecucao(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {
-    const acoes: AcaoOrquestrador[] = [];
-
-    // Acompanhamento de ações
-    acoes.push({
-      tipo_acao: 'aplicar_metodologia',
-      prioridade: 10,
-      descricao: 'Acompanhar execução',
-      entrada: {
-        metodologia: 'kanban',
-        objetivo: 'Acompanhar progresso das ações'
-      }
-    });
-
-    // Validação de resultados
-    acoes.push({
-      tipo_acao: 'validar',
-      prioridade: 9,
-      descricao: 'Validar resultados',
-      entrada: {
-        tipo_validacao: 'resultados',
-        criterios: ['meta_atingida', 'prazo_cumprido', 'qualidade']
-      }
-    });
-
-    return acoes;
-  }
-
-  /**
-   * Busca metodologias aplicáveis via RAG
-   */
-  private async buscarMetodologiasAplicaveis(sessao: SessaoConsultor): Promise<any[]> {
-    const contexto = sessao.contexto_negocio || {};
-
-    // Monta query para RAG
-    const query = `
-      Problema: ${sessao.titulo_problema}
-      Segmento: ${contexto.segmento || 'não informado'}
-      Objetivo: ${contexto.objetivo_principal || 'não informado'}
-      Descrição: ${contexto.descricao_problema || 'não informado'}
-    `;
-
-    // Busca documentos relevantes
-    // TODO: Implementar busca semântica com embeddings
-    // Por enquanto, busca por texto completo
-    const { data, error } = await this.supabase
-      .from('knowledge_base_documents')
-      .select('*')
-      .eq('ativo', true)
-      .in('category', ['metodologia', 'framework'])
-      .limit(5);
-
-    if (error) {
-      console.error('[ORCHESTRATOR] Erro ao buscar metodologias:', error);
-      return [];
-    }
-
-    return data || [];
-  }
-
-  /**
-   * Executa uma ação determinada
-   */
-  async executarAcao(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
-    const startTime = Date.now();
-    let resultado: any = {};
-    let sucesso = true;
-
-    try {
-      switch (acao.tipo_acao) {
-        case 'coletar_info':
-          resultado = await this.executarColetaInfo(sessao, acao);
-          break;
-
-        case 'aplicar_metodologia':
-          resultado = await this.executarAplicacaoMetodologia(sessao, acao);
-          break;
-
-        case 'gerar_entregavel':
-          resultado = await this.executarGeracaoEntregavel(sessao, acao);
-          break;
-
-        case 'transicao_estado':
-          resultado = await this.executarTransicaoEstado(sessao, acao);
-          break;
-
-        case 'validar':
-          resultado = await this.executarValidacao(sessao, acao);
-          break;
-      }
-    } catch (error: any) {
-      sucesso = false;
-      resultado = { erro: error.message };
-      console.error('[ORCHESTRATOR] Erro ao executar ação:', error);
-    }
-
-    // Registra ação no log
-    const tempoExecucao = Date.now() - startTime;
-    await this.registrarAcao(sessao.id, acao, resultado, sucesso, tempoExecucao);
-
-    return resultado;
-  }
-
-  private async executarColetaInfo(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
-    return {
-      tipo: 'pergunta',
-      campo: acao.entrada.campo,
-      pergunta: acao.entrada.pergunta,
-      aguardando_resposta: true
-    };
-  }
-
-  private async executarAplicacaoMetodologia(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
-    // Busca documento da metodologia
-    const { data: documento } = await this.supabase
-      .from('knowledge_base_documents')
-      .select('*')
-      .eq('id', acao.entrada.documento_id)
-      .single();
-
-    return {
-      tipo: 'metodologia_aplicada',
-      metodologia: acao.entrada.metodologia,
-      documento: documento,
-      instrucoes: documento?.content
-    };
-  }
-
-  private async executarGeracaoEntregavel(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
-    return {
-      tipo: 'entregavel_pendente',
-      tipo_entregavel: acao.entrada.tipo_entregavel,
-      aguardando_geracao: true
-    };
-  }
-
-  private async executarTransicaoEstado(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
-    // Atualiza estado da sessão
-    const { error } = await this.supabase
-      .from('consultor_sessoes')
-      .update({ estado_atual: acao.entrada.novo_estado })
-      .eq('id', sessao.id);
-
-    if (error) {
-      throw new Error(`Erro ao transicionar estado: ${error.message}`);
-    }
-
-    return {
-      tipo: 'transicao_concluida',
-      estado_anterior: sessao.estado_atual,
-      novo_estado: acao.entrada.novo_estado,
-      motivo: acao.entrada.motivo
-    };
-  }
-
-  private async executarValidacao(sessao: SessaoConsultor, acao: AcaoOrquestrador): Promise<any> {
-    return {
-      tipo: 'validacao_pendente',
-      tipo_validacao: acao.entrada.tipo_validacao,
-      criterios: acao.entrada.criterios
-    };
-  }
-
-  /**
-   * Registra ação executada no log
-   */
-  private async registrarAcao(
-    sessaoId: string,
-    acao: AcaoOrquestrador,
-    resultado: any,
-    sucesso: boolean,
-    tempoMs: number
-  ): Promise<void> {
-    await this.supabase.from('orquestrador_acoes').insert({
-      sessao_id: sessaoId,
-      tipo_acao: acao.tipo_acao,
-      entrada: acao.entrada,
-      documentos_consultados: [],
-      saida: resultado,
-      sucesso,
-      tempo_execucao_ms: tempoMs
-    });
-  }
-
-  /**
-   * Atualiza progresso da sessão
-   */
-  async atualizarProgresso(sessao: SessaoConsultor): Promise<number> {
-    // Calcula progresso baseado no estado e ações completadas
-    const pesos = {
-      'coleta': 20,
-      'analise': 40,
-      'diagnostico': 60,
-      'recomendacao': 80,
-      'execucao': 90,
-      'concluido': 100
-    };
-
-    const progressoBase = pesos[sessao.estado_atual as keyof typeof pesos] || 0;
-
-    // Ajusta baseado em entregáveis gerados
-    const ajuste = Math.min(sessao.entregaveis_gerados.length * 5, 10);
-
-    const progressoTotal = Math.min(progressoBase + ajuste, 100);
-
-    // Atualiza no banco
-    await this.supabase
-      .from('consultor_sessoes')
-      .update({ progresso: progressoTotal })
-      .eq('id', sessao.id);
-
-    return progressoTotal;
-  }
 }

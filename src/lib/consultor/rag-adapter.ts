@@ -1,38 +1,33 @@
 /**
- * RAG Adapter - Bridge between new RAG system and existing UI
+ * RAG Adapter - Frontend bridge to 3-Layer Consultor Architecture
  *
- * This adapter:
- * 1. Calls consultor-rag Edge Function instead of legacy consultor-chat
- * 2. Transforms RAG responses to match UI expectations
- * 3. Handles session management and state persistence
- * 4. Provides fallback to legacy system if needed
+ * Responsabilidades:
+ * 1. Gerencia sessão (busca empresa, setor, estado)
+ * 2. Monta mensagens no formato esperado pelo backend
+ * 3. Chama consultor-rag Edge Function (Estrategista + Tático)
+ * 4. Retorna actions normalizadas para o Executor executar
+ * 5. NUNCA re-chama RAG automaticamente (anti-loop)
  */
 
 import { supabase } from '../supabase';
 
 export interface RAGRequest {
+  sessaoId: string; // Obrigatório agora
   message: string;
   userId: string;
   conversationId?: string;
-  sessaoId?: string;
-  formData?: Record<string, any>;
-  action?: string;
 }
 
 export interface RAGResponse {
-  response: string;
-  sessao_id: string;
-  estado_atual: 'coleta' | 'analise' | 'diagnostico' | 'recomendacao' | 'execucao';
-  progresso: number;
-  actions?: Array<{
+  reply: string;
+  actions: Array<{
     type: string;
-    params: Record<string, any>;
+    params?: Record<string, any>;
+    [key: string]: any;
   }>;
-  rag_info?: {
-    documentos_usados: string[];
-    tokens_usados: number;
-    tempo_busca_ms: number;
-  };
+  contexto_incremental?: any;
+  etapa?: string;
+  sessao_id: string;
 }
 
 export interface ConsultorResponse {
@@ -54,41 +49,61 @@ export interface ConsultorResponse {
 }
 
 /**
- * Call the RAG system and transform response for UI
+ * Call the RAG system (Estrategista + Tático)
+ * Retorna actions para o Executor executar
  */
 export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorResponse> {
   try {
-    console.log('[RAG-ADAPTER] Calling consultor-rag with:', {
-      message: request.message.substring(0, 50) + '...',
-      userId: request.userId,
-      conversationId: request.conversationId,
+    console.log('[RAG-ADAPTER] Calling consultor-rag:', {
       sessaoId: request.sessaoId,
-      hasFormData: !!request.formData
+      message: request.message.substring(0, 50) + '...'
     });
 
-    // Load conversation history to provide context
-    let conversationHistory: Array<{role: string, content: string}> = [];
+    // 1. Buscar dados da sessão (empresa, setor, estado)
+    const { data: sessao } = await supabase
+      .from('consultor_sessoes')
+      .select('id, empresa, setor, estado_atual, contexto_negocio')
+      .eq('id', request.sessaoId)
+      .single();
+
+    if (!sessao) {
+      throw new Error('Sessão não encontrada');
+    }
+
+    // 2. Carregar histórico da conversa
+    let messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+
     if (request.conversationId) {
-      const { data: messages } = await supabase
+      const { data: msgs } = await supabase
         .from('messages')
         .select('role, content')
         .eq('conversation_id', request.conversationId)
         .order('created_at', { ascending: true })
         .limit(10);
 
-      conversationHistory = messages || [];
-      console.log('[RAG-ADAPTER] Loaded', conversationHistory.length, 'previous messages');
+      if (msgs) {
+        messages = msgs.map(m => ({
+          role: (m.role === 'user' || m.role === 'assistant' ? m.role : 'assistant') as 'user' | 'assistant',
+          content: m.content
+        }));
+      }
     }
 
+    // Adiciona mensagem atual
+    messages.push({ role: 'user', content: request.message });
+
+    console.log('[RAG-ADAPTER] Sending', messages.length, 'messages to RAG');
+
+    // 3. Chamar consultor-rag com novo formato
     const { data, error } = await supabase.functions.invoke('consultor-rag', {
       body: {
-        message: request.message,
-        user_id: request.userId,
-        conversation_id: request.conversationId,
-        sessao_id: request.sessaoId,
-        form_data: request.formData,
-        action: request.action,
-        conversation_history: conversationHistory
+        sessao: {
+          id: sessao.id,
+          empresa: sessao.contexto_negocio?.empresa_nome || sessao.empresa || null,
+          setor: sessao.contexto_negocio?.segmento || sessao.setor || null,
+          estado: sessao.estado_atual || 'anamnese'
+        },
+        messages
       }
     });
 
@@ -99,55 +114,24 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
 
     const ragResponse = data as RAGResponse;
     console.log('[RAG-ADAPTER] RAG response:', {
-      sessaoId: ragResponse.sessao_id,
-      estado: ragResponse.estado_atual,
-      progresso: ragResponse.progresso,
-      actionsCount: ragResponse.actions?.length || 0
+      reply_length: ragResponse.reply?.length || 0,
+      actions_count: ragResponse.actions?.length || 0,
+      etapa: ragResponse.etapa
     });
 
-    // Transform RAG response to UI format
+    // 4. Transformar para formato UI (actions passam direto para Executor)
     const uiResponse: ConsultorResponse = {
-      text: ragResponse.response,
-      sessaoId: ragResponse.sessao_id,
-      estado: ragResponse.estado_atual,
-      progresso: ragResponse.progresso,
-      actions: ragResponse.actions || [], // Pass enforced actions directly
-      contexto_incremental: (ragResponse as any).contexto_incremental,
-      ragInfo: ragResponse.rag_info ? {
-        methodologies: ragResponse.rag_info.documentos_usados,
-        tokensUsed: ragResponse.rag_info.tokens_usados,
-        searchTime: ragResponse.rag_info.tempo_busca_ms
-      } : undefined
+      text: ragResponse.reply || 'Processando...',
+      sessaoId: ragResponse.sessao_id || request.sessaoId,
+      estado: ragResponse.etapa || 'anamnese',
+      progresso: 0, // Calculado pelo backend se necessário
+      actions: ragResponse.actions || [],
+      contexto_incremental: ragResponse.contexto_incremental
     };
-
-    // Parse actions to set UI flags
-    if (ragResponse.actions && ragResponse.actions.length > 0) {
-      for (const action of ragResponse.actions) {
-        switch (action.type) {
-          case 'coletar_info':
-            // RAG wants to collect info - could trigger form
-            if (action.params?.tipo_form) {
-              uiResponse.needsForm = true;
-              uiResponse.formType = action.params.tipo_form;
-            }
-            break;
-
-          case 'gerar_entregavel':
-            uiResponse.shouldGenerateDeliverable = true;
-            uiResponse.deliverableType = action.params?.tipo_entregavel || 'diagnostico';
-            break;
-
-          case 'aplicar_metodologia':
-            // Methodology will be applied automatically by orchestrator
-            console.log('[RAG-ADAPTER] Methodology to apply:', action.params?.metodologia);
-            break;
-        }
-      }
-    }
 
     return uiResponse;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[RAG-ADAPTER] Failed to call consultor-rag:', error);
     throw error;
   }
@@ -155,14 +139,15 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
 
 /**
  * Get or create a sessao for this conversation
+ * IMPORTANTE: Sempre retorna sessaoId (nunca null)
  */
 export async function getOrCreateSessao(
   userId: string,
   conversationId: string,
   initialMessage?: string
-): Promise<string | null> {
+): Promise<string> {
   try {
-    // Check if sessao already exists for this conversation
+    // Verificar se já existe sessão para esta conversa
     const { data: existing, error: fetchError } = await supabase
       .from('consultor_sessoes')
       .select('id')
@@ -171,17 +156,12 @@ export async function getOrCreateSessao(
       .eq('ativo', true)
       .maybeSingle();
 
-    if (fetchError) {
-      console.error('[RAG-ADAPTER] Error fetching sessao:', fetchError);
-      return null;
-    }
-
-    if (existing) {
+    if (!fetchError && existing) {
       console.log('[RAG-ADAPTER] Using existing sessao:', existing.id);
       return existing.id;
     }
 
-    // Create new sessao
+    // Criar nova sessão
     const { data: newSessao, error: createError } = await supabase
       .from('consultor_sessoes')
       .insert({
@@ -189,24 +169,23 @@ export async function getOrCreateSessao(
         conversation_id: conversationId,
         titulo_problema: initialMessage?.substring(0, 100) || 'Nova consultoria',
         contexto_negocio: {},
-        estado_atual: 'coleta',
+        estado_atual: 'anamnese',
         progresso: 0,
         ativo: true
       })
       .select('id')
       .single();
 
-    if (createError) {
-      console.error('[RAG-ADAPTER] Error creating sessao:', createError);
-      return null;
+    if (createError || !newSessao) {
+      throw new Error(`Erro ao criar sessão: ${createError?.message}`);
     }
 
     console.log('[RAG-ADAPTER] Created new sessao:', newSessao.id);
     return newSessao.id;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[RAG-ADAPTER] Exception in getOrCreateSessao:', error);
-    return null;
+    throw error;
   }
 }
 

@@ -1,16 +1,29 @@
 /**
- * RAG Action Executor
+ * EXECUTOR (Function Registry) - Camada 3 da Arquitetura
  *
- * Executes actions returned by the RAG backend (consultor-rag)
- * This is the CRITICAL missing piece that connects RAG to actual deliverables
+ * Executa ações retornadas pelo RAG backend (Estrategista + Tático)
+ * Portfólio de capacidades flexíveis que aceita parâmetros variáveis
+ *
+ * CAPACIDADES:
+ * - query_sql, analyze_dataset, compute_kpis
+ * - pareto, abc_xyz, forecast_simple, what_if
+ * - design_process_map, draft_policy
+ * - create_doc (genérico), gerar_entregavel (específico)
+ * - update_kanban, schedule_checkin
+ * - transicao_estado
  */
 
 import { supabase } from '../supabase';
 import { TemplateService } from './template-service';
 
 export interface RAGAction {
-  type: 'gerar_entregavel' | 'transicao_estado' | 'ensure_kanban' | 'coletar_info' | 'aplicar_metodologia';
-  params: Record<string, any>;
+  type: 'diagnose' | 'analyze_dataset' | 'compute_kpis' | 'what_if' |
+        'design_process_map' | 'create_doc' | 'gerar_entregavel' |
+        'update_kanban' | 'ensure_kanban' | 'schedule_checkin' |
+        'transicao_estado' | 'coletar_info' | 'aplicar_metodologia';
+  params?: Record<string, any>;
+  // Aliases para compatibilidade
+  [key: string]: any;
 }
 
 export interface ExecutionResult {
@@ -18,11 +31,13 @@ export interface ExecutionResult {
   entregavel_id?: string;
   kanban_cards_created?: number;
   estado_novo?: string;
+  evidence_id?: string;
+  kpis_computed?: string[];
   error?: string;
 }
 
 /**
- * Execute all actions returned by RAG
+ * Execute all actions returned by RAG (Função principal do Executor)
  */
 export async function executeRAGActions(
   actions: RAGAction[],
@@ -38,36 +53,57 @@ export async function executeRAGActions(
     try {
       let result: ExecutionResult;
 
-      switch (action.type) {
+      // Normalizar action: pode vir como {type, params} ou direto {type, ...outros campos}
+      const normalizedAction = {
+        type: action.type,
+        params: action.params || action
+      };
+
+      switch (normalizedAction.type) {
         case 'gerar_entregavel':
-          result = await executeGerarEntregavel(action, sessaoId, userId, contexto);
+        case 'create_doc':
+          result = await executeGerarEntregavel(normalizedAction, sessaoId, userId, contexto);
+          break;
+
+        case 'design_process_map':
+          result = await executeDesignProcess(normalizedAction, sessaoId, userId, contexto);
+          break;
+
+        case 'update_kanban':
+        case 'ensure_kanban':
+          result = await executeUpdateKanban(normalizedAction, sessaoId);
           break;
 
         case 'transicao_estado':
-          result = await executeTransicaoEstado(action, sessaoId);
+          result = await executeTransicaoEstado(normalizedAction, sessaoId);
           break;
 
-        case 'ensure_kanban':
-          result = await executeEnsureKanban(action, sessaoId, userId);
+        case 'diagnose':
+        case 'analyze_dataset':
+        case 'compute_kpis':
+        case 'what_if':
+          // Gera memo de evidência (não bloqueia fluxo)
+          result = await insertEvidenceMemo(normalizedAction, sessaoId, userId);
           break;
 
         case 'coletar_info':
         case 'aplicar_metodologia':
-          // These are informational only, no execution needed
+        case 'schedule_checkin':
+          // Informacionais: não executam nada, apenas registram
           result = { success: true };
           break;
 
         default:
-          console.warn('[RAG-EXECUTOR] Unknown action type:', action.type);
-          result = { success: false, error: `Unknown action type: ${action.type}` };
+          console.warn('[RAG-EXECUTOR] Unknown action type:', normalizedAction.type);
+          result = { success: false, error: `Unknown action type: ${normalizedAction.type}` };
       }
 
       results.push(result);
 
       if (!result.success) {
-        console.error('[RAG-EXECUTOR] Action failed:', action.type, result.error);
+        console.error('[RAG-EXECUTOR] Action failed:', normalizedAction.type, result.error);
       } else {
-        console.log('[RAG-EXECUTOR] Action succeeded:', action.type);
+        console.log('[RAG-EXECUTOR] Action succeeded:', normalizedAction.type);
       }
 
     } catch (error: any) {
@@ -80,7 +116,8 @@ export async function executeRAGActions(
 }
 
 /**
- * Generate a deliverable using TemplateService
+ * HANDLER: Gera entregável usando TemplateService
+ * Aceita: deliverableType, tipo_entregavel, docType, tipo
  */
 async function executeGerarEntregavel(
   action: RAGAction,
@@ -88,13 +125,17 @@ async function executeGerarEntregavel(
   userId: string,
   contexto: any
 ): Promise<ExecutionResult> {
-  const tipoEntregavel = action.params.deliverableType || action.params.tipo_entregavel || action.params.tipo || 'diagnostico';
+  const p = action.params || action;
+  const tipoEntregavel = p.deliverableType || p.tipo_entregavel || p.docType || p.tipo || 'diagnostico_exec';
 
   console.log('[RAG-EXECUTOR] Generating deliverable:', tipoEntregavel);
 
   try {
+    // Mescla contexto da ação com contexto geral
+    const fullContext = { ...contexto, ...(p.contexto || {}), sections: p.sections, format: p.format };
+
     // Generate content using TemplateService
-    const resultado = await TemplateService.gerar(tipoEntregavel, contexto);
+    const resultado = await TemplateService.gerar(tipoEntregavel, fullContext);
 
     if (!resultado) {
       throw new Error('TemplateService returned null');
@@ -102,9 +143,9 @@ async function executeGerarEntregavel(
 
     // Prepare data for insertion - ALWAYS use sessao_id
     const entregavelData: any = {
-      sessao_id: sessaoId, // Standardize on sessao_id
+      sessao_id: sessaoId,
       tipo: tipoEntregavel,
-      nome: resultado.nome || action.params.contexto?.tema || `${tipoEntregavel} - ${new Date().toLocaleDateString('pt-BR')}`,
+      nome: resultado.nome || p.contexto?.tema || p.tema || `${tipoEntregavel} - ${new Date().toLocaleDateString('pt-BR')}`,
       html_conteudo: resultado.html_conteudo || '',
       etapa_origem: contexto.estado_atual || 'diagnostico',
       visualizado: false
@@ -113,7 +154,6 @@ async function executeGerarEntregavel(
     // Add XML for BPMN
     if (resultado.conteudo_xml) {
       entregavelData.conteudo_xml = resultado.conteudo_xml;
-      entregavelData.bpmn_xml = resultado.conteudo_xml; // Compatibility
     }
 
     // Add Markdown if available
@@ -134,14 +174,6 @@ async function executeGerarEntregavel(
 
     console.log('[RAG-EXECUTOR] Deliverable created:', entregavel.id);
 
-    // Update sessao with generated entregavel
-    await supabase
-      .from('consultor_sessoes')
-      .update({
-        entregaveis_gerados: supabase.sql`array_append(entregaveis_gerados, ${entregavel.id}::uuid)`
-      })
-      .eq('id', sessaoId);
-
     return {
       success: true,
       entregavel_id: entregavel.id
@@ -157,13 +189,59 @@ async function executeGerarEntregavel(
 }
 
 /**
- * Transition sessao to new state
+ * HANDLER: Gera mapa de processo (BPMN ou textual)
+ */
+async function executeDesignProcess(
+  action: RAGAction,
+  sessaoId: string,
+  userId: string,
+  contexto: any
+): Promise<ExecutionResult> {
+  const p = action.params || action;
+  const style = p.style || 'as_is'; // as_is | to_be
+  const deliver = p.deliver || 'diagram'; // diagram | text
+
+  const tipo = style === 'to_be' ? 'bpmn_to_be' : 'bpmn_as_is';
+
+  console.log('[RAG-EXECUTOR] Generating process map:', tipo, deliver);
+
+  try {
+    const fullContext = { ...contexto, ...(p.contexto || {}), granularity: p.granularity };
+    const resultado = await TemplateService.gerar(tipo, fullContext);
+
+    if (!resultado) {
+      throw new Error('TemplateService returned null');
+    }
+
+    const { data, error } = await supabase.from('entregaveis_consultor').insert({
+      sessao_id: sessaoId,
+      tipo: tipo,
+      nome: resultado?.nome || `Processo ${style.toUpperCase()}`,
+      conteudo_xml: resultado?.conteudo_xml || null,
+      conteudo_md: resultado?.conteudo_md || null,
+      html_conteudo: resultado?.html_conteudo || '',
+      created_by: userId
+    } as any).select('id').single();
+
+    if (error) throw error;
+
+    return { success: true, entregavel_id: data.id };
+  } catch (error: any) {
+    console.error('[RAG-EXECUTOR] design_process_map error', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * HANDLER: Transição de estado
+ * Aceita: to, novo_estado, estado
  */
 async function executeTransicaoEstado(
   action: RAGAction,
   sessaoId: string
 ): Promise<ExecutionResult> {
-  const novoEstado = action.params.novo_estado || action.params.to;
+  const p = action.params || action;
+  const novoEstado = p.to || p.novo_estado || p.estado;
 
   if (!novoEstado) {
     return { success: false, error: 'No target state provided' };
@@ -199,17 +277,18 @@ async function executeTransicaoEstado(
 }
 
 /**
- * Create Kanban cards from action plan
+ * HANDLER: Cria cards no Kanban
+ * Aceita: plano.cards, cards
  */
-async function executeEnsureKanban(
+async function executeUpdateKanban(
   action: RAGAction,
-  sessaoId: string,
-  userId: string
+  sessaoId: string
 ): Promise<ExecutionResult> {
-  const plano = action.params.plano;
+  const p = action.params || action;
+  const plano = p.plano || p;
 
   // Handle runtime sessaoId
-  const targetSessaoId = action.params.sessaoId === 'RUNTIME' ? sessaoId : (action.params.sessaoId || sessaoId);
+  const targetSessaoId = p.sessaoId === 'RUNTIME' ? sessaoId : (p.sessaoId || sessaoId);
 
   if (!plano || !plano.cards || plano.cards.length === 0) {
     console.log('[RAG-EXECUTOR] No cards in plan, skipping Kanban creation');
@@ -219,27 +298,17 @@ async function executeEnsureKanban(
   console.log('[RAG-EXECUTOR] Creating', plano.cards.length, 'Kanban cards');
 
   try {
-    // Prepare cards for insertion - ALWAYS use sessao_id
+    // Preparar cards para inserção - aceita múltiplos formatos
     const cardsToInsert = plano.cards.map((card: any, index: number) => ({
-      sessao_id: targetSessaoId, // Standardize on sessao_id
-      titulo: card.title || card.What || card.o_que || 'Ação',
-      descricao: card.description || card.Why || card.por_que || '',
-      responsavel: card.assignee || card.Who || card.quem || 'Responsável',
-      prazo: card.due || card.When || card.quando || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      status: 'todo' as const,
-      ordem: index,
-      dados_5w2h: {
-        o_que: card.What || card.o_que || card.title,
-        por_que: card.Why || card.por_que || card.description,
-        quem: card.Who || card.quem || card.assignee,
-        quando: card.When || card.quando || card.due,
-        onde: card.Where || card.onde || '',
-        como: card.How || card.como || '',
-        quanto: card.HowMuch || card.quanto || ''
-      }
+      sessao_id: targetSessaoId,
+      titulo: card.title || card.titulo || card.What || card.o_que || 'Ação',
+      descricao: card.description || card.descricao || card.Why || card.por_que || '',
+      responsavel: card.assignee || card.responsavel || card.Who || card.quem || card.owner || 'Time',
+      due_at: card.due || card.due_at || card.When || card.quando || null,
+      status: 'a_fazer' as const
     }));
 
-    // Check if cards already exist for this sessao
+    // Verificar se já existem cards para esta sessao
     const { data: existing } = await supabase
       .from('kanban_cards')
       .select('id')
@@ -247,7 +316,7 @@ async function executeEnsureKanban(
       .limit(1);
 
     if (existing && existing.length > 0) {
-      console.log('[RAG-EXECUTOR] Kanban cards already exist for this sessao');
+      console.log('[RAG-EXECUTOR] Cards já existem, pulando');
       return { success: true, kanban_cards_created: 0 };
     }
 
@@ -278,7 +347,37 @@ async function executeEnsureKanban(
 }
 
 /**
- * Update sessao context with form data (called externally)
+ * HANDLER: Insere memo de evidência (para ações de análise)
+ * Usado para: diagnose, analyze_dataset, compute_kpis, what_if
+ */
+async function insertEvidenceMemo(
+  action: RAGAction,
+  sessaoId: string,
+  userId: string
+): Promise<ExecutionResult> {
+  const pretty = '```json\n' + JSON.stringify(action, null, 2) + '\n```';
+
+  try {
+    const { data, error } = await supabase.from('entregaveis_consultor').insert({
+      sessao_id: sessaoId,
+      tipo: 'evidencia_memo',
+      nome: `Evidência: ${action.type}`,
+      conteudo_md: pretty,
+      html_conteudo: `<pre>${pretty}</pre>`,
+      created_by: userId
+    } as any).select('id').single();
+
+    if (error) throw error;
+
+    return { success: true, evidence_id: data.id };
+  } catch (error: any) {
+    console.error('[RAG-EXECUTOR] evidence memo error', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * UTIL: Atualiza contexto da sessão com dados de formulário
  */
 export async function updateSessaoContext(
   sessaoId: string,
