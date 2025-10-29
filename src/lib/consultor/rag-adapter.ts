@@ -190,48 +190,5 @@ export async function getOrCreateSessao(
   }
 }
 
-/**
- * Update sessao context with form data
- */
-export async function updateSessaoContext(
-  sessaoId: string,
-  formData: Record<string, any>
-): Promise<boolean> {
-  try {
-    // Get current context
-    const { data: sessao, error: fetchError } = await supabase
-      .from('consultor_sessoes')
-      .select('contexto_negocio')
-      .eq('id', sessaoId)
-      .single();
-
-    if (fetchError) {
-      console.error('[RAG-ADAPTER] Error fetching sessao context:', fetchError);
-      return false;
-    }
-
-    // Merge with new form data
-    const updatedContext = {
-      ...(sessao.contexto_negocio || {}),
-      ...formData
-    };
-
-    // Update sessao
-    const { error: updateError } = await supabase
-      .from('consultor_sessoes')
-      .update({ contexto_negocio: updatedContext })
-      .eq('id', sessaoId);
-
-    if (updateError) {
-      console.error('[RAG-ADAPTER] Error updating sessao context:', updateError);
-      return false;
-    }
-
-    console.log('[RAG-ADAPTER] Updated sessao context');
-    return true;
-
-  } catch (error) {
-    console.error('[RAG-ADAPTER] Exception in updateSessaoContext:', error);
-    return false;
-  }
-}
+// Re-export secure session client
+export { updateSessaoContext } from './session-client';

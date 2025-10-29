@@ -244,36 +244,101 @@ Vamos atacar duas frentes em paralelo:
   }
 
   /**
-   * TÁTICO: Parse actions from LLM response
+   * TÁTICO: Parse actions from LLM response with multiple fallbacks
    */
   parseActionsBlock(textoLLM: string): { actions: any[], contexto_incremental: any } {
-    let idx = textoLLM.indexOf('\n---');
+    console.log('[ORCH] Parsing actions from LLM response...');
 
-    if (idx === -1) {
-      const jsonMatch = textoLLM.match(/\{[\s\S]*"actions"[\s\S]*\}$/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          return {
-            actions: Array.isArray(parsed?.actions) ? parsed.actions : [],
-            contexto_incremental: parsed?.contexto_incremental || {}
-          };
-        } catch {
-          return { actions: [], contexto_incremental: {} };
-        }
-      }
-      return { actions: [], contexto_incremental: {} };
+    // TENTATIVA 1: Parsing com delimitador ---
+    let idx = textoLLM.indexOf('\n---');
+    if (idx !== -1) {
+      const jsonStr = textoLLM.slice(idx + 4).trim();
+      const result = this.tryParseJSON(jsonStr, 'delimiter');
+      if (result) return result;
     }
 
-    const jsonStr = textoLLM.slice(idx + 4).trim();
+    // TENTATIVA 2: Buscar bloco JSON com delimitadores claros
+    const delimitedMatch = textoLLM.match(/\[PARTE B.*?\]\s*(\{[\s\S]*?\})\s*(?:\[|$)/i);
+    if (delimitedMatch) {
+      const result = this.tryParseJSON(delimitedMatch[1], 'delimited-block');
+      if (result) return result;
+    }
+
+    // TENTATIVA 3: Regex para encontrar JSON com "actions"
+    const jsonMatch = textoLLM.match(/\{[\s\S]*?"actions"[\s\S]*?\}/);
+    if (jsonMatch) {
+      const result = this.tryParseJSON(jsonMatch[0], 'regex-match');
+      if (result) return result;
+    }
+
+    // TENTATIVA 4: Buscar ultimo bloco JSON valido no texto
+    const allBraces = [...textoLLM.matchAll(/\{/g)];
+    for (let i = allBraces.length - 1; i >= 0; i--) {
+      const startIdx = allBraces[i].index!;
+      const substring = textoLLM.slice(startIdx);
+      const result = this.tryParseJSON(substring, 'last-json-block');
+      if (result) return result;
+    }
+
+    // TENTATIVA 5: Extrair apenas array de actions se existir
+    const actionsMatch = textoLLM.match(/"actions"\s*:\s*(\[[\s\S]*?\])/);
+    if (actionsMatch) {
+      try {
+        const actions = JSON.parse(actionsMatch[1]);
+        if (Array.isArray(actions)) {
+          console.log('[ORCH] Extracted actions array directly');
+          return { actions, contexto_incremental: {} };
+        }
+      } catch (e) {
+        console.warn('[ORCH] Failed to parse actions array:', e);
+      }
+    }
+
+    console.warn('[ORCH] All parsing attempts failed');
+    return { actions: [], contexto_incremental: {} };
+  }
+
+  /**
+   * Tenta parsear JSON e valida estrutura
+   */
+  private tryParseJSON(jsonStr: string, source: string): { actions: any[], contexto_incremental: any } | null {
     try {
-      const parsed = JSON.parse(jsonStr);
+      let cleaned = jsonStr.trim();
+
+      // Remover trailing comma antes de } ou ]
+      cleaned = cleaned.replace(/,(\s*[\}\]])/g, '$1');
+
+      const parsed = JSON.parse(cleaned);
+
+      if (!parsed || typeof parsed !== 'object') {
+        console.warn(`[ORCH] Invalid structure from ${source}`);
+        return null;
+      }
+
+      let actions = parsed.actions;
+      if (!Array.isArray(actions)) {
+        console.warn(`[ORCH] No actions array from ${source}`);
+        return null;
+      }
+
+      // Validar cada action tem campo type
+      actions = actions.filter(a => a && typeof a === 'object' && a.type);
+
+      if (actions.length === 0) {
+        console.warn(`[ORCH] No valid actions from ${source}`);
+        return null;
+      }
+
+      console.log(`[ORCH] Successfully parsed ${actions.length} actions from ${source}`);
+
       return {
-        actions: Array.isArray(parsed?.actions) ? parsed.actions : [],
-        contexto_incremental: parsed?.contexto_incremental || {}
+        actions,
+        contexto_incremental: parsed.contexto_incremental || {}
       };
-    } catch {
-      return { actions: [], contexto_incremental: {} };
+
+    } catch (e: any) {
+      console.warn(`[ORCH] JSON parse failed for ${source}:`, e.message);
+      return null;
     }
   }
 

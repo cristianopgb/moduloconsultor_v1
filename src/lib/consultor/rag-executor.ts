@@ -16,6 +16,109 @@
 import { supabase } from '../supabase';
 import { TemplateService } from './template-service';
 
+/**
+ * Gera hash deterministico do plano baseado em conteudo
+ * Ignora: timestamps, IDs, responsaveis (campos volateis)
+ * Usa: tipo + area + titulos ordenados alfabeticamente
+ */
+function generatePlanHash(plano: any, sessaoId: string): string {
+  const cards = plano.cards || [];
+
+  const titulos = cards
+    .map((c: any) => (c.title || c.titulo || c.What || c.o_que || '').trim().toLowerCase())
+    .filter(Boolean)
+    .sort();
+
+  const hashInput = JSON.stringify({
+    tipo: plano.tipo || 'geral',
+    area: plano.area || 'todas',
+    sessao_id: sessaoId,
+    titulos: titulos
+  });
+
+  // Simple hash function (for browser compatibility)
+  let hash = 0;
+  for (let i = 0; i < hashInput.length; i++) {
+    const char = hashInput.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+interface CardDiff {
+  added: any[];
+  modified: any[];
+  removed: any[];
+  unchanged: any[];
+}
+
+/**
+ * Detecta diferencas entre plano existente e novo plano
+ */
+function detectPlanDiff(existingCards: any[], newCards: any[]): CardDiff {
+  const diff: CardDiff = {
+    added: [],
+    modified: [],
+    removed: [],
+    unchanged: []
+  };
+
+  const normalize = (card: any) => {
+    const titulo = (card.title || card.titulo || card.What || card.o_que || '').trim().toLowerCase();
+    const descricao = (card.description || card.descricao || card.Why || card.por_que || '').trim().toLowerCase();
+    return { titulo, descricao, original: card };
+  };
+
+  const existingNormalized = existingCards.filter(c => !c.deprecated).map(normalize);
+  const newNormalized = newCards.map(normalize);
+
+  for (const newCard of newNormalized) {
+    const existingMatch = existingNormalized.find(e => e.titulo === newCard.titulo);
+
+    if (!existingMatch) {
+      diff.added.push(newCard.original);
+    } else if (existingMatch.descricao !== newCard.descricao) {
+      diff.modified.push({
+        id: existingMatch.original.id,
+        newDescription: newCard.original.description || newCard.original.descricao,
+        oldDescription: existingMatch.descricao
+      });
+    } else {
+      diff.unchanged.push(existingMatch.original);
+    }
+  }
+
+  for (const existing of existingNormalized) {
+    const newMatch = newNormalized.find(n => n.titulo === existing.titulo);
+    if (!newMatch) {
+      diff.removed.push(existing.original);
+    }
+  }
+
+  return diff;
+}
+
+/**
+ * Busca cards existentes por hash e sessao
+ */
+async function getCardsByHash(sessaoId: string, hash: string): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('kanban_cards')
+    .select('*')
+    .eq('sessao_id', sessaoId)
+    .eq('plano_hash', hash)
+    .eq('deprecated', false)
+    .order('plano_version', { ascending: false });
+
+  if (error) {
+    console.error('[RAG-EXECUTOR] Erro ao buscar cards por hash:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
 export interface RAGAction {
   type: 'diagnose' | 'analyze_dataset' | 'compute_kpis' | 'what_if' |
         'design_process_map' | 'create_doc' | 'gerar_entregavel' |
@@ -277,8 +380,10 @@ async function executeTransicaoEstado(
 }
 
 /**
- * HANDLER: Cria cards no Kanban
- * Aceita: plano.cards, cards
+ * HANDLER: Cria ou atualiza cards no Kanban com versionamento inteligente
+ * - Hash baseado em conteudo
+ * - Merge incremental: adiciona novos cards sem perder antigos
+ * - Preserva progresso de cards existentes
  */
 async function executeUpdateKanban(
   action: RAGAction,
@@ -287,7 +392,6 @@ async function executeUpdateKanban(
   const p = action.params || action;
   const plano = p.plano || p;
 
-  // Handle runtime sessaoId
   const targetSessaoId = p.sessaoId === 'RUNTIME' ? sessaoId : (p.sessaoId || sessaoId);
 
   if (!plano || !plano.cards || plano.cards.length === 0) {
@@ -295,53 +399,132 @@ async function executeUpdateKanban(
     return { success: true, kanban_cards_created: 0 };
   }
 
-  console.log('[RAG-EXECUTOR] Creating', plano.cards.length, 'Kanban cards');
+  console.log('[RAG-EXECUTOR] Processing', plano.cards.length, 'Kanban cards');
 
   try {
-    // Preparar cards para inserção - aceita múltiplos formatos
-    const cardsToInsert = plano.cards.map((card: any, index: number) => ({
-      sessao_id: targetSessaoId,
-      titulo: card.title || card.titulo || card.What || card.o_que || 'Ação',
-      descricao: card.description || card.descricao || card.Why || card.por_que || '',
-      responsavel: card.assignee || card.responsavel || card.Who || card.quem || card.owner || 'Time',
-      due_at: card.due || card.due_at || card.When || card.quando || null,
-      status: 'a_fazer' as const
-    }));
+    const hash = generatePlanHash(plano, targetSessaoId);
+    console.log('[RAG-EXECUTOR] Plan hash:', hash);
 
-    // Verificar se já existem cards para esta sessao
-    const { data: existing } = await supabase
-      .from('kanban_cards')
-      .select('id')
-      .eq('sessao_id', targetSessaoId)
-      .limit(1);
+    const existingCards = await getCardsByHash(targetSessaoId, hash);
 
-    if (existing && existing.length > 0) {
-      console.log('[RAG-EXECUTOR] Cards já existem, pulando');
-      return { success: true, kanban_cards_created: 0 };
+    if (existingCards.length === 0) {
+      console.log('[RAG-EXECUTOR] First version of plan, inserting all cards');
+
+      const cardsToInsert = plano.cards.map((card: any) => ({
+        sessao_id: targetSessaoId,
+        titulo: card.title || card.titulo || card.What || card.o_que || 'Ação',
+        descricao: card.description || card.descricao || card.Why || card.por_que || '',
+        responsavel: card.assignee || card.responsavel || card.Who || card.quem || card.owner || 'Time',
+        due_at: card.due || card.due_at || card.When || card.quando || null,
+        status: 'a_fazer' as const,
+        plano_hash: hash,
+        plano_version: 1,
+        card_source: 'original',
+        deprecated: false
+      }));
+
+      const { data, error } = await supabase
+        .from('kanban_cards')
+        .insert(cardsToInsert)
+        .select('id');
+
+      if (error) throw error;
+
+      console.log('[RAG-EXECUTOR] Created', data.length, 'cards (v1)');
+      return {
+        success: true,
+        kanban_cards_created: data.length
+      };
     }
 
-    // Insert cards
-    const { data, error } = await supabase
-      .from('kanban_cards')
-      .insert(cardsToInsert)
-      .select('id');
+    console.log('[RAG-EXECUTOR] Plan exists with', existingCards.length, 'cards, doing incremental merge');
 
-    if (error) {
-      throw error;
+    const diff = detectPlanDiff(existingCards, plano.cards);
+    const nextVersion = Math.max(...existingCards.map((c: any) => c.plano_version || 1)) + 1;
+
+    console.log('[RAG-EXECUTOR] Diff:', {
+      added: diff.added.length,
+      modified: diff.modified.length,
+      removed: diff.removed.length,
+      unchanged: diff.unchanged.length
+    });
+
+    let totalOperations = 0;
+
+    if (diff.added.length > 0) {
+      const newCards = diff.added.map((card: any) => ({
+        sessao_id: targetSessaoId,
+        titulo: card.title || card.titulo || card.What || card.o_que || 'Ação',
+        descricao: card.description || card.descricao || card.Why || card.por_que || '',
+        responsavel: card.assignee || card.responsavel || card.Who || card.quem || card.owner || 'Time',
+        due_at: card.due || card.due_at || card.When || card.quando || null,
+        status: 'a_fazer' as const,
+        plano_hash: hash,
+        plano_version: nextVersion,
+        card_source: 'incremental',
+        deprecated: false
+      }));
+
+      const { data, error } = await supabase
+        .from('kanban_cards')
+        .insert(newCards)
+        .select('id');
+
+      if (error) throw error;
+
+      totalOperations += data.length;
+      console.log('[RAG-EXECUTOR] Added', data.length, 'new cards (v' + nextVersion + ')');
     }
 
-    console.log('[RAG-EXECUTOR] Created', data.length, 'Kanban cards');
+    if (diff.modified.length > 0) {
+      for (const modified of diff.modified) {
+        const { error } = await supabase
+          .from('kanban_cards')
+          .update({
+            descricao: modified.newDescription,
+            plano_version: nextVersion
+          })
+          .eq('id', modified.id);
+
+        if (error) {
+          console.error('[RAG-EXECUTOR] Erro ao atualizar card:', error);
+        } else {
+          totalOperations++;
+        }
+      }
+
+      console.log('[RAG-EXECUTOR] Updated', diff.modified.length, 'modified cards');
+    }
+
+    if (diff.removed.length > 0) {
+      const removedIds = diff.removed.map((c: any) => c.id);
+
+      const { error } = await supabase
+        .from('kanban_cards')
+        .update({
+          deprecated: true,
+          deprecated_version: nextVersion
+        })
+        .in('id', removedIds);
+
+      if (error) {
+        console.error('[RAG-EXECUTOR] Erro ao deprecar cards:', error);
+      } else {
+        totalOperations += diff.removed.length;
+        console.log('[RAG-EXECUTOR] Deprecated', diff.removed.length, 'removed cards');
+      }
+    }
 
     return {
       success: true,
-      kanban_cards_created: data.length
+      kanban_cards_created: totalOperations
     };
 
   } catch (error: any) {
-    console.error('[RAG-EXECUTOR] Failed to create Kanban cards:', error);
+    console.error('[RAG-EXECUTOR] Failed to update Kanban:', error);
     return {
       success: false,
-      error: `Failed to create Kanban cards: ${error.message}`
+      error: `Failed to update Kanban: ${error.message}`
     };
   }
 }
@@ -376,48 +559,5 @@ async function insertEvidenceMemo(
   }
 }
 
-/**
- * UTIL: Atualiza contexto da sessão com dados de formulário
- */
-export async function updateSessaoContext(
-  sessaoId: string,
-  formData: Record<string, any>
-): Promise<boolean> {
-  try {
-    // Get current context
-    const { data: sessao, error: fetchError } = await supabase
-      .from('consultor_sessoes')
-      .select('contexto_negocio')
-      .eq('id', sessaoId)
-      .single();
-
-    if (fetchError) {
-      console.error('[RAG-EXECUTOR] Error fetching sessao:', fetchError);
-      return false;
-    }
-
-    // Merge with new form data
-    const updatedContext = {
-      ...(sessao.contexto_negocio || {}),
-      ...formData
-    };
-
-    // Update sessao
-    const { error: updateError } = await supabase
-      .from('consultor_sessoes')
-      .update({ contexto_negocio: updatedContext })
-      .eq('id', sessaoId);
-
-    if (updateError) {
-      console.error('[RAG-EXECUTOR] Error updating sessao:', updateError);
-      return false;
-    }
-
-    console.log('[RAG-EXECUTOR] Updated sessao context with form data');
-    return true;
-
-  } catch (error) {
-    console.error('[RAG-EXECUTOR] Exception updating sessao context:', error);
-    return false;
-  }
-}
+// Re-export secure session client
+export { updateSessaoContext } from './session-client';
