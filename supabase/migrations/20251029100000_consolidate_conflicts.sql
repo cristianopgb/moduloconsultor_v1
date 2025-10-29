@@ -72,13 +72,15 @@ BEGIN
     RAISE NOTICE 'Added due_at column to replace prazo';
   END IF;
 
-  -- PASSO 2: Limpar cards órfãos antes de remover FK
-  DELETE FROM kanban_cards
-  WHERE jornada_id IS NOT NULL
-    AND NOT EXISTS (
-      SELECT 1 FROM jornadas_consultor WHERE id = kanban_cards.jornada_id
-    );
-  RAISE NOTICE 'Cleaned orphan cards with invalid jornada_id';
+  -- PASSO 2: Limpar todos os cards do sistema antigo
+  -- jornadas_consultor já foi removida (PART 1), então deletamos todos cards antigos
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'jornada_id'
+  ) THEN
+    DELETE FROM kanban_cards WHERE jornada_id IS NOT NULL;
+    RAISE NOTICE 'Cleaned all cards from old system (jornada_id based)';
+  END IF;
 
   -- PASSO 3: Remover colunas do sistema antigo
   IF EXISTS (
