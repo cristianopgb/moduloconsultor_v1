@@ -51,29 +51,26 @@ async function getJornadaId(sessaoId: string): Promise<string> {
  * Ignora: timestamps, IDs, responsaveis (campos volateis)
  * Usa: tipo + area + titulos ordenados alfabeticamente
  */
-function generatePlanHash(plano: any, sessaoId: string): string {
-  const cards = plano.cards || [];
-
-  const titulos = cards
-    .map((c: any) => (c.title || c.titulo || c.What || c.o_que || '').trim().toLowerCase())
+function generatePlanHash(plan: {
+  area?: string;
+  tipo?: string;
+  cards: Array<{ titulo?: string; title?: string; What?: string; o_que?: string; descricao?: string; description?: string }>
+}): string {
+  const tipo = (plan.tipo || '').toLowerCase().trim();
+  const area = (plan.area || '').toLowerCase().trim();
+  const titles = (plan.cards || [])
+    .map(c => (c.titulo || c.title || c.What || c.o_que || '').toLowerCase().trim())
     .filter(Boolean)
-    .sort();
+    .sort()
+    .join('|');
 
-  const hashInput = JSON.stringify({
-    tipo: plano.tipo || 'geral',
-    area: plano.area || 'todas',
-    sessao_id: sessaoId,
-    titulos: titulos
-  });
-
-  // Simple hash function (for browser compatibility)
-  let hash = 0;
-  for (let i = 0; i < hashInput.length; i++) {
-    const char = hashInput.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+  // DJB2 hash algorithm (simple and fast)
+  const base = `${tipo}::${area}::${titles}`;
+  let hash = 5381;
+  for (let i = 0; i < base.length; i++) {
+    hash = ((hash << 5) + hash) + base.charCodeAt(i);
   }
-  return Math.abs(hash).toString(36);
+  return `h${(hash >>> 0).toString(16)}`;
 }
 
 interface CardDiff {
@@ -130,23 +127,88 @@ function detectPlanDiff(existingCards: any[], newCards: any[]): CardDiff {
 }
 
 /**
- * Busca cards existentes por hash e sessao
+ * Upsert inteligente de plano Kanban por hash
+ * Garante coluna plano_hash e faz merge incremental
  */
-async function getCardsByHash(sessaoId: string, hash: string): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('kanban_cards')
-    .select('*')
-    .eq('sessao_id', sessaoId)
-    .eq('plano_hash', hash)
-    .eq('deprecated', false)
-    .order('plano_version', { ascending: false });
+async function upsertKanbanPlan(
+  sessaoId: string,
+  plan: { area?: string; tipo?: string; cards: Array<{ titulo?: string; title?: string; descricao?: string; description?: string }> }
+): Promise<{ created: number; updated: number; plano_hash: string }> {
+  const plano_hash = generatePlanHash(plan);
 
-  if (error) {
-    console.error('[RAG-EXECUTOR] Erro ao buscar cards por hash:', error);
-    return [];
+  // Garante coluna plano_hash (idempotente: ignora erro se já existir)
+  try {
+    await supabase.rpc('exec_sql_json', {
+      sql: `
+        do $$
+        begin
+          if not exists (
+            select 1 from information_schema.columns
+            where table_schema='public' and table_name='kanban_cards' and column_name='plano_hash'
+          ) then
+            alter table public.kanban_cards add column plano_hash text;
+            create index if not exists idx_kanban_cards_hash on public.kanban_cards(plano_hash);
+          end if;
+        end $$;
+      `
+    });
+  } catch (e) {
+    console.warn('[RAG-EXECUTOR] Could not ensure plano_hash column (may already exist):', e);
   }
 
-  return data || [];
+  // Verifica se já existe plano com esse hash
+  const { data: existing } = await supabase
+    .from('kanban_cards')
+    .select('id, titulo, title, status, plano_hash')
+    .eq('sessao_id', sessaoId)
+    .eq('plano_hash', plano_hash)
+    .limit(1);
+
+  let created = 0;
+  let updated = 0;
+
+  if (existing && existing.length > 0) {
+    // Atualiza/mescla (upsert por título dentro do mesmo plano_hash)
+    for (const card of plan.cards) {
+      const titulo = card.titulo || card.title || '';
+      const descricao = card.descricao || card.description || null;
+
+      const { error: upsertErr } = await supabase.from('kanban_cards').upsert(
+        {
+          sessao_id: sessaoId,
+          titulo: titulo,
+          descricao: descricao,
+          plano_hash,
+          status: 'a_fazer'
+        },
+        { onConflict: 'sessao_id,titulo' }
+      );
+
+      if (!upsertErr) {
+        updated++;
+      }
+    }
+    return { created: 0, updated, plano_hash };
+  } else {
+    // Insere novos
+    for (const card of plan.cards) {
+      const titulo = card.titulo || card.title || '';
+      const descricao = card.descricao || card.description || null;
+
+      const { error: insertErr } = await supabase.from('kanban_cards').insert({
+        sessao_id: sessaoId,
+        titulo: titulo,
+        descricao: descricao,
+        status: 'a_fazer',
+        plano_hash
+      });
+
+      if (!insertErr) {
+        created++;
+      }
+    }
+    return { created, updated: 0, plano_hash };
+  }
 }
 
 export interface RAGAction {

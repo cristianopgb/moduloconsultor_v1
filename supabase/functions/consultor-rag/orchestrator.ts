@@ -19,6 +19,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
 import { BACKEND_STATES } from '../_shared/state-mapping.ts';
+import { SYSTEM_PROMPT } from './prompt.ts';
+import { getLLM } from '../_shared/llm-config.ts';
 
 export interface SessaoConsultor {
   id: string;
@@ -246,6 +248,105 @@ Vamos atacar duas frentes em paralelo:
   /**
    * TÁTICO: Parse actions from LLM response with multiple fallbacks
    */
+  /**
+   * Parser robusto: busca [PARTE B] delimitado
+   */
+  parseActionsBlockRobust(text: string): { actions: any[]; etapa?: string; contexto_incremental?: any; next_step?: string } {
+    // Tenta delimitadores claros
+    const start = text.indexOf('[PARTE B - INICIO]');
+    const end = text.indexOf('[PARTE B - FIM]');
+    let candidate = '';
+
+    if (start !== -1 && end !== -1 && end > start) {
+      candidate = text.substring(start + '[PARTE B - INICIO]'.length, end);
+    } else {
+      // Fallback: maior bloco JSON com "actions"
+      const jsonLike = text.match(/\{[\s\S]*?"actions"[\s\S]*?\}/g);
+      candidate = jsonLike ? jsonLike.sort((a, b) => b.length - a.length)[0] : '';
+    }
+
+    if (!candidate) {
+      console.warn('[ORCH] No [PARTE B] block found');
+      return { actions: [] };
+    }
+
+    // Remove ruídos comuns
+    const cleaned = candidate
+      .replace(/\[PARTE B - INICIO\]/g, '')
+      .replace(/\[PARTE B - FIM\]/g, '')
+      .replace(/```json|```/g, '')
+      .trim();
+
+    try {
+      const obj = JSON.parse(cleaned);
+      if (!Array.isArray(obj.actions)) {
+        console.warn('[ORCH] No actions array in parsed JSON');
+        return { actions: [] };
+      }
+
+      // Validar actions
+      const validActions = obj.actions.filter((a: any) => a && typeof a === 'object' && a.type);
+
+      return {
+        actions: validActions,
+        etapa: obj.etapa,
+        contexto_incremental: obj.contexto_incremental,
+        next_step: obj.next_step
+      };
+    } catch (e) {
+      console.error('[ORCH] JSON parse fail:', e);
+      return { actions: [] };
+    }
+  }
+
+  /**
+   * Guard anti-opinião
+   */
+  private enforceNoOpinionStyle(parteA: string): void {
+    const banned = [
+      "o que você prefere",
+      "qual opção você quer",
+      "qual sua sugestão",
+      "o que você acha",
+      "deveríamos",
+      "prefere que eu"
+    ];
+    const lower = parteA.toLowerCase();
+    if (banned.some(b => lower.includes(b))) {
+      throw new Error("Modelo desviou para opinião/sugestão. Reforçar sistema.");
+    }
+  }
+
+  /**
+   * Validação de saída
+   */
+  private validateModelOutput(parsed: any): void {
+    const etapas = ["coleta", "analise", "diagnostico", "recomendacao", "execucao", "concluido"];
+    const actionTypes = [
+      "transicao_estado", "criar_entregavel", "atualizar_kanban",
+      "analyze_dataset", "compute_kpis", "design_process_map"
+    ];
+    const nextSteps = ["confirmacao", "acao", "pergunta"];
+
+    if (!parsed || typeof parsed !== "object") throw new Error("Invalid JSON [PARTE B].");
+    if (parsed.etapa && !etapas.includes(parsed.etapa)) throw new Error("Invalid etapa.");
+    if (!Array.isArray(parsed.actions)) throw new Error("actions must be array.");
+
+    for (const a of parsed.actions) {
+      if (!a?.type) throw new Error("action missing type.");
+      if (!actionTypes.includes(a.type)) {
+        console.warn(`[ORCH] Unknown action type: ${a.type} (allowing)`);
+      }
+      if (a.payload !== undefined && typeof a.payload !== "object") {
+        throw new Error("action.payload must be object.");
+      }
+    }
+
+    if (parsed.next_step && !nextSteps.includes(parsed.next_step)) {
+      throw new Error("Invalid next_step.");
+    }
+  }
+
   parseActionsBlock(textoLLM: string): { actions: any[], contexto_incremental: any } {
     console.log('[ORCH] Parsing actions from LLM response...');
 
