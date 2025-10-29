@@ -17,6 +17,36 @@ import { supabase } from '../supabase';
 import { TemplateService } from './template-service';
 
 /**
+ * Cache simples para jornada_id por sessão
+ */
+const _jornadaBySessao: Record<string, string> = {};
+
+/**
+ * Obtém jornada_id a partir de consultor_sessoes (fonte de verdade)
+ * Exige jornada_id não-nulo pois o schema de entregáveis é NOT NULL
+ */
+async function getJornadaId(sessaoId: string): Promise<string> {
+  if (_jornadaBySessao[sessaoId]) return _jornadaBySessao[sessaoId];
+
+  const { data, error } = await supabase
+    .from('consultor_sessoes')
+    .select('jornada_id')
+    .eq('id', sessaoId)
+    .single();
+
+  if (error) {
+    console.error('[RAG-EXECUTOR] Falha ao obter jornada_id da sessão:', error);
+    throw new Error('Não foi possível obter jornada_id da sessão.');
+  }
+  if (!data?.jornada_id) {
+    throw new Error('Sessão sem jornada vinculada (jornada_id null).');
+  }
+
+  _jornadaBySessao[sessaoId] = data.jornada_id;
+  return data.jornada_id;
+}
+
+/**
  * Gera hash deterministico do plano baseado em conteudo
  * Ignora: timestamps, IDs, responsaveis (campos volateis)
  * Usa: tipo + area + titulos ordenados alfabeticamente
@@ -239,14 +269,15 @@ async function executeGerarEntregavel(
 
     // Generate content using TemplateService
     const resultado = await TemplateService.gerar(tipoEntregavel, fullContext);
+    if (!resultado) throw new Error('TemplateService returned null');
 
-    if (!resultado) {
-      throw new Error('TemplateService returned null');
-    }
+    // Jornada obrigatória
+    const jornadaId = await getJornadaId(sessaoId);
 
-    // Prepare data for insertion - ALWAYS use sessao_id
+    // Prepare data for insertion - ALWAYS use sessao_id + jornada_id
     const entregavelData: any = {
       sessao_id: sessaoId,
+      jornada_id: jornadaId,
       tipo: tipoEntregavel,
       nome: resultado.nome || p.contexto?.tema || p.tema || `${tipoEntregavel} - ${new Date().toLocaleDateString('pt-BR')}`,
       html_conteudo: resultado.html_conteudo || '',
@@ -254,40 +285,23 @@ async function executeGerarEntregavel(
       visualizado: false
     };
 
-    // Add XML for BPMN
-    if (resultado.conteudo_xml) {
-      entregavelData.conteudo_xml = resultado.conteudo_xml;
-    }
+    if (resultado.conteudo_xml) entregavelData.conteudo_xml = resultado.conteudo_xml;
+    if (resultado.conteudo_md)  entregavelData.conteudo_md  = resultado.conteudo_md;
 
-    // Add Markdown if available
-    if (resultado.conteudo_md) {
-      entregavelData.conteudo_md = resultado.conteudo_md;
-    }
-
-    // Insert into database
     const { data: entregavel, error } = await supabase
       .from('entregaveis_consultor')
       .insert(entregavelData)
       .select('id')
       .single();
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     console.log('[RAG-EXECUTOR] Deliverable created:', entregavel.id);
-
-    return {
-      success: true,
-      entregavel_id: entregavel.id
-    };
+    return { success: true, entregavel_id: entregavel.id };
 
   } catch (error: any) {
     console.error('[RAG-EXECUTOR] Failed to generate deliverable:', error);
-    return {
-      success: false,
-      error: `Failed to generate ${tipoEntregavel}: ${error.message}`
-    };
+    return { success: false, error: `Failed to generate ${tipoEntregavel}: ${error.message}` };
   }
 }
 
@@ -303,7 +317,6 @@ async function executeDesignProcess(
   const p = action.params || action;
   const style = p.style || 'as_is'; // as_is | to_be
   const deliver = p.deliver || 'diagram'; // diagram | text
-
   const tipo = style === 'to_be' ? 'bpmn_to_be' : 'bpmn_as_is';
 
   console.log('[RAG-EXECUTOR] Generating process map:', tipo, deliver);
@@ -311,16 +324,16 @@ async function executeDesignProcess(
   try {
     const fullContext = { ...contexto, ...(p.contexto || {}), granularity: p.granularity };
     const resultado = await TemplateService.gerar(tipo, fullContext);
+    if (!resultado) throw new Error('TemplateService returned null');
 
-    if (!resultado) {
-      throw new Error('TemplateService returned null');
-    }
+    const jornadaId = await getJornadaId(sessaoId);
 
     const { data, error } = await supabase
       .from('entregaveis_consultor')
       .insert({
         sessao_id: sessaoId,
-        tipo: tipo,
+        jornada_id: jornadaId,
+        tipo,
         nome: resultado?.nome || `Processo ${style.toUpperCase()}`,
         conteudo_xml: resultado?.conteudo_xml || null,
         conteudo_md: resultado?.conteudo_md || null,
@@ -357,29 +370,19 @@ async function executeTransicaoEstado(
   console.log('[RAG-EXECUTOR] Transitioning state to:', novoEstado);
 
   try {
-    // Update sessao state
     const { error } = await supabase
       .from('consultor_sessoes')
       .update({ estado_atual: novoEstado })
       .eq('id', sessaoId);
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     console.log('[RAG-EXECUTOR] State transitioned successfully');
-
-    return {
-      success: true,
-      estado_novo: novoEstado
-    };
+    return { success: true, estado_novo: novoEstado };
 
   } catch (error: any) {
     console.error('[RAG-EXECUTOR] Failed to transition state:', error);
-    return {
-      success: false,
-      error: `Failed to transition state: ${error.message}`
-    };
+    return { success: false, error: `Failed to transition state: ${error.message}` };
   }
 }
 
@@ -435,10 +438,7 @@ async function executeUpdateKanban(
       if (error) throw error;
 
       console.log('[RAG-EXECUTOR] Created', data.length, 'cards (v1)');
-      return {
-        success: true,
-        kanban_cards_created: data.length
-      };
+      return { success: true, kanban_cards_created: data.length };
     }
 
     console.log('[RAG-EXECUTOR] Plan exists with', existingCards.length, 'cards, doing incremental merge');
@@ -519,17 +519,11 @@ async function executeUpdateKanban(
       }
     }
 
-    return {
-      success: true,
-      kanban_cards_created: totalOperations
-    };
+    return { success: true, kanban_cards_created: totalOperations };
 
   } catch (error: any) {
     console.error('[RAG-EXECUTOR] Failed to update Kanban:', error);
-    return {
-      success: false,
-      error: `Failed to update Kanban: ${error.message}`
-    };
+    return { success: false, error: `Failed to update Kanban: ${error.message}` };
   }
 }
 
@@ -545,10 +539,13 @@ async function insertEvidenceMemo(
   const pretty = '```json\n' + JSON.stringify(action, null, 2) + '\n```';
 
   try {
+    const jornadaId = await getJornadaId(sessaoId);
+
     const { data, error } = await supabase
       .from('entregaveis_consultor')
       .insert({
         sessao_id: sessaoId,
+        jornada_id: jornadaId,
         tipo: 'evidencia_memo',
         nome: `Evidência: ${action.type}`,
         conteudo_md: pretty,
