@@ -18,6 +18,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { BACKEND_STATES } from '../_shared/state-mapping.ts';
 
 export interface SessaoConsultor {
   id: string;
@@ -287,40 +288,40 @@ Vamos atacar duas frentes em paralelo:
         sections: ['resumo_exec','achados_top5','oportunidades_top5','roadmap_90d'] }
     ];
 
-    if (estadoAtual === 'apresentacao' || estadoAtual === 'anamnese' || estadoAtual === 'coleta') {
+    if (estadoAtual === BACKEND_STATES.COLETA) {
       return [
         { type: 'diagnose', area: 'geral', goals: ['mapear situação'], hypotheses: ['múltiplas causas'], needsValidation: true },
         ...basicDiag,
-        { type: 'transicao_estado', to: 'as_is' }
+        { type: 'transicao_estado', to: BACKEND_STATES.ANALISE }
       ];
     }
 
-    if (estadoAtual === 'as_is') {
+    if (estadoAtual === BACKEND_STATES.ANALISE) {
       return [
         { type: 'design_process_map', style: 'as_is', granularity: 'alto_nivel', deliver: 'text' },
         { type: 'analyze_dataset', source: 'upload', tasks: [{op:'pareto', field:'problema'}]},
-        { type: 'transicao_estado', to: 'diagnostico' }
+        { type: 'transicao_estado', to: BACKEND_STATES.DIAGNOSTICO }
       ];
     }
 
-    if (estadoAtual === 'diagnostico') {
+    if (estadoAtual === BACKEND_STATES.DIAGNOSTICO) {
       return [
         { type: 'compute_kpis', kpis: ['taxa_conversao','lead_time','custo_medio','satisfacao'] },
         { type: 'analyze_dataset', source: 'upload', tasks: [{op:'pareto', field:'motivo_problema'}]},
         ...basicDiag,
-        { type: 'transicao_estado', to: 'to_be' }
+        { type: 'transicao_estado', to: BACKEND_STATES.RECOMENDACAO }
       ];
     }
 
-    if (estadoAtual === 'to_be') {
+    if (estadoAtual === BACKEND_STATES.RECOMENDACAO) {
       return [
         { type: 'design_process_map', style: 'to_be', granularity: 'alto_nivel', deliver: 'text' },
         { type: 'what_if', model: 'melhoria', assumptions: {}, horizon: '3m' },
-        { type: 'transicao_estado', to: 'plano' }
+        { type: 'transicao_estado', to: BACKEND_STATES.EXECUCAO }
       ];
     }
 
-    if (estadoAtual === 'plano') {
+    if (estadoAtual === BACKEND_STATES.EXECUCAO) {
       return [
         { type: 'create_doc', docType: '5w2h', format: 'markdown', sections: ['plan_table'] },
         { type: 'update_kanban', board: 'execucao',

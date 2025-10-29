@@ -16,6 +16,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
 import { ConsultorOrchestrator } from './orchestrator.ts';
+import { normalizeToBackend, isValidBackendState } from '../_shared/state-mapping.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -80,10 +81,18 @@ Deno.serve(async (req: Request) => {
       6
     );
 
+    // Normalizar estado
+    const estadoNormalizado = normalizeToBackend(sessao.estado || 'anamnese');
+
+    if (!isValidBackendState(estadoNormalizado)) {
+      console.warn('[CONSULTOR-RAG] Estado inválido, usando coleta:', sessao.estado);
+    }
+
     console.log('[CONSULTOR-RAG] Loaded:', {
       adapter: adapter?.setor || 'none',
       kb_docs: kb.length,
-      estado: sessao.estado || 'anamnese'
+      estado_original: sessao.estado,
+      estado_normalizado: estadoNormalizado
     });
 
     // 2. TÁTICO: Montar prompt do Estrategista
@@ -135,12 +144,11 @@ Deno.serve(async (req: Request) => {
     let { actions, contexto_incremental } = orchestrator.parseActionsBlock(fullText);
 
     // 5. ENFORCER: Se LLM não retornou actions, sintetiza fallback
-    const estadoAtual = String(sessao.estado || 'anamnese');
     const ultimaMensagemUser = String(messages.at(-1)?.content ?? '');
 
     if (!Array.isArray(actions) || actions.length === 0) {
       console.warn('[ENFORCER] LLM não retornou actions, sintetizando fallback...');
-      actions = orchestrator.synthesizeFallbackActions(estadoAtual, ultimaMensagemUser);
+      actions = orchestrator.synthesizeFallbackActions(estadoNormalizado, ultimaMensagemUser);
     }
 
     // Extrai texto limpo (antes de [PARTE B])
@@ -149,7 +157,7 @@ Deno.serve(async (req: Request) => {
     console.log('[CONSULTOR-RAG] Returning:', {
       reply_length: replyText.length,
       actions_count: actions.length,
-      etapa: estadoAtual
+      etapa: estadoNormalizado
     });
 
     // 6. Retornar para frontend (EXECUTOR executará as actions)
@@ -157,7 +165,7 @@ Deno.serve(async (req: Request) => {
       reply: replyText,
       actions: actions,
       contexto_incremental,
-      etapa: estadoAtual,
+      etapa: estadoNormalizado,
       sessao_id: sessao.id
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

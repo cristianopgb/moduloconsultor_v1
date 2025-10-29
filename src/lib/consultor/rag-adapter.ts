@@ -10,6 +10,7 @@
  */
 
 import { supabase } from '../supabase';
+import { normalizeToBackend, normalizeToUI } from './state-mapping';
 
 export interface RAGRequest {
   sessaoId: string; // Obrigatório agora
@@ -94,14 +95,14 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
 
     console.log('[RAG-ADAPTER] Sending', messages.length, 'messages to RAG');
 
-    // 3. Chamar consultor-rag com novo formato
+    // 3. Chamar consultor-rag com novo formato (normaliza estado para backend)
     const { data, error } = await supabase.functions.invoke('consultor-rag', {
       body: {
         sessao: {
           id: sessao.id,
           empresa: sessao.contexto_negocio?.empresa_nome || sessao.empresa || null,
           setor: sessao.contexto_negocio?.segmento || sessao.setor || null,
-          estado: sessao.estado_atual || 'anamnese'
+          estado: normalizeToBackend(sessao.estado_atual || 'anamnese')
         },
         messages
       }
@@ -119,11 +120,11 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
       etapa: ragResponse.etapa
     });
 
-    // 4. Transformar para formato UI (actions passam direto para Executor)
+    // 4. Transformar para formato UI (normaliza estado para UI, actions passam direto)
     const uiResponse: ConsultorResponse = {
       text: ragResponse.reply || 'Processando...',
       sessaoId: ragResponse.sessao_id || request.sessaoId,
-      estado: ragResponse.etapa || 'anamnese',
+      estado: normalizeToUI(ragResponse.etapa || 'coleta'),
       progresso: 0, // Calculado pelo backend se necessário
       actions: ragResponse.actions || [],
       contexto_incremental: ragResponse.contexto_incremental

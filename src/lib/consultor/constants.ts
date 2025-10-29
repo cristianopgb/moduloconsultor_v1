@@ -272,3 +272,6 @@ export const EXPLICACAO_METODOLOGIA_SEM_SAUDACAO = `Nossa metodologia em 5 fases
 **5. Resultados** → Documentos profissionais, diagnósticos baseados em best practices, e planos estruturados
 
 **Vamos iniciar?** Qualquer dúvida é só perguntar.`;
+
+// Re-exportar mapeamento de estados para compatibilidade
+export { UI_TO_BACKEND, BACKEND_TO_UI, normalizeToBackend, normalizeToUI } from './state-mapping';
