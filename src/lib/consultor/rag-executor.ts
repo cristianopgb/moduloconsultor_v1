@@ -316,15 +316,19 @@ async function executeDesignProcess(
       throw new Error('TemplateService returned null');
     }
 
-    const { data, error } = await supabase.from('entregaveis_consultor').insert({
-      sessao_id: sessaoId,
-      tipo: tipo,
-      nome: resultado?.nome || `Processo ${style.toUpperCase()}`,
-      conteudo_xml: resultado?.conteudo_xml || null,
-      conteudo_md: resultado?.conteudo_md || null,
-      html_conteudo: resultado?.html_conteudo || '',
-      created_by: userId
-    } as any).select('id').single();
+    const { data, error } = await supabase
+      .from('entregaveis_consultor')
+      .insert({
+        sessao_id: sessaoId,
+        tipo: tipo,
+        nome: resultado?.nome || `Processo ${style.toUpperCase()}`,
+        conteudo_xml: resultado?.conteudo_xml || null,
+        conteudo_md: resultado?.conteudo_md || null,
+        html_conteudo: resultado?.html_conteudo || ''
+        // OBS: não enviar created_by — coluna não existe no schema atual
+      } as any)
+      .select('id')
+      .single();
 
     if (error) throw error;
 
@@ -541,14 +545,18 @@ async function insertEvidenceMemo(
   const pretty = '```json\n' + JSON.stringify(action, null, 2) + '\n```';
 
   try {
-    const { data, error } = await supabase.from('entregaveis_consultor').insert({
-      sessao_id: sessaoId,
-      tipo: 'evidencia_memo',
-      nome: `Evidência: ${action.type}`,
-      conteudo_md: pretty,
-      html_conteudo: `<pre>${pretty}</pre>`,
-      created_by: userId
-    } as any).select('id').single();
+    const { data, error } = await supabase
+      .from('entregaveis_consultor')
+      .insert({
+        sessao_id: sessaoId,
+        tipo: 'evidencia_memo',
+        nome: `Evidência: ${action.type}`,
+        conteudo_md: pretty,
+        html_conteudo: `<pre>${pretty}</pre>`
+        // OBS: não enviar created_by — coluna não existe no schema atual
+      } as any)
+      .select('id')
+      .single();
 
     if (error) throw error;
 
