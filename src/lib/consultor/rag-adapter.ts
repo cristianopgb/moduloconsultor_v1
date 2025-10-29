@@ -60,14 +60,21 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
       message: request.message.substring(0, 50) + '...'
     });
 
-    // 1. Buscar dados da sessão (empresa, setor, estado)
-    const { data: sessao } = await supabase
+    // 1. Buscar dados da sessão (extraindo empresa e setor do JSON contexto_negocio)
+    const { data: sessao, error: sessaoError } = await supabase
       .from('consultor_sessoes')
-      .select('id, empresa, setor, estado_atual, contexto_negocio')
+      .select(`
+        id,
+        estado_atual,
+        contexto_negocio,
+        empresa:contexto_negocio->>empresa_nome,
+        setor:contexto_negocio->>segmento
+      `)
       .eq('id', request.sessaoId)
-      .single();
+      .maybeSingle();
 
-    if (!sessao) {
+    if (sessaoError || !sessao) {
+      console.error('[RAG-ADAPTER] Error fetching sessao:', sessaoError);
       throw new Error('Sessão não encontrada');
     }
 
