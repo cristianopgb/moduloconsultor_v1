@@ -55,12 +55,37 @@ END $$;
 -- Garantir que kanban_cards usa APENAS sessao_id (não jornada_id)
 DO $$
 BEGIN
-  -- Remover colunas antigas se existirem
+  -- PASSO 1: Adicionar colunas do sistema novo se não existirem
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'sessao_id'
+  ) THEN
+    ALTER TABLE kanban_cards ADD COLUMN sessao_id UUID REFERENCES consultor_sessoes(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added sessao_id column (nullable for transition)';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'due_at'
+  ) THEN
+    ALTER TABLE kanban_cards ADD COLUMN due_at TIMESTAMPTZ;
+    RAISE NOTICE 'Added due_at column to replace prazo';
+  END IF;
+
+  -- PASSO 2: Limpar cards órfãos antes de remover FK
+  DELETE FROM kanban_cards
+  WHERE jornada_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM jornadas_consultor WHERE id = kanban_cards.jornada_id
+    );
+  RAISE NOTICE 'Cleaned orphan cards with invalid jornada_id';
+
+  -- PASSO 3: Remover colunas do sistema antigo
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'kanban_cards' AND column_name = 'jornada_id'
   ) THEN
-    ALTER TABLE kanban_cards DROP COLUMN IF EXISTS jornada_id CASCADE;
+    ALTER TABLE kanban_cards DROP COLUMN jornada_id CASCADE;
     RAISE NOTICE 'Removed obsolete jornada_id column';
   END IF;
 
@@ -68,18 +93,35 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'kanban_cards' AND column_name = 'area_id'
   ) THEN
-    ALTER TABLE kanban_cards DROP COLUMN IF EXISTS area_id CASCADE;
+    ALTER TABLE kanban_cards DROP COLUMN area_id CASCADE;
     RAISE NOTICE 'Removed obsolete area_id column';
   END IF;
 
-  -- Garantir que sessao_id existe (deve já existir)
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'kanban_cards' AND column_name = 'sessao_id'
+    WHERE table_name = 'kanban_cards' AND column_name = 'prazo'
   ) THEN
-    ALTER TABLE kanban_cards ADD COLUMN sessao_id UUID NOT NULL REFERENCES consultor_sessoes(id) ON DELETE CASCADE;
-    RAISE NOTICE 'Added sessao_id column';
+    ALTER TABLE kanban_cards DROP COLUMN prazo CASCADE;
+    RAISE NOTICE 'Removed obsolete prazo column (use due_at)';
   END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'ordem'
+  ) THEN
+    ALTER TABLE kanban_cards DROP COLUMN ordem CASCADE;
+    RAISE NOTICE 'Removed obsolete ordem column';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'dados_5w2h'
+  ) THEN
+    ALTER TABLE kanban_cards DROP COLUMN dados_5w2h CASCADE;
+    RAISE NOTICE 'Removed obsolete dados_5w2h column';
+  END IF;
+
+  RAISE NOTICE 'Kanban schema consolidated: sessao_id is now the only FK';
 END $$;
 
 -- ============================================
