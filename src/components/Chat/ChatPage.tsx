@@ -1001,36 +1001,21 @@ function ChatPage() {
           sessaoId: ragResponse.sessaoId,
           estado: ragResponse.estado,
           progresso: ragResponse.progresso,
+          actionsCount: ragResponse.actions?.length || 0,
           methodologies: ragResponse.ragInfo?.methodologies
         });
 
         const reply = ragResponse.text || 'Não consegui processar sua mensagem.';
-        const etapaAtual = ragResponse.estado; // coleta, analise, diagnostico, recomendacao, execucao
-        const jornadaId = null; // RAG usa sessaoId ao invés de jornadaId
+        const etapaAtual = ragResponse.estado;
+        const jornadaId = null;
 
-        // Transformar flags RAG em actions compatíveis com UI
-        const actions: any[] = [];
-        if (ragResponse.needsForm) {
-          actions.push({
-            type: 'exibir_formulario',
-            params: { tipo: ragResponse.formType }
-          });
-        }
-        if (ragResponse.shouldGenerateDeliverable) {
-          actions.push({
-            type: 'gerar_entregavel',
-            params: { tipo: ragResponse.deliverableType }
-          });
-        }
+        // Use actions directly from enforcer (already validated)
+        const actions = Array.isArray(ragResponse.actions) ? ragResponse.actions : [];
 
-        // store actions temporarily so UI can render CTAs
-        setPendingConsultorActions(actions.length > 0 ? actions : null);
-
-        // CRITICAL: Execute RAG actions immediately
+        // Anti-loop: only execute if we have real actions
         if (actions.length > 0 && sessaoId) {
-          console.log('[RAG-EXECUTOR] Executing', actions.length, 'actions from RAG...');
+          console.log('[RAG-EXECUTOR] Executing', actions.length, 'enforced actions...');
           try {
-            // Get sessao context for execution
             const { data: sessaoData } = await supabase
               .from('consultor_sessoes')
               .select('contexto_negocio, estado_atual')
@@ -1039,18 +1024,19 @@ function ChatPage() {
 
             const contexto = {
               ...(sessaoData?.contexto_negocio || {}),
+              ...(ragResponse.contexto_incremental || {}),
               estado_atual: sessaoData?.estado_atual || 'coleta'
             };
 
-            // Execute all actions
             await executeRAGActions(actions, sessaoId, user!.id, contexto);
             console.log('[RAG-EXECUTOR] All actions executed successfully');
 
-            // Trigger UI refresh for deliverables panel
             window.dispatchEvent(new CustomEvent('entregavel:created', { detail: { sessaoId } }));
           } catch (execError) {
             console.error('[RAG-EXECUTOR] Failed to execute actions:', execError);
           }
+        } else {
+          console.warn('[CONSULTOR MODE] No actions to execute - waiting for user input (anti-loop)');
         }
 
         // If backend returned jornada_id, fetch its contexto_coleta to use for modal processes

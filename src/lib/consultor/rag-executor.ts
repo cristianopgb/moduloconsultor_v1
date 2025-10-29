@@ -88,7 +88,7 @@ async function executeGerarEntregavel(
   userId: string,
   contexto: any
 ): Promise<ExecutionResult> {
-  const tipoEntregavel = action.params.tipo_entregavel || action.params.tipo || 'diagnostico';
+  const tipoEntregavel = action.params.deliverableType || action.params.tipo_entregavel || action.params.tipo || 'diagnostico';
 
   console.log('[RAG-EXECUTOR] Generating deliverable:', tipoEntregavel);
 
@@ -100,11 +100,11 @@ async function executeGerarEntregavel(
       throw new Error('TemplateService returned null');
     }
 
-    // Prepare data for insertion
+    // Prepare data for insertion - ALWAYS use sessao_id
     const entregavelData: any = {
-      sessao_id: sessaoId,
+      sessao_id: sessaoId, // Standardize on sessao_id
       tipo: tipoEntregavel,
-      nome: resultado.nome || `${tipoEntregavel} - ${new Date().toLocaleDateString('pt-BR')}`,
+      nome: resultado.nome || action.params.contexto?.tema || `${tipoEntregavel} - ${new Date().toLocaleDateString('pt-BR')}`,
       html_conteudo: resultado.html_conteudo || '',
       etapa_origem: contexto.estado_atual || 'diagnostico',
       visualizado: false
@@ -208,16 +208,20 @@ async function executeEnsureKanban(
 ): Promise<ExecutionResult> {
   const plano = action.params.plano;
 
+  // Handle runtime sessaoId
+  const targetSessaoId = action.params.sessaoId === 'RUNTIME' ? sessaoId : (action.params.sessaoId || sessaoId);
+
   if (!plano || !plano.cards || plano.cards.length === 0) {
-    return { success: false, error: 'No cards provided in plan' };
+    console.log('[RAG-EXECUTOR] No cards in plan, skipping Kanban creation');
+    return { success: true, kanban_cards_created: 0 };
   }
 
   console.log('[RAG-EXECUTOR] Creating', plano.cards.length, 'Kanban cards');
 
   try {
-    // Prepare cards for insertion
+    // Prepare cards for insertion - ALWAYS use sessao_id
     const cardsToInsert = plano.cards.map((card: any, index: number) => ({
-      sessao_id: sessaoId,
+      sessao_id: targetSessaoId, // Standardize on sessao_id
       titulo: card.title || card.What || card.o_que || 'Ação',
       descricao: card.description || card.Why || card.por_que || '',
       responsavel: card.assignee || card.Who || card.quem || 'Responsável',
@@ -239,7 +243,7 @@ async function executeEnsureKanban(
     const { data: existing } = await supabase
       .from('kanban_cards')
       .select('id')
-      .eq('sessao_id', sessaoId)
+      .eq('sessao_id', targetSessaoId)
       .limit(1);
 
     if (existing && existing.length > 0) {

@@ -42,6 +42,126 @@ export class ConsultorOrchestrator {
   }
 
   /**
+   * System prompt with strong anti-interrogation rules
+   */
+  getSystemPrompt(): string {
+    return `Você é o Consultor Proceda. Sua missão é CONDUZIR o projeto com método e gerar entregáveis úteis.
+
+Regras duras:
+1) No MÁXIMO 1 pergunta objetiva por turno, e só se for CRÍTICA para avançar. Se faltar dado não-crítico, ASSUMA uma hipótese razoável e anote needsValidation:true.
+2) Sempre que houver insumo suficiente, EMITA ações:
+   - gerar_entregavel: ishikawa | sipoc | bpmn_as_is | bpmn_to_be | gut | 5w2h | okr | bsc | escopo | diagnostico
+   - transicao_estado: anamnese | as_is | diagnostico | to_be | plano | execucao
+   - ensure_kanban: cards do plano (5W2H/OKR) por sessão
+3) Saída OBRIGATÓRIA em duas partes:
+[PARTE A: texto consultivo claro, aplicado ao caso]
+---
+[PARTE B: JSON estrito]
+{ "actions": [...], "contexto_incremental": {...} }
+4) Anti-loop: NÃO repita a mesma pergunta no turno seguinte; avance com hipótese + needsValidation:true.
+5) Aplique RAG (playbook Proceda + boas práticas por área) SEM copiar trechos; sintetize ao caso do cliente.`;
+  }
+
+  /**
+   * Few-shot example for logistics sector
+   */
+  getFewShotExample(): string {
+    return `[EXEMPLO – TRANSPORTES/LOGÍSTICA]
+Usuário: "Sou transportadora fracionada, minhas vendas não escalam e o financeiro está desorganizado."
+Assistente (modelo de resposta correta):
+[PARTE A]
+Vamos atacar duas frentes em paralelo:
+1) Comercial: hipóteses — funil fraco (prospecção manual), proposta não padronizada, ICP inexistente.
+   Entregáveis: GUT (gargalos de conversão) + SIPOC do processo comercial AS IS.
+2) Financeiro: hipóteses — DRE inconsistente, prazos/recebíveis sem política, rateio logístico ausente.
+   Entregáveis: 5W2H com 6 itens de correção (política por cliente, checklist de faturamento, calendário de prazos).
+---
+{
+  "actions":[
+    {"type":"gerar_entregavel","deliverableType":"gut","contexto":{"tema":"Gargalos de conversão comercial"}},
+    {"type":"gerar_entregavel","deliverableType":"sipoc","contexto":{"process":"Pré-venda → Proposta → Fechamento → Onboarding"}},
+    {"type":"gerar_entregavel","deliverableType":"5w2h","contexto":{"itens":[{"what":"Padronizar proposta","who":"Comercial","when":"7d"}]}},
+    {"type":"transicao_estado","to":"diagnostico"}
+  ],
+  "contexto_incremental":{"setor_prioritario":"Comercial+Financeiro","needsValidation":true}
+}`;
+  }
+
+  /**
+   * Parse actions from LLM response
+   */
+  parseActionsBlock(textoLLM: string): { actions: any[], contexto_incremental: any } {
+    let idx = textoLLM.indexOf('\n---');
+
+    if (idx === -1) {
+      const jsonMatch = textoLLM.match(/\{[\s\S]*"actions"[\s\S]*\}$/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            actions: Array.isArray(parsed?.actions) ? parsed.actions : [],
+            contexto_incremental: parsed?.contexto_incremental || {}
+          };
+        } catch {
+          return { actions: [], contexto_incremental: {} };
+        }
+      }
+      return { actions: [], contexto_incremental: {} };
+    }
+
+    const jsonStr = textoLLM.slice(idx + 4).trim();
+    try {
+      const parsed = JSON.parse(jsonStr);
+      return {
+        actions: Array.isArray(parsed?.actions) ? parsed.actions : [],
+        contexto_incremental: parsed?.contexto_incremental || {}
+      };
+    } catch {
+      return { actions: [], contexto_incremental: {} };
+    }
+  }
+
+  /**
+   * Synthesize fallback actions when LLM doesn't comply
+   */
+  synthesizeFallbackActions(estadoAtual: string, userMsg: string): any[] {
+    if (estadoAtual === 'anamnese' || estadoAtual === 'coleta') {
+      return [
+        { type: 'gerar_entregavel', deliverableType: 'escopo', contexto: { resumo: userMsg } },
+        { type: 'transicao_estado', to: 'as_is' }
+      ];
+    }
+    if (estadoAtual === 'as_is') {
+      return [
+        { type: 'gerar_entregavel', deliverableType: 'sipoc', contexto: { process: 'Comercial: Pré-venda → Proposta → Fechamento → Onboarding' } },
+        { type: 'gerar_entregavel', deliverableType: 'bpmn_as_is', contexto: { nome: 'Comercial – AS IS' } },
+        { type: 'transicao_estado', to: 'diagnostico' }
+      ];
+    }
+    if (estadoAtual === 'diagnostico') {
+      return [
+        { type: 'gerar_entregavel', deliverableType: 'ishikawa', contexto: { problema: 'Conversão baixa e retrabalho financeiro' } },
+        { type: 'gerar_entregavel', deliverableType: 'gut', contexto: { tema: 'Priorização Comercial/Financeiro' } },
+        { type: 'transicao_estado', to: 'to_be' }
+      ];
+    }
+    if (estadoAtual === 'to_be') {
+      return [
+        { type: 'gerar_entregavel', deliverableType: 'bpmn_to_be', contexto: { nome: 'Comercial – TO BE' } },
+        { type: 'transicao_estado', to: 'plano' }
+      ];
+    }
+    if (estadoAtual === 'plano') {
+      return [
+        { type: 'gerar_entregavel', deliverableType: '5w2h', contexto: { itens: [] } },
+        { type: 'ensure_kanban', sessaoId: 'RUNTIME', plano: { cards: [] } },
+        { type: 'transicao_estado', to: 'execucao' }
+      ];
+    }
+    return [];
+  }
+
+  /**
    * Determina próximas ações baseado no estado da sessão
    */
   async determinarProximasAcoes(sessao: SessaoConsultor): Promise<AcaoOrquestrador[]> {

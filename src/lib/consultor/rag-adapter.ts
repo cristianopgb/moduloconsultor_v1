@@ -40,6 +40,8 @@ export interface ConsultorResponse {
   sessaoId: string;
   estado: string;
   progresso: number;
+  actions?: any[]; // Direct actions from enforcer
+  contexto_incremental?: any;
   needsForm?: boolean;
   formType?: string;
   shouldGenerateDeliverable?: boolean;
@@ -109,6 +111,8 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
       sessaoId: ragResponse.sessao_id,
       estado: ragResponse.estado_atual,
       progresso: ragResponse.progresso,
+      actions: ragResponse.actions || [], // Pass enforced actions directly
+      contexto_incremental: (ragResponse as any).contexto_incremental,
       ragInfo: ragResponse.rag_info ? {
         methodologies: ragResponse.rag_info.documentos_usados,
         tokensUsed: ragResponse.rag_info.tokens_usados,

@@ -183,9 +183,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const promptSistema = `Você é um consultor empresarial expert em BPM e gestão de processos.
-
-INFORMAÇÕES COLETADAS ATÉ AGORA:
+    const promptSistema = orchestrator.getSystemPrompt() + `\n\nINFORMAÇÕES COLETADAS ATÉ AGORA:
 ${Object.keys(sessao.contexto_negocio || {}).length > 0 ? Object.entries(sessao.contexto_negocio).map(([key, value]) => `- ${key}: ${value}`).join('\n') : '- Nenhuma informação coletada ainda'}
 
 FASE ATUAL DA CONSULTORIA: ${sessao.estado_atual}
@@ -197,30 +195,7 @@ ${resultadoRAG.documentos.map(doc => `
 ## ${doc.title}
 ${doc.content.substring(0, 500)}...`).join('\n')}
 
-REGRAS CRÍTICAS - SIGA RIGOROSAMENTE:
-1. NUNCA exponha JSON, estruturas técnicas ou metadados ao usuário
-2. NUNCA repita informações que já foram coletadas (veja INFORMAÇÕES COLETADAS acima)
-3. NUNCA faça resumos desnecessários - usuários querem ação
-4. NUNCA mencione termos técnicos como "tipo_acao", "campo", "entrada", "orquestrador"
-5. SEMPRE consulte as informações coletadas antes de perguntar algo
-6. SEMPRE seja direto, natural e conversacional
-7. SEMPRE mantenha o foco no problema do cliente
-
-SUA PRÓXIMA AÇÃO:
-${instrucoesNaturais}
-
-EXEMPLO DE BOA RESPOSTA:
-"Ótimo! Agora que entendo melhor o contexto, vamos avançar. Quantos funcionários sua empresa tem atualmente?"
-
-EXEMPLO DE RESPOSTA RUIM (NUNCA FAÇA ISSO):
-"PRÓXIMA AÇÃO RECOMENDADA:
-Tipo: coletar_info
-{
-  \"campo\": \"tamanho_empresa\",
-  \"pergunta\": \"Quantos funcionários sua empresa tem?\"
-}"
-
-Sua resposta deve ser APENAS texto natural e conversacional, sem JSON, sem metadados, sem estruturas técnicas.`;
+${orchestrator.getFewShotExample()}`;
 
     // 5. Construir histórico de mensagens para LLM
     const llmMessages: Array<{role: string, content: string}> = [
@@ -256,7 +231,19 @@ Sua resposta deve ser APENAS texto natural e conversacional, sem JSON, sem metad
     }
 
     const llmData = await llmResponse.json();
-    let resposta = llmData.choices[0].message.content;
+    let respostaCompleta = llmData.choices[0].message.content;
+
+    // Parse actions from response
+    let { actions, contexto_incremental } = orchestrator.parseActionsBlock(respostaCompleta);
+
+    // Enforcer: if no actions, synthesize fallback
+    if (!Array.isArray(actions) || actions.length === 0) {
+      console.warn('[ENFORCER] LLM did not provide actions, synthesizing fallback...');
+      actions = orchestrator.synthesizeFallbackActions(sessao.estado_atual, message);
+    }
+
+    // Extract clean response (text before ---)
+    let resposta = respostaCompleta.split('\n---')[0].trim();
 
     // Limpar resposta de qualquer conteúdo técnico vazado
     resposta = cleanResponse(resposta);
@@ -362,17 +349,15 @@ Sua resposta deve ser APENAS texto natural e conversacional, sem JSON, sem metad
         .eq('id', sessao.id);
     }
 
-    // 9. Retornar resposta completa
+    // 9. Retornar resposta completa com actions do enforcer
     return new Response(
       JSON.stringify({
         response: resposta,
         sessao_id: sessao.id,
         estado_atual: acaoExecutada?.novo_estado || sessao.estado_atual,
         progresso: Math.min(sessao.progresso + (acaoExecutada ? 20 : 5), 100),
-        actions: acoes.slice(0, 3).map(a => ({
-          type: a.tipo_acao,
-          params: a.entrada
-        })),
+        actions: actions, // Use parsed/enforced actions
+        contexto_incremental: contexto_incremental,
         rag_info: {
           documentos_usados: resultadoRAG.documentos.map(d => d.title),
           tokens_usados: resultadoRAG.tokens_usados,
