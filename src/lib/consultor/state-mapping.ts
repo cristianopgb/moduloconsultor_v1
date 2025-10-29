@@ -34,6 +34,10 @@ const toBackendMap: Record<UIState, BackendState> = {
   concluido: 'concluido'
 };
 
+// Exports para compatibilidade com código existente
+export const UI_TO_BACKEND: Record<string, string> = toBackendMap;
+export const BACKEND_TO_UI: Record<string, string> = toUIMap;
+
 export function normalizeToUI(state: string | null | undefined): UIState {
   const s = (state || '').toLowerCase() as BackendState;
   return toUIMap[s] ?? 'anamnese';
