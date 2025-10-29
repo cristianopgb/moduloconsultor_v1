@@ -17,6 +17,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
 import { ConsultorOrchestrator } from './orchestrator.ts';
 import { normalizeToBackend, isValidBackendState } from '../_shared/state-mapping.ts';
+import { callOpenAI } from '../_shared/llm-config.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -108,26 +109,14 @@ Deno.serve(async (req: Request) => {
       `${m.role.toUpperCase()}: ${m.content}`
     ).join('\n');
 
-    // 3. Chamar LLM (TÁTICO decide actions)
-    const model = Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini';
-    console.log('[CONSULTOR-RAG] Calling LLM:', model);
+    // 3. Chamar LLM (TÁTICO decide actions) com profile analytical
+    const llmMessages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent }
+    ];
 
-    const llmResp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_KEY}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent }
-        ],
-        temperature: 0.3,
-        max_tokens: 2000
-      })
-    });
+    console.log('[CONSULTOR-RAG] Calling LLM with analytical profile');
+    const llmResp = await callOpenAI(OPENAI_KEY, llmMessages, 'analytical');
 
     if (!llmResp.ok) {
       const err = await llmResp.text();
