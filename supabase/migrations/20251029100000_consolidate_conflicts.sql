@@ -130,9 +130,9 @@ END $$;
 -- PART 3: CONSOLIDAR FUNÇÃO is_master()
 -- ============================================
 
--- Dropar função antiga se existir (para evitar conflito de nome de parâmetro)
-DROP FUNCTION IF EXISTS is_master(UUID);
-DROP FUNCTION IF EXISTS is_master();
+-- Dropar função antiga se existir (CASCADE para dropar policies dependentes)
+DROP FUNCTION IF EXISTS is_master(UUID) CASCADE;
+DROP FUNCTION IF EXISTS is_master() CASCADE;
 
 -- Criar função consolidada com nome de parâmetro correto
 CREATE FUNCTION is_master(check_user_id UUID DEFAULT auth.uid())

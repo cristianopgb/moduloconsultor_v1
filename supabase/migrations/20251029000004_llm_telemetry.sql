@@ -71,13 +71,7 @@ WITH CHECK (true);
 CREATE POLICY "Masters can view usage logs"
 ON llm_usage_log FOR SELECT
 TO authenticated
-USING (
-  EXISTS (
-    SELECT 1 FROM user_roles
-    WHERE user_id = auth.uid()
-      AND role = 'master'
-  )
-);
+USING (is_master());
 
 CREATE POLICY "Users can view their own usage logs"
 ON llm_usage_log FOR SELECT

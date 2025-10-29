@@ -24,6 +24,27 @@
     - Todos cards existentes começam como versão 1
 */
 
+-- IMPORTANTE: Adicionar sessao_id primeiro (se não existir ainda)
+-- Esta coluna será usada nos índices abaixo
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'sessao_id'
+  ) THEN
+    ALTER TABLE kanban_cards ADD COLUMN sessao_id UUID REFERENCES consultor_sessoes(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added sessao_id column';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'kanban_cards' AND column_name = 'due_at'
+  ) THEN
+    ALTER TABLE kanban_cards ADD COLUMN due_at TIMESTAMPTZ;
+    RAISE NOTICE 'Added due_at column';
+  END IF;
+END $$;
+
 -- Adicionar colunas de versionamento
 ALTER TABLE kanban_cards
   ADD COLUMN IF NOT EXISTS plano_hash TEXT,

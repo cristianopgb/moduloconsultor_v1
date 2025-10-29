@@ -39,17 +39,8 @@ ALTER TABLE orquestrador_acoes ENABLE ROW LEVEL SECURITY;
 -- ============================================
 -- FUNCTION: Verificar se usuário é master
 -- ============================================
-
-CREATE OR REPLACE FUNCTION is_master(check_user_id UUID DEFAULT auth.uid())
-RETURNS BOOLEAN AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM user_roles
-    WHERE user_id = check_user_id
-      AND role = 'master'
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- NOTA: Função is_master() já foi criada em consolidate_conflicts.sql
+-- Não precisa recriar aqui para evitar conflitos
 
 -- ============================================
 -- POLICIES PARA consultor_sessoes

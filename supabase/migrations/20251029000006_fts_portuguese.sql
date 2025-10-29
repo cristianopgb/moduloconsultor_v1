@@ -20,8 +20,18 @@
     - Busca textual suficiente para volume atual
 */
 
--- Criar configuração de busca para português
-CREATE TEXT SEARCH CONFIGURATION IF NOT EXISTS pt (COPY = pg_catalog.portuguese);
+-- Criar configuração de busca para português (se não existir)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_ts_config WHERE cfgname = 'pt'
+  ) THEN
+    CREATE TEXT SEARCH CONFIGURATION pt (COPY = pg_catalog.portuguese);
+    RAISE NOTICE 'Created text search configuration: pt';
+  ELSE
+    RAISE NOTICE 'Text search configuration pt already exists';
+  END IF;
+END $$;
 
 -- Adicionar coluna tsvector para busca rápida
 ALTER TABLE knowledge_base_documents
