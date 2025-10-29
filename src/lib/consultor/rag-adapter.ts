@@ -102,7 +102,7 @@ export async function callConsultorRAG(request: RAGRequest): Promise<ConsultorRe
           id: sessao.id,
           empresa: sessao.contexto_negocio?.empresa_nome || sessao.empresa || null,
           setor: sessao.contexto_negocio?.segmento || sessao.setor || null,
-          estado: normalizeToBackend(sessao.estado_atual || 'anamnese')
+          estado: normalizeToBackend(sessao.estado_atual || 'coleta')
         },
         messages
       }
@@ -170,7 +170,7 @@ export async function getOrCreateSessao(
         conversation_id: conversationId,
         titulo_problema: initialMessage?.substring(0, 100) || 'Nova consultoria',
         contexto_negocio: {},
-        estado_atual: 'anamnese',
+        estado_atual: 'coleta',
         progresso: 0,
         ativo: true
       })
