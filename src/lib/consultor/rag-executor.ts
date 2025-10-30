@@ -440,6 +440,7 @@ async function executeGerarEntregavel(
       jornada_id: jornadaId,
       tipo: tipoEntregavel,
       nome: resultado.nome || p.contexto?.tema || p.tema || `${tipoEntregavel} - ${new Date().toLocaleDateString('pt-BR')}`,
+      slug: `${tipoEntregavel}-${Date.now()}`,
       html_conteudo: resultado.html_conteudo || '',
       etapa_origem: contexto.estado_atual || 'diagnostico',
       visualizado: false
@@ -498,10 +499,11 @@ async function executeDesignProcess(
         jornada_id: jornadaId,
         tipo,
         nome: resultado?.nome || `Processo ${style.toUpperCase()}`,
+        slug: `${tipo}-${Date.now()}`,
         conteudo_xml: resultado?.conteudo_xml || null,
         conteudo_md: resultado?.conteudo_md || null,
-        html_conteudo: resultado?.html_conteudo || ''
-        // OBS: não enviar created_by — coluna não existe no schema atual
+        html_conteudo: resultado?.html_conteudo || '',
+        etapa_origem: 'diagnostico'
       } as any)
       .select('id')
       .single();
@@ -745,6 +747,7 @@ async function insertEvidenceMemo(
         jornada_id: jornadaId,
         tipo: 'evidencia_memo',
         nome: `Evidência: ${action.type}`,
+        slug: `evidencia-${Date.now()}`,
         conteudo_md: pretty,
         html_conteudo: `<pre>${pretty}</pre>`,
         etapa_origem: 'investigacao'

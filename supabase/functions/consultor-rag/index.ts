@@ -82,17 +82,18 @@ Deno.serve(async (req: Request) => {
       6
     );
 
-    // Normalizar estado
-    const estadoNormalizado = normalizeToBackend(sessao.estado || 'anamnese');
+    // Normalizar estado (campo correto: estado_atual)
+    const estadoAtual = sessao.estado_atual || sessao.estado || 'coleta';
+    const estadoNormalizado = normalizeToBackend(estadoAtual);
 
     if (!isValidBackendState(estadoNormalizado)) {
-      console.warn('[CONSULTOR-RAG] Estado inválido, usando coleta:', sessao.estado);
+      console.warn('[CONSULTOR-RAG] Estado inválido, usando coleta:', estadoAtual);
     }
 
     console.log('[CONSULTOR-RAG] Loaded:', {
       adapter: adapter?.setor || 'none',
       kb_docs: kb.length,
-      estado_original: sessao.estado,
+      estado_original: estadoAtual,
       estado_normalizado: estadoNormalizado
     });
 
