@@ -31,14 +31,29 @@ export interface ConsultorResponse {
 }
 
 /**
- * Cria jornada do consultor vinculada ao user
+ * Busca ou cria jornada do consultor vinculada ao user
+ * IMPORTANTE: Usa constraint UNIQUE (user_id, conversation_id)
  */
-async function createJornada(
+async function getOrCreateJornada(
   userId: string,
   conversationId: string,
   empresaNome?: string
 ): Promise<string> {
   try {
+    // 1. Tentar buscar jornada existente primeiro
+    const { data: existing, error: searchError } = await supabase
+      .from('jornadas_consultor')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('conversation_id', conversationId)
+      .maybeSingle();
+
+    if (!searchError && existing?.id) {
+      console.log('[RAG-ADAPTER] Jornada existente encontrada:', existing.id);
+      return existing.id;
+    }
+
+    // 2. Criar nova jornada
     const { data: jornada, error } = await supabase
       .from('jornadas_consultor')
       .insert([{
@@ -54,6 +69,21 @@ async function createJornada(
       .single();
 
     if (error) {
+      // Se erro de duplicata, tentar buscar novamente
+      if (error.code === '23505') {
+        console.warn('[RAG-ADAPTER] Jornada duplicada detectada, buscando existente...');
+        const { data: retry } = await supabase
+          .from('jornadas_consultor')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('conversation_id', conversationId)
+          .single();
+
+        if (retry?.id) {
+          return retry.id;
+        }
+      }
+
       console.error('[RAG-ADAPTER] Erro ao criar jornada:', error);
       throw new Error(`Erro ao criar jornada: ${error.message}`);
     }
@@ -91,10 +121,10 @@ export async function getOrCreateSessao(
     if (!errBusca && sessExistente?.id) {
       console.log('[RAG-ADAPTER] Sessão existente encontrada:', sessExistente.id);
 
-      // Se sessão existe mas não tem jornada, criar agora
+      // Se sessão existe mas não tem jornada, buscar ou criar
       if (!sessExistente.jornada_id) {
-        console.log('[RAG-ADAPTER] Sessão sem jornada, criando...');
-        const jornadaId = await createJornada(userId, conversationId, sessExistente.empresa);
+        console.log('[RAG-ADAPTER] Sessão sem jornada, buscando ou criando...');
+        const jornadaId = await getOrCreateJornada(userId, conversationId, sessExistente.empresa);
 
         // Vincular jornada à sessão
         await supabase
@@ -119,8 +149,8 @@ export async function getOrCreateSessao(
   console.log('[RAG-ADAPTER] Criando nova sessão com jornada...');
 
   try {
-    // Criar jornada primeiro
-    const jornadaId = await createJornada(userId, conversationId);
+    // Buscar ou criar jornada primeiro
+    const jornadaId = await getOrCreateJornada(userId, conversationId);
 
     // Criar sessão com jornada vinculada
     const { data: created, error: errCreate } = await supabase
