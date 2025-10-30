@@ -112,8 +112,34 @@ export async function callConsultorRAG(input: {
   const sessaoId = input.sessaoId || (await getOrCreateSessao(input.userId, input.conversationId, input.message));
   const message = input.message || '...';
 
+  // Buscar dados da sessão para enviar ao Edge Function
+  const { data: sessaoData, error: sessaoError } = await supabase
+    .from('consultor_sessoes')
+    .select('id, empresa, setor, estado_atual')
+    .eq('id', sessaoId)
+    .single();
+
+  if (sessaoError || !sessaoData) {
+    console.error('[RAG-ADAPTER] Error loading sessao data:', sessaoError);
+    throw new Error('Falha ao carregar dados da sessão');
+  }
+
+  // Montar payload no formato esperado pelo Edge Function
   const { data, error } = await supabase.functions.invoke('consultor-rag', {
-    body: { sessao_id: sessaoId, message }
+    body: {
+      sessao: {
+        id: sessaoData.id,
+        empresa: sessaoData.empresa,
+        setor: sessaoData.setor,
+        estado: sessaoData.estado_atual
+      },
+      messages: [
+        {
+          role: 'user',
+          content: message
+        }
+      ]
+    }
   });
 
   if (error) {

@@ -1,5 +1,11 @@
 # Manual Deployment Steps - Consultor RAG Fixes
 
+## ⚡ ÚLTIMA CORREÇÃO (30/10/2025 - 15:30)
+**Fix adicional**: Corrigido formato de payload enviado ao Edge Function (erro 400)
+- Frontend agora envia `sessao` object + `messages` array no formato correto
+- Arquivo modificado: `src/lib/consultor/rag-adapter.ts`
+- **IMPORTANTE**: Apenas frontend precisa ser rebuiltado, Edge Function não mudou
+
 ## 🎯 Quick Deploy (3 Steps)
 
 ### Step 1: Apply Database Migration
