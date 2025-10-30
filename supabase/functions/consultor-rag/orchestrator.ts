@@ -19,7 +19,6 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { BACKEND_STATES } from '../_shared/state-mapping.ts';
-import { SYSTEM_PROMPT } from './prompt.ts';
 import { getLLM } from '../_shared/llm-config.ts';
 import {
   ANAMNESE_PROMPT,

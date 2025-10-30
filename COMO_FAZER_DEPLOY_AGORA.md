@@ -1,199 +1,107 @@
-# 🚀 COMO FAZER DEPLOY DA EDGE FUNCTION (AGORA)
+# COMO FAZER REDEPLOY DA EDGE FUNCTION
 
-## ✅ PATCHES JÁ APLICADOS NOS ARQUIVOS LOCAIS
+## ⚠️ IMPORTANTE
 
-Os 3 patches críticos JÁ FORAM APLICADOS nos arquivos da sua IDE:
+O deploy via Supabase Dashboard (copiar/colar código) **NÃO FUNCIONA** quando a função tem imports de outros arquivos.
 
-1. ✅ **Patch #1**: Prompts 5W2H (linhas 566-649 do `index.ts`)
-2. ✅ **Patch #4**: Salvar Kanban cards (linhas 53-100 do `deliverable-generators.ts`)
-3. ✅ **Patch #5**: Buscar area_id (linhas 1131-1150 do `index.ts`)
+## ✅ Solução: Deploy via CLI
 
----
-
-## 📂 ARQUIVOS PRONTOS PARA DEPLOY
-
-Você tem **2 arquivos** atualizados na sua IDE:
-
-```
-supabase/functions/consultor-chat/
-├── index.ts (1439 linhas) ✅ ATUALIZADO
-└── deliverable-generators.ts (532 linhas) ✅ ATUALIZADO
-```
-
----
-
-## 🎯 OPÇÃO 1: DEPLOY VIA SUPABASE CLI (RECOMENDADO)
-
-### Passo a Passo:
+### Passo 1: Verificar Supabase CLI
 
 ```bash
-# 1. Navegar até o diretório do projeto
-cd /caminho/para/seu/projeto
+supabase --version
+```
 
-# 2. Fazer login no Supabase (se ainda não fez)
+Se não tiver instalado:
+```bash
+npm install -g supabase
+```
+
+### Passo 2: Login no Supabase
+
+```bash
 supabase login
-
-# 3. Linkar ao projeto (se ainda não fez)
-supabase link --project-ref seu-project-id
-
-# 4. Deploy da função
-supabase functions deploy consultor-chat
-
-# 5. Confirmar deploy
-# Deve retornar: "Deployed Function consultor-chat"
 ```
 
-### Tempo estimado: **30 segundos**
-
----
-
-## 🎯 OPÇÃO 2: DEPLOY VIA SUPABASE DASHBOARD
-
-### Passo a Passo:
-
-1. **Acessar Dashboard**
-   - Ir para: https://supabase.com/dashboard
-   - Selecionar seu projeto
-
-2. **Ir em Edge Functions**
-   - Menu lateral → **Edge Functions**
-   - Encontrar `consultor-chat` na lista
-
-3. **Editar Função**
-   - Clicar nos 3 pontinhos da função
-   - Selecionar **"Edit"** ou **"Update"**
-
-4. **Substituir Código**
-   - **Arquivo 1**: `index.ts`
-     - Copiar TUDO do arquivo local
-     - Colar no editor do Supabase
-
-   - **Arquivo 2**: `deliverable-generators.ts`
-     - Clicar em **"Add file"** ou editar existente
-     - Copiar TUDO do arquivo local
-     - Colar no editor do Supabase
-
-5. **Deploy**
-   - Clicar em **"Deploy"** ou **"Save & Deploy"**
-   - Aguardar confirmação (15-30 segundos)
-
-### Tempo estimado: **3-5 minutos**
-
----
-
-## ⚠️ IMPORTANTE ANTES DE FAZER DEPLOY
-
-### Verificar se arquivos estão completos:
+### Passo 3: Link do Projeto
 
 ```bash
-# Verificar tamanho dos arquivos
-wc -l supabase/functions/consultor-chat/index.ts
-# Deve retornar: 1439 linhas
-
-wc -l supabase/functions/consultor-chat/deliverable-generators.ts
-# Deve retornar: 532 linhas
+supabase link --project-ref gljoasdvlaitplbmbtzg
 ```
 
-### Verificar se patches foram aplicados:
+### Passo 4: Deploy da Função
 
 ```bash
-# Verificar se tem prompts 5W2H
-grep "REGRA CRÍTICA - DETALHAMENTO DE AÇÕES 5W2H" supabase/functions/consultor-chat/index.ts
-# Deve retornar uma linha
+cd /tmp/cc-agent/59063573/project
+supabase functions deploy consultor-rag
+```
 
-# Verificar se salva cards
-grep "kanban_cards" supabase/functions/consultor-chat/deliverable-generators.ts
-# Deve retornar várias linhas
+## 🎯 Resultado Esperado
+
+```
+Deploying consultor-rag...
+✓ Deployed function consultor-rag
+Function URL: https://gljoasdvlaitplbmbtzg.supabase.co/functions/v1/consultor-rag
+```
+
+## 📋 Checklist Pós-Deploy
+
+1. ✅ Ver logs: `supabase functions logs consultor-rag`
+2. ✅ Deletar sessão contaminada:
+   ```sql
+   DELETE FROM consultor_sessoes
+   WHERE id = 'dffcc7c3-dd2b-4979-a124-63330cad49b5';
+   ```
+3. ✅ Testar no navegador:
+   - Hard refresh (Ctrl+Shift+R)
+   - Nova conversa
+   - Responder perguntas
+   - Verificar que não loopa
+
+## 🔍 Logs Esperados
+
+Após o deploy, os logs devem mostrar:
+
+```
+[CONSULTOR-RAG] Sessão completa carregada: {
+  tem_contexto: true,
+  contexto_keys: ["nome", "cargo", "idade"]
+}
+
+[RAG-EXECUTOR] Salvando contexto incremental: {...}
+[RAG-EXECUTOR] Contexto salvo: ["nome", "cargo", "idade", "formacao"]
+```
+
+## ❌ Erro Comum
+
+Se você tentar copiar/colar no Dashboard:
+```
+Failed to bundle the function (reason: Module not found "file:///tmp/.../prompt.ts")
+```
+
+**Solução:** Sempre usar `supabase functions deploy` via CLI!
+
+## 📦 Arquivos da Função
+
+```
+supabase/functions/consultor-rag/
+├── index.ts              (entrada principal)
+├── orchestrator.ts       (lógica de orquestração)
+├── consultor-prompts.ts  (prompts por fase)
+├── rag-engine.ts         (RAG search)
+└── (prompt.ts DELETADO)  (arquivo obsoleto removido)
+```
+
+## 🚀 Comando Completo (Copy-Paste)
+
+```bash
+\
+supabase login && \
+supabase link --project-ref gljoasdvlaitplbmbtzg && \
+supabase functions deploy consultor-rag && \
+echo "✅ Deploy concluído!"
 ```
 
 ---
 
-## ✅ VALIDAR DEPLOY
-
-Após fazer deploy, validar se funcionou:
-
-### 1. Verificar no Dashboard
-- Edge Functions → consultor-chat
-- Status deve estar **"Active"** com data/hora recente
-
-### 2. Testar no Chat
-```
-1. Ir em Chat → Modo Consultor
-2. Criar nova conversa
-3. Passar pela etapa de execução
-4. Pedir para gerar plano de ação
-5. Verificar se ações têm detalhes 5W2H
-```
-
-### 3. Verificar no Banco
-```sql
--- Após gerar um Kanban, verificar:
-SELECT * FROM kanban_cards
-WHERE jornada_id = 'seu-id-de-jornada'
-ORDER BY created_at DESC
-LIMIT 5;
-
--- Deve retornar cards com dados_5w2h preenchidos
-```
-
----
-
-## 🔍 TROUBLESHOOTING
-
-### Erro: "Module not found deliverable-generators.ts"
-**Solução**: Certifique-se de fazer upload dos **2 arquivos** (index.ts + deliverable-generators.ts)
-
-### Erro: "Syntax error"
-**Solução**: Verifique se copiou o arquivo **completo** (1439 linhas do index.ts)
-
-### Deploy não aparece como "Active"
-**Solução**:
-- Aguardar 30 segundos
-- Recarregar página do dashboard
-- Verificar logs de erro
-
-### Função retorna erro 500
-**Solução**:
-- Ir em Edge Functions → consultor-chat → Logs
-- Ver erro específico
-- Geralmente é problema de sintaxe ou import
-
----
-
-## 📊 CHECKLIST FINAL
-
-Antes de testar:
-
-- [ ] Arquivo `index.ts` tem 1439 linhas
-- [ ] Arquivo `deliverable-generators.ts` tem 532 linhas
-- [ ] Deploy foi feito com sucesso (status "Active")
-- [ ] Função aparece no dashboard com data recente
-- [ ] Não há erros nos logs
-
-Depois de testar:
-
-- [ ] LLM gera ações detalhadas com 5W2H
-- [ ] Cards são salvos na tabela `kanban_cards`
-- [ ] Cards têm `dados_5w2h` preenchidos
-- [ ] Não há duplicação de entregáveis
-
----
-
-## 🎯 RESUMO
-
-**O QUE FAZER AGORA**:
-1. Abrir terminal
-2. Executar: `supabase functions deploy consultor-chat`
-3. Aguardar 30 segundos
-4. Testar no chat
-
-**TEMPO TOTAL**: 1-2 minutos (CLI) ou 3-5 minutos (Dashboard)
-
-**RESULTADO ESPERADO**:
-- ✅ Ações detalhadas com 5W2H
-- ✅ Cards salvos no banco
-- ✅ Sistema 100% funcional
-
----
-
-**BOA SORTE!** 🚀
+**CRÍTICO:** Sempre use CLI para deploy de funções com múltiplos arquivos!
