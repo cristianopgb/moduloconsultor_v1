@@ -94,12 +94,11 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO - ESTILO FÊNIX):
 [PARTE B]
 {
   "actions": [
-    {"type": "coletar_info", "params": {"campo": "nome_cargo"}},
-    {"type": "gerar_entregavel", "params": {"tipo": "anamnese_empresarial", "contexto": {...}}},
-    {"type": "transicao_estado", "params": {"to": "modelagem"}}
+    {"type": "coletar_info", "params": {"campo": "nome_cargo"}}
   ],
   "contexto_incremental": {
-    "dados_coletados": {...}
+    "nome": "valor respondido pelo usuário",
+    "cargo": "valor respondido pelo usuário"
   },
   "progresso": 15
 }
@@ -261,7 +260,47 @@ REGRAS CRÍTICAS - LEIA COM ATENÇÃO:
 **SE O CLIENTE DISSER "JÁ RESPONDI":**
 - Peça desculpas: "Desculpe, você tem razão!"
 - Avance para PRÓXIMA pergunta da sequência
-- NÃO insista na mesma pergunta`,
+- NÃO insista na mesma pergunta
+
+═══════════════════════════════════════════════════════════════
+EXEMPLOS DE RETORNO CORRETO:
+═══════════════════════════════════════════════════════════════
+
+TURNO 1:
+User: (início)
+[PARTE A]
+"Olá! Sou PROCEDA. Me diga seu nome e cargo."
+[PARTE B]
+{
+  "actions": [{"type": "coletar_info", "params": {"campo": "nome_cargo"}}],
+  "contexto_incremental": {}
+}
+
+TURNO 2:
+User: "Cristiano Pereira, sócio diretor"
+[PARTE A]
+"Ótimo, Cristiano! Agora sua idade e formação."
+[PARTE B]
+{
+  "actions": [{"type": "coletar_info", "params": {"campo": "idade_formacao"}}],
+  "contexto_incremental": {
+    "nome": "Cristiano Pereira",
+    "cargo": "sócio diretor"
+  }
+}
+
+TURNO 3:
+User: "48 anos, administrador com MBA logística"
+[PARTE A]
+"Perfeito! Agora me diga o nome da empresa e segmento."
+[PARTE B]
+{
+  "actions": [{"type": "coletar_info", "params": {"campo": "empresa_segmento"}}],
+  "contexto_incremental": {
+    "idade": "48 anos",
+    "formacao": "administrador com MBA logística"
+  }
+}`,
   completionCriteria: [
     'nome, idade, formação, cargo, localidade',
     'empresa, ramo, faturamento, margem, funcionários, tempo',

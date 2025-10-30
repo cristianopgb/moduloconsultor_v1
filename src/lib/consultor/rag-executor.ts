@@ -369,6 +369,44 @@ export async function executeRAGActions(
           break;
 
         case 'coletar_info':
+          // SALVAR CONTEXTO INCREMENTAL NO BANCO!
+          if (response.contexto_incremental && Object.keys(response.contexto_incremental).length > 0) {
+            console.log('[RAG-EXECUTOR] Salvando contexto incremental:', response.contexto_incremental);
+
+            // Buscar contexto atual
+            const { data: sessaoAtual } = await supabase
+              .from('consultor_sessoes')
+              .select('contexto_coleta')
+              .eq('id', sessaoId)
+              .maybeSingle();
+
+            const contextoAtual = sessaoAtual?.contexto_coleta || {};
+            const contextoAtualizado = {
+              ...contextoAtual,
+              ...response.contexto_incremental
+            };
+
+            // Atualizar contexto no banco
+            const { error: updateError } = await supabase
+              .from('consultor_sessoes')
+              .update({
+                contexto_coleta: contextoAtualizado,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', sessaoId);
+
+            if (updateError) {
+              console.error('[RAG-EXECUTOR] Erro salvando contexto:', updateError);
+              result = { success: false, error: updateError.message };
+            } else {
+              console.log('[RAG-EXECUTOR] Contexto salvo:', Object.keys(contextoAtualizado));
+              result = { success: true };
+            }
+          } else {
+            result = { success: true };
+          }
+          break;
+
         case 'aplicar_metodologia':
         case 'schedule_checkin':
           // Informacionais: não executam nada, apenas registram
