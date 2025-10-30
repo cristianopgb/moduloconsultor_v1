@@ -1,161 +1,59 @@
-/**
- * CONSULTOR RAG - ARQUITETURA DE 3 CAMADAS ADAPTATIVAS
- *
- * 1. ESTRATEGISTA: Carrega Adapter por Setor + Knowledge Base RAG
- * 2. TÁTICO: LLM decide ações baseado em portfólio adaptativo
- * 3. EXECUTOR: Frontend executa actions retornadas (gerar entregáveis, kanban, etc.)
- *
- * Fluxo:
- * 1. Recebe mensagem do usuário + sessão
- * 2. Carrega Adapter do setor (KPIs, perguntas, metodologias)
- * 3. Busca Knowledge Base por tags relevantes
- * 4. Monta prompt especializado com contexto
- * 5. LLM retorna resposta + actions[] (nunca vazio, Enforcer garante)
- * 6. Frontend executa actions via rag-executor
- */ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
-import { ConsultorOrchestrator } from './orchestrator.ts';
-import { normalizeToBackend, isValidBackendState } from '../_shared/state-mapping.ts';
-import { callOpenAI } from '../_shared/llm-config.ts';
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey'
-};
-Deno.serve(async (req)=>{
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: corsHeaders
-    });
-  }
-  try {
-    const SUPA_URL = Deno.env.get('SUPABASE_URL');
-    const SUPA_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const OPENAI_KEY = Deno.env.get('OPENAI_API_KEY');
-    if (!OPENAI_KEY) {
-      throw new Error('OPENAI_API_KEY not configured');
-    }
-    const supabase = createClient(SUPA_URL, SUPA_KEY, {
-      auth: {
-        persistSession: false
-      }
-    });
-    const body = await req.json();
-    const { sessao, messages } = body;
-    if (!sessao?.id || !messages || messages.length === 0) {
-      return new Response(JSON.stringify({
-        error: 'sessao.id and messages are required'
-      }), {
-        status: 400,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json'
-        }
-      });
-    }
-    // 1. ESTRATEGISTA: Inicializar orchestrator e carregar contexto
-    const orchestrator = new ConsultorOrchestrator(supabase);
-    // Carrega adapter por setor
-    const adapter = await orchestrator.loadAdapterFor({
-      setor: sessao.setor,
-      empresa: sessao.empresa
-    });
-    // Carrega Knowledge Base relevante
-    const tagsRelevantes = [
-      ...adapter?.setor ? [
-        adapter.setor
-      ] : [],
-      ...adapter?.tags ?? [],
-      ...sessao.setor ? [
-        sessao.setor
-      ] : []
-    ].filter(Boolean);
-    const kb = await orchestrator.loadKnowledgeBaseBlocs([
-      ...new Set(tagsRelevantes)
-    ].slice(0, 5), 6);
-    // Normalizar estado
-    const estadoNormalizado = normalizeToBackend(sessao.estado || 'anamnese');
-    if (!isValidBackendState(estadoNormalizado)) {
-      console.warn('[CONSULTOR-RAG] Estado inválido, usando coleta:', sessao.estado);
-    }
-    console.log('[CONSULTOR-RAG] Loaded:', {
-      adapter: adapter?.setor || 'none',
-      kb_docs: kb.length,
-      estado_original: sessao.estado,
-      estado_normalizado: estadoNormalizado
-    });
-    // 2. TÁTICO: Montar prompt do Estrategista
-    const systemPrompt = orchestrator.getSystemPrompt({
-      empresa: sessao.empresa,
-      setor: sessao.setor,
-      adapter,
-      kb
-    });
-    // Construir histórico para LLM
-    const userContent = messages.map((m)=>`${m.role.toUpperCase()}: ${m.content}`).join('\n');
-    // 3. Chamar LLM (TÁTICO decide actions) com profile analytical
-    const llmMessages = [
-      {
-        role: 'system',
-        content: systemPrompt
-      },
-      {
-        role: 'user',
-        content: userContent
-      }
-    ];
-    console.log('[CONSULTOR-RAG] Calling LLM with analytical profile');
-    const llmResp = await callOpenAI(OPENAI_KEY, llmMessages, 'analytical');
-    if (!llmResp.ok) {
-      const err = await llmResp.text();
-      console.error('[CONSULTOR-RAG] LLM error:', err);
-      throw new Error(`LLM API error: ${llmResp.status}`);
-    }
-    const llmData = await llmResp.json();
-    const fullText = String(llmData?.choices?.[0]?.message?.content ?? '');
-    console.log('[CONSULTOR-RAG] LLM response length:', fullText.length);
-    // 4. TÁTICO: Parse actions (sempre retorna algo)
-    let { actions, contexto_incremental } = orchestrator.parseActionsBlock(fullText);
-    // 5. ENFORCER: Se LLM não retornou actions, sintetiza fallback
-    const ultimaMensagemUser = String(messages.at(-1)?.content ?? '');
-    if (!Array.isArray(actions) || actions.length === 0) {
-      console.warn('[ENFORCER] LLM não retornou actions, sintetizando fallback...');
-      actions = orchestrator.synthesizeFallbackActions(estadoNormalizado, ultimaMensagemUser);
-    }
-    // 6. FIX: Normaliza transicao_estado para sempre ter 'to' válido
-    actions = orchestrator.fixTransicaoEstadoTargets(actions, estadoNormalizado);
-    console.log('[CONSULTOR-RAG] Actions after normalization:', actions.length);
-    // Extrai texto limpo (antes de [PARTE B])
-    const replyText = fullText.split('[PARTE B]')[0]?.trim() || 'Avançando com a próxima ação.';
-    console.log('[CONSULTOR-RAG] Returning:', {
-      reply_length: replyText.length,
-      actions_count: actions.length,
-      etapa: estadoNormalizado
-    });
-    // 7. Retornar para frontend (EXECUTOR executará as actions)
-    return new Response(JSON.stringify({
-      reply: replyText,
-      actions: actions,
-      contexto_incremental,
-      etapa: estadoNormalizado,
-      sessao_id: sessao.id
-    }), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json'
-      }
-    });
-  } catch (e) {
-    console.error('[consultor-rag] ERROR:', e);
-    return new Response(JSON.stringify({
-      reply: 'Não consegui processar sua mensagem agora. Por favor, tente novamente.',
-      actions: [],
-      error: e.message
-    }), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json'
-      },
-      status: 200 // Return 200 to not break frontend
-    });
-  }
-});
+// supabase/functions/consultor-rag/prompt.ts
+// PROMPT FORTE — CONSULTOR PROCEDA (condução assertiva, sem pedir opinião)
+// Regras centrais: 1 pergunta objetiva por turno; sempre fechar com próximo passo explícito;
+// ações sempre retornadas em [PARTE B] (nunca vazio).
+
+export const SYSTEM_PROMPT = `
+Você é o CONSULTOR PROCEDA. Conduza o processo usando o método da jornada.
+Não peça opinião ou sugestão. Você decide a sequência do método.
+Pergunte apenas para coletar dados objetivos (máx. 1 pergunta por turno).
+Sempre finalize com um próximo passo claro (confirmação, ação ou pergunta única).
+
+Use exatamente duas seções na saída:
+
+[PARTE A]
+- Até 6 linhas, direto ao ponto: diga o que vai fazer agora e por quê.
+- Se precisar de dado, faça UMA pergunta objetiva (sem alternativas).
+- Se não precisar perguntar, diga qual ação executará.
+- Nunca termine sem "Próximo passo: ...".
+
+[PARTE B]
+- JSON com: etapa, actions[], contexto_incremental{}, next_step, next_step_label.
+- Etapas válidas: coleta, analise, diagnostico, recomendacao, execucao, concluido.
+- Ações válidas (nomes exatos):
+  - transicao_estado { "to": "<etapa>" }
+  - criar_entregavel { "tipo": "<memoria_evidencias|relatorio_parcial|bpmn_as_is|bpmn_to_be|plano_5w2h|matriz_priorizacao>", "titulo"?: string, "conteudo"?: string }
+  - atualizar_kanban { "area"?: "<Comercial|Financeiro|...>", "cards": [{ "titulo": string, "descricao"?: string, "status"?: "a_fazer"|"em_andamento"|"bloqueado"|"concluido" }] }
+  - analyze_dataset { "origem": "<upload|planilha|erp>", "objetivo": string, "variaveis"?: string[] }
+  - compute_kpis { "kpis": ["taxa_conversao","ticket_medio","lead_time", ...] }
+  - design_process_map { "tipo": "<bpmn_as_is|bpmn_to_be>", "processo": string, "passos"?: string[] }
+
+Regras anti-loop:
+- Se o usuário responder "não sei/indefinido", avance com a próxima etapa coerente e registre ação.
+- Não repita a mesma pergunta. Se o dado não vier, assuma hipótese e siga.
+- Cada turno deve reduzir incerteza ou produzir artefato/ação (actions NUNCA vazio).
+- Não ofereça opções. Não pergunte "o que prefere?". Você conduz.
+
+Tom:
+- Profissional, claro, didático, sem floreio. Nada de perguntas abertas.
+
+Exemplo mínimo de estrutura:
+[PARTE A]
+Vamos começar pela coleta dos indicadores essenciais para dimensionar o funil de vendas. Isso destrava o diagnóstico.
+Pergunta: Qual foi o ticket médio do último mês (R$)?
+Próximo passo: informe apenas o número (ex.: 128.50).
+
+[PARTE B - INICIO]
+{
+  "etapa": "coleta",
+  "actions": [
+    { "type": "transicao_estado", "payload": { "to": "coleta" } }
+  ],
+  "contexto_incremental": {},
+  "next_step": "pergunta",
+  "next_step_label": "Informe o ticket médio do último mês (R$)."
+}
+[PARTE B - FIM]
+
+IMPORTANTE: Sempre delimite [PARTE B] com [PARTE B - INICIO] e [PARTE B - FIM].
+`.trim();
