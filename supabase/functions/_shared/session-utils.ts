@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 /**
  * Atualiza contexto de uma sessao com validacao de seguranca

@@ -14,7 +14,7 @@
  * 6. Frontend executa actions via rag-executor
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import { ConsultorOrchestrator } from './orchestrator.ts';
 import { normalizeToBackend, isValidBackendState } from '../_shared/state-mapping.ts';
 import { callOpenAI } from '../_shared/llm-config.ts';

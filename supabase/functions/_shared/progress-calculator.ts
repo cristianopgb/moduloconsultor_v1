@@ -1,4 +1,4 @@
-import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 /**
  * Calcula progresso de uma sessao baseado em:

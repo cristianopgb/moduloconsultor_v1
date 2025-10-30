@@ -8,7 +8,7 @@
 // ✅ CORRIGIDO: Preserva elementos com style, class e id (não remove cores)
 // ✅ NOVO: Roteamento automático para Analytics (chama chat-analyze quando houver planilhas + pedido genérico/analítico bem formado)
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2
 
 // ---------------- CORS ----------------
 const corsHeaders = {

@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import { updateSessaoContext } from '../_shared/session-utils.ts';
 
 const corsHeaders = {

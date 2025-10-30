@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import { updateSessionProgress } from '../_shared/progress-calculator.ts';
 
 const corsHeaders = {

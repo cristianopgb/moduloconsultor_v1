@@ -8,7 +8,7 @@
  * 4. Construção de contexto para LLM
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target=deno';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 export interface DocumentoKnowledge {
   id: string;
