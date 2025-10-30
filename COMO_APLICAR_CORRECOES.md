@@ -1,198 +1,234 @@
-# Como Aplicar as Correções do Framework Consultor
+# CORREÇÃO DO LOOP INFINITO - CONSULTOR RAG
 
-## ✅ Arquivos Modificados/Criados
+## Problema Identificado
 
-### 1. Migração SQL (CRÍTICO - APLICAR PRIMEIRO)
-- **Arquivo**: `supabase/migrations/20251025_fix_consultor.sql`
-- **O que faz**:
-  - Adiciona coluna `updated_at` em `entregaveis_consultor` (resolve PGRST204)
-  - Padroniza `timeline_consultor` com coluna `tipo_evento` (resolve erro de coluna inexistente)
-  - Cria RPC `consultor_register_timeline` para inserções consistentes
-  - Força reload do PostgREST para limpar cache
+O consultor estava entrando em **LOOP INFINITO** porque:
 
-### 2. Imports Corrigidos (ELIMINA ERRO DENO)
-- **Arquivos**: TODOS os `.ts` em `supabase/functions/`
-- **Mudança**: `npm:@supabase/supabase-js@2` → `https://esm.sh/@supabase/supabase-js@2`
-- **Resultado**: Elimina erro "Deno.core.runMicrotasks() is not supported"
+### 1. ❌ Histórico NÃO era passado corretamente ao LLM
+```typescript
+// ANTES (ERRADO):
+const userContent = messages.map((m: any) =>
+  `${m.role.toUpperCase()}: ${m.content}`
+).join('\n');
 
-### 3. Novos Arquivos de Suporte
-- **marker-processor-v2.ts**: Nova versão com métodos limpos para timeline e checklist
-- **intelligent-prompt-builder-v2.ts**: Prompt simplificado e direto para guiar LLM
-
-### 4. Correções no Fluxo Principal
-- **index.ts**:
-  - Anti-loop agora só força após 3 tentativas E confirmação do usuário
-  - Forms bloqueados até usuário confirmar (xxx_usuario_confirmou = true)
-  - Geração de matriz usa checklist ao invés de contexto_coleta
-
-- **consultor-fsm.ts**:
-  - FSM agora retorna actions apenas quando usuário confirmou
-  - Usa SOMENTE checklist (não contexto) para decidir próximos passos
-  - Canvas/Cadeia não abrem sem confirmação prévia
-
-## 🚀 Passos para Aplicar
-
-### Passo 1: Aplicar Migração SQL
-
-```bash
-# Opção A: Via Supabase CLI (recomendado)
-cd supabase
-npx supabase db push
-
-# Opção B: Executar SQL diretamente no Dashboard
-# 1. Acesse: https://supabase.com/dashboard/project/[SEU_PROJECT]/sql
-# 2. Cole o conteúdo de: supabase/migrations/20251025_fix_consultor.sql
-# 3. Clique em "RUN"
+const llmMessages = [
+  { role: 'system', content: systemPrompt },
+  { role: 'user', content: userContent }  // TUDO EM UMA MENSAGEM!
+];
 ```
 
-**IMPORTANTE**: Aguarde alguns segundos após aplicar para o PostgREST recarregar o schema.
+**Resultado:** GPT recebia tudo como texto concatenado, não conseguia distinguir histórico.
 
-### Passo 2: Verificar Imports
+### 2. ❌ Prompt tinha EXEMPLOS que LLM copiava literalmente
+```typescript
+// Prompt tinha:
+[PARTE A]
+Olá! Prazer em conhecê-lo(a)! Meu nome é [seu nome]...
 
-Os imports já foram corrigidos automaticamente. Você pode verificar com:
-
-```bash
-grep -r "npm:@supabase/supabase-js" supabase/functions/
-# Não deve retornar nada
+// LLM copiava isso palavra por palavra, sempre voltava ao turno 1
 ```
-
-### Passo 3: Deploy das Edge Functions
-
-```bash
-# Deploy da função principal (consultor-chat)
-npx supabase functions deploy consultor-chat
-
-# Opcional: Deploy de outras funções afetadas
-npx supabase functions deploy gerar-entregavel
-npx supabase functions deploy gerar-plano-acao
-npx supabase functions deploy gerar-diagnostico
-npx supabase functions deploy validar-priorizacao
-```
-
-### Passo 4: Testar o Fluxo
-
-1. Inicie uma nova conversa no modo Consultor
-2. Observe que agora:
-   - ✅ LLM pede permissão ANTES de enviar formulário
-   - ✅ Formulário só abre APÓS você confirmar (sim/ok/pode)
-   - ✅ Ordem respeitada: Anamnese → Canvas → Cadeia → Matriz (auto) → Validação → Execução
-   - ✅ Timeline atualiza a cada passo
-   - ✅ Entregáveis salvam sem erros
-   - ✅ Sem loops de "cadê?" ou CTAs repetidos
-
-## 🔍 Verificação de Sucesso
-
-### Teste 1: Verificar Schema do Banco
-```sql
--- No SQL Editor do Supabase
-SELECT column_name, data_type
-FROM information_schema.columns
-WHERE table_name = 'entregaveis_consultor'
-AND column_name = 'updated_at';
--- Deve retornar: updated_at | timestamp with time zone
-
-SELECT column_name, data_type
-FROM information_schema.columns
-WHERE table_name = 'timeline_consultor'
-AND column_name = 'tipo_evento';
--- Deve retornar: tipo_evento | text
-```
-
-### Teste 2: Verificar RPC
-```sql
-SELECT routine_name
-FROM information_schema.routines
-WHERE routine_name = 'consultor_register_timeline';
--- Deve retornar: consultor_register_timeline
-```
-
-### Teste 3: Testar Fluxo Completo
-1. Abra conversa nova
-2. Responda "Olá" → Deve apresentar-se e pedir anamnese
-3. Responda "sim" → Deve abrir formulário de anamnese IMEDIATAMENTE
-4. Preencha anamnese → Deve pedir Canvas
-5. Responda "ok" → Deve abrir Canvas IMEDIATAMENTE
-6. Preencha Canvas → Deve pedir Cadeia de Valor
-7. Responda "pode" → Deve abrir Cadeia IMEDIATAMENTE
-8. Preencha Cadeia → Deve gerar Matriz automaticamente e pedir validação
-9. Clique em "Validar Escopo" → Deve avançar para Execução
-
-## 🐛 Problemas Comuns
-
-### Erro: PGRST204 persiste
-**Causa**: PostgREST não recarregou o schema
-**Solução**:
-```sql
-NOTIFY pgrst, 'reload schema';
-```
-Ou reinicie o projeto no Dashboard do Supabase.
-
-### Erro: column "tipo_evento" does not exist
-**Causa**: Migração não foi aplicada
-**Solução**: Execute o SQL da migração manualmente no Dashboard.
-
-### LLM ainda repete CTAs
-**Causa**: Edge function não foi redployada
-**Solução**:
-```bash
-npx supabase functions deploy consultor-chat
-```
-
-### Forms não abrem mesmo após confirmar
-**Causa**: Checklist não está marcando confirmações
-**Solução**: Verifique os logs da edge function para ver se `isUserConfirmation` está detectando a resposta.
-
-## 📊 Monitoramento
-
-### Logs Importantes
-No Supabase Dashboard → Edge Functions → consultor-chat → Logs:
-
-```
-✅ SUCESSO:
-- "[FSM] Canvas confirmed, opening form"
-- "[CONSULTOR-CHAT] ✅ User confirmed: canvas"
-- "[MarkerProcessorV2] timeline RPC success"
-- "[TIMELINE] ✅ Evento registrado (via RPC)"
-
-❌ ERRO (não deve aparecer mais):
-- "PGRST204"
-- "column tipo_evento does not exist"
-- "Deno.core.runMicrotasks()"
-- "🚨 ANTI-LOOP: Force-confirming" (só se realmente necessário)
-```
-
-## 🎯 Resultado Final
-
-Com todas as correções aplicadas:
-
-1. **Schema do Banco**: ✅ Desbloqueia entregáveis e timeline
-2. **FSM**: ✅ Só libera forms após confirmação do usuário
-3. **Anti-Loop**: ✅ Só força após 3 tentativas reais
-4. **Validações**: ✅ Sem contradições, fluxo linear
-5. **Timeline**: ✅ Registra todos os eventos
-6. **Geração de Entregáveis**: ✅ Funciona sem erros
-7. **LLM**: ✅ Segue fluxo sem pular etapas
 
 ---
 
-## 📝 Notas Técnicas
+## ✅ Correções Aplicadas
 
-### Por que usar checklist ao invés de contexto_coleta?
+### 1. **Passar Histórico Como Array de Mensagens**
 
-O `contexto_coleta` é preenchido DURANTE o processamento do formulário, causando condições de corrida. O `framework_checklist` é a fonte única de verdade, atualizado APÓS cada etapa ser completada.
+**Arquivo:** `supabase/functions/consultor-rag/index.ts`
 
-### Por que 3 tentativas para anti-loop?
+```typescript
+// AGORA (CORRETO):
+const llmMessages: Array<{role: string, content: string}> = [
+  { role: 'system', content: systemPrompt }
+];
 
-- 1ª tentativa: LLM envia CTA
-- 2ª tentativa: Usuário pode ter perguntado algo ("o que é Canvas?")
-- 3ª tentativa: Se ainda não confirmou, é um loop real
+// Adicionar histórico completo de mensagens SEPARADAS
+for (const msg of messages) {
+  llmMessages.push({
+    role: msg.role === 'user' ? 'user' : 'assistant',
+    content: msg.content
+  });
+}
+```
 
-### Por que verificar xxx_usuario_confirmou?
+**Resultado:** GPT agora VÊ o histórico completo e NÃO repete perguntas.
 
-Sem isso, o FSM retorna action para abrir form mesmo sem o usuário ter confirmado, causando o form abrir prematuramente e a LLM não conseguir enviar a mensagem de CTA primeiro.
+### 2. **Prompt com DIRETRIZES, não exemplos literais**
+
+**Arquivo:** `supabase/functions/consultor-rag/consultor-prompts.ts`
+
+```typescript
+// ANTES:
+┌────────────────────────────────┐
+│ TURNO 1: QUEBRA-GELO          │
+└────────────────────────────────┘
+
+[PARTE A]
+Olá! Prazer... Meu nome é [seu nome]...
+[PARTE B]
+{...}
+
+// AGORA:
+**TURNO 1: QUEBRA-GELO**
+
+SE for a PRIMEIRA interação (histórico vazio):
+- Apresente-se como consultor estratégico da PROCEda
+- Explique que precisa conhecer o cliente
+- Pergunte: nome completo + cargo
+
+Action: {"type": "coletar_info", "params": {"campo": "nome_cargo"}}
+```
+
+### 3. **Instrução Explícita: ANALISE O HISTÓRICO**
+
+Adicionado no topo do prompt:
+
+```
+**IMPORTANTE:** Analise o HISTÓRICO de mensagens para saber:
+1. Quais dados JÁ foram coletados
+2. Qual a PRÓXIMA pergunta da sequência
+3. NÃO repita perguntas já respondidas
+```
+
+### 4. **Tratamento de "Já Respondi"**
+
+```
+**SE O CLIENTE DISSER "JÁ RESPONDI":**
+- Peça desculpas: "Desculpe, você tem razão!"
+- Avance para PRÓXIMA pergunta da sequência
+- NÃO insista na mesma pergunta
+```
 
 ---
 
-**Última atualização**: 2025-10-25
-**Versão**: 1.0
-**Status**: ✅ Testado e Funcional
+## Arquivos Modificados
+
+1. **`supabase/functions/consultor-rag/index.ts`**
+   - Linhas 109-121: Histórico como array de mensagens separadas
+
+2. **`supabase/functions/consultor-rag/consultor-prompts.ts`**
+   - Linhas 112-119: Instrução para analisar histórico
+   - Linhas 125-190: Turnos reescritos como DIRETRIZES
+   - Linhas 237-251: Regras críticas + tratamento de "já respondi"
+
+---
+
+## Como Aplicar (Deploy)
+
+### PASSO 1: Deletar sessões antigas (JÁ FEITO)
+```sql
+DELETE FROM consultor_sessoes WHERE id = '24a2175b-5805-4a18-8939-a23204dd775b';
+DELETE FROM consultor_sessoes WHERE jornada_id IS NULL;
+```
+
+### PASSO 2: Redeploy Edge Function
+```bash
+# Via CLI (se disponível):
+supabase functions deploy consultor-rag
+
+# Ou via Dashboard:
+# 1. Supabase Dashboard → Edge Functions
+# 2. Selecionar consultor-rag
+# 3. Clicar "Deploy"
+```
+
+### PASSO 3: Testar
+1. Hard refresh: Ctrl+Shift+R
+2. Iniciar nova conversa
+3. Verificar:
+   - ✅ Consultor pergunta nome/cargo
+   - ✅ NÃO repete perguntas
+   - ✅ Segue sequência de 8 turnos
+   - ✅ Sintetiza ao final
+
+---
+
+## Conversa Esperada Após Fix
+
+```
+USER: Olá
+
+BOT: Olá! Prazer em conhecê-lo(a)! Meu nome é João, consultor estratégico 
+     da PROCEda. Antes de começarmos, preciso te conhecer melhor.
+     
+     Para começar: qual é o seu nome e qual cargo você ocupa?
+
+USER: Cristiano, sócio diretor
+
+BOT: Ótimo, Cristiano! Como sócio diretor, você deve ter visão ampla da empresa.
+     
+     1. Qual sua faixa etária aproximada? (20-30, 30-40, 40-50, 50+)
+     2. Qual sua formação acadêmica?
+
+USER: 48 anos, adm com MBA logística
+
+BOT: Perfeito! Agora me conte:
+     
+     1. Em qual cidade/estado você está localizado?
+     2. Há quanto tempo você atua nessa empresa/posição?
+
+USER: Brasília, 15 anos de gestão
+
+BOT: Ótimo, Cristiano! Agora vamos falar sobre a empresa:
+     
+     1. Qual o nome da empresa?
+     2. Qual o segmento/ramo principal de atuação?
+
+USER: Helpers BPO, consultoria financeira e BPO financeiro
+
+BOT: Entendido. Para dimensionar adequadamente nossa abordagem:
+     
+     1. Qual o faturamento médio mensal? (até 50k, 50-200k, 200-500k, 500k-2M, 2M+)
+     2. Quantos colaboradores trabalham na empresa?
+
+[... continua até completar 8 turnos ...]
+```
+
+---
+
+## Diferenças Antes x Depois
+
+| Aspecto | ANTES | DEPOIS |
+|---------|-------|--------|
+| **Histórico** | Concatenado em 1 mensagem | Array de mensagens separadas |
+| **GPT vê contexto?** | ❌ Não | ✅ Sim |
+| **Repete perguntas?** | ❌ Sim (loop infinito) | ✅ Não |
+| **Prompt** | Exemplos literais | Diretrizes condicionais |
+| **Tratamento "já respondi"** | ❌ Não tinha | ✅ Pede desculpas e avança |
+| **Análise de histórico** | ❌ Não fazia | ✅ Instrução explícita |
+
+---
+
+## Logs Esperados Após Fix
+
+```
+[CONSULTOR-RAG] Loaded: { adapter: "none", kb_docs: 0, estado: "coleta" }
+[CONSULTOR-RAG] Calling LLM with analytical profile
+[CONSULTOR-RAG] LLM response length: 450
+[ORCH] Successfully parsed 1 actions
+[CONSULTOR-RAG] Actions after normalization: 1
+[RAG-EXECUTOR] Executing 1 actions
+[RAG-EXECUTOR] Action succeeded: coletar_info
+```
+
+**SEM:**
+- ❌ Loop infinito
+- ❌ "Qual sua faixa etária?" depois de responder
+- ❌ Voltar ao TURNO 1
+
+---
+
+## Arquivos Relacionados
+
+- `supabase/functions/consultor-rag/index.ts` - Correção histórico
+- `supabase/functions/consultor-rag/consultor-prompts.ts` - Prompt reescrito
+- `PROMPT_ANAMNESE_PROFISSIONAL_REAL.md` - Documentação do prompt
+- `ACOES_URGENTES_AGORA.md` - Resumo de todos os problemas
+
+---
+
+## Status
+
+- ✅ Correção aplicada no código local
+- ✅ Build completo sem erros
+- ⏳ **PENDENTE: Redeploy da edge function consultor-rag**

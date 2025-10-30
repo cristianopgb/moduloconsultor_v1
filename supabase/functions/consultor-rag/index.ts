@@ -106,16 +106,19 @@ Deno.serve(async (req: Request) => {
       estado: estadoNormalizado
     });
 
-    // Construir histórico para LLM
-    const userContent = messages.map((m: any) =>
-      `${m.role.toUpperCase()}: ${m.content}`
-    ).join('\n');
-
-    // 3. Chamar LLM (TÁTICO decide actions) com profile analytical
-    const llmMessages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userContent }
+    // Construir histórico para LLM (PRESERVAR ESTRUTURA DE CONVERSA)
+    // CRÍTICO: Passar mensagens separadas, não concatenadas!
+    const llmMessages: Array<{role: string, content: string}> = [
+      { role: 'system', content: systemPrompt }
     ];
+
+    // Adicionar histórico completo de mensagens
+    for (const msg of messages) {
+      llmMessages.push({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      });
+    }
 
     console.log('[CONSULTOR-RAG] Calling LLM with analytical profile');
     const llmResp = await callOpenAI(OPENAI_KEY, llmMessages, 'analytical');
