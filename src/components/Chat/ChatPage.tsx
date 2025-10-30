@@ -1117,27 +1117,34 @@ function ChatPage() {
 
         setLoading(false);
 
-        // open modal after rendering assistant message so user reads it before the form appears
-        setTimeout(() => {
-          if (formAction && formAction.params?.tipo && formAction.params?.tipo !== 'matriz_priorizacao') {
-            console.log('[FORMULARIO] ✅ Action detectada do backend (post-render):', formAction.params.tipo);
-              setFormType(formAction.params.tipo as any);
-              // If backend included processo param, propagate to modal
-              if (formAction.params?.processo) setFormInitialProcesso(formAction.params.processo);
-              else setFormInitialProcesso(null);
-              setShowFormModal(true);
-            return;
-          }
+        // IMPORTANTE: No modo Consultor (RAG), NÃO detectamos formulários
+        // O sistema RAG funciona com conversação natural contínua (pergunta/resposta)
+        // Formulários só são abertos via actions explícitas do backend (não implementadas ainda)
+        if (!isConsultorMode) {
+          // open modal after rendering assistant message so user reads it before the form appears
+          setTimeout(() => {
+            if (formAction && formAction.params?.tipo && formAction.params?.tipo !== 'matriz_priorizacao') {
+              console.log('[FORMULARIO] ✅ Action detectada do backend (post-render):', formAction.params.tipo);
+                setFormType(formAction.params.tipo as any);
+                // If backend included processo param, propagate to modal
+                if (formAction.params?.processo) setFormInitialProcesso(formAction.params.processo);
+                else setFormInitialProcesso(null);
+                setShowFormModal(true);
+              return;
+            }
 
-          const formMarker = detectFormMarker(reply);
-          if (formMarker && formMarker.tipo !== 'matriz_priorizacao') {
-            console.log('[FORMULARIO] ⚠️ Marcador detectado no texto (fallback, post-render):', formMarker.tipo);
-            setFormType(formMarker.tipo as any);
-            setShowFormModal(true);
-          } else {
-            console.log('[FORMULARIO] ❌ Nenhum formulário detectado (post-render)');
-          }
-        }, 120);
+            const formMarker = detectFormMarker(reply);
+            if (formMarker && formMarker.tipo !== 'matriz_priorizacao') {
+              console.log('[FORMULARIO] ⚠️ Marcador detectado no texto (fallback, post-render):', formMarker.tipo);
+              setFormType(formMarker.tipo as any);
+              setShowFormModal(true);
+            } else {
+              console.log('[FORMULARIO] ❌ Nenhum formulário detectado (post-render)');
+            }
+          }, 120);
+        } else {
+          console.log('[CONSULTOR-RAG] Modo conversacional ativo - formulários desabilitados');
+        }
 
   // limpa ações pendentes após alguns segundos (se não usadas)
   setTimeout(() => setPendingConsultorActions(null), 45_000);
