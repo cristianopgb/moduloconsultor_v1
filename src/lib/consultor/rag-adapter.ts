@@ -31,10 +31,46 @@ export interface ConsultorResponse {
 }
 
 /**
+ * Cria jornada do consultor vinculada ao user
+ */
+async function createJornada(
+  userId: string,
+  conversationId: string,
+  empresaNome?: string
+): Promise<string> {
+  try {
+    const { data: jornada, error } = await supabase
+      .from('jornadas_consultor')
+      .insert([{
+        user_id: userId,
+        conversation_id: conversationId,
+        empresa_nome: empresaNome || null,
+        etapa_atual: 'anamnese',
+        dados_anamnese: {},
+        areas_priorizadas: [],
+        progresso_geral: 0
+      }])
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[RAG-ADAPTER] Erro ao criar jornada:', error);
+      throw new Error(`Erro ao criar jornada: ${error.message}`);
+    }
+
+    console.log('[RAG-ADAPTER] Jornada criada:', jornada.id);
+    return jornada.id as string;
+  } catch (err: any) {
+    console.error('[RAG-ADAPTER] Exceção ao criar jornada:', err);
+    throw new Error(`Falha ao criar jornada: ${err?.message || 'desconhecido'}`);
+  }
+}
+
+/**
  * Cria/recupera sessão do consultor.
+ * - SEMPRE cria jornada vinculada automaticamente
+ * - Garante que jornada_id nunca seja null
  * - Progressivo fallback para evitar schema cache errors
- * - NUNCA usa coluna 'status' (não existe no schema)
- * - Cria com user_id, estado_atual e campos básicos
  */
 export async function getOrCreateSessao(
   userId: string,
@@ -45,7 +81,7 @@ export async function getOrCreateSessao(
   try {
     const { data: sessExistente, error: errBusca } = await supabase
       .from('consultor_sessoes')
-      .select('id, estado_atual, empresa, setor')
+      .select('id, estado_atual, empresa, setor, jornada_id')
       .eq('user_id', userId)
       .eq('ativo', true)
       .order('created_at', { ascending: false })
@@ -54,6 +90,21 @@ export async function getOrCreateSessao(
 
     if (!errBusca && sessExistente?.id) {
       console.log('[RAG-ADAPTER] Sessão existente encontrada:', sessExistente.id);
+
+      // Se sessão existe mas não tem jornada, criar agora
+      if (!sessExistente.jornada_id) {
+        console.log('[RAG-ADAPTER] Sessão sem jornada, criando...');
+        const jornadaId = await createJornada(userId, conversationId, sessExistente.empresa);
+
+        // Vincular jornada à sessão
+        await supabase
+          .from('consultor_sessoes')
+          .update({ jornada_id: jornadaId })
+          .eq('id', sessExistente.id);
+
+        console.log('[RAG-ADAPTER] Jornada vinculada à sessão existente');
+      }
+
       return sessExistente.id;
     }
 
@@ -64,10 +115,14 @@ export async function getOrCreateSessao(
     console.warn('[RAG-ADAPTER] Exceção ao buscar sessão:', err?.message || err);
   }
 
-  // 2) Cria nova sessão com campos essenciais
-  console.log('[RAG-ADAPTER] Criando nova sessão...');
+  // 2) Cria nova sessão com jornada vinculada
+  console.log('[RAG-ADAPTER] Criando nova sessão com jornada...');
 
   try {
+    // Criar jornada primeiro
+    const jornadaId = await createJornada(userId, conversationId);
+
+    // Criar sessão com jornada vinculada
     const { data: created, error: errCreate } = await supabase
       .from('consultor_sessoes')
       .insert([{
@@ -75,6 +130,7 @@ export async function getOrCreateSessao(
         conversation_id: conversationId,
         titulo_problema: tituloProblemaPadrao,
         estado_atual: 'coleta',
+        jornada_id: jornadaId,
         contexto_negocio: {},
         metodologias_aplicadas: [],
         documentos_usados: [],
@@ -91,7 +147,7 @@ export async function getOrCreateSessao(
       throw new Error(`Erro ao criar sessão: ${errCreate.message || 'desconhecido'}`);
     }
 
-    console.log('[RAG-ADAPTER] Nova sessão criada:', created.id);
+    console.log('[RAG-ADAPTER] Nova sessão criada com jornada:', created.id);
     return created.id as string;
 
   } catch (err: any) {

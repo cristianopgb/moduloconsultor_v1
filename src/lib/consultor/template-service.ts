@@ -64,8 +64,30 @@ export class TemplateService {
         case 'diagnostico':
           return await this.gerarDiagnostico(contexto);
 
+        case 'diagnostico_exec':
+        case 'diagnostico_executivo':
+          return await this.gerarDiagnosticoExec(contexto);
+
+        case 'canvas_model':
+        case 'business_canvas':
+        case 'canvas':
+          return await this.gerarCanvasModel(contexto);
+
+        case 'value_chain':
+        case 'cadeia_valor':
+          return await this.gerarCadeiaValor(contexto);
+
+        case 'memoria_evidencias':
+        case 'evidencia_memo':
+          return await this.gerarMemoriaEvidencias(contexto);
+
+        case '5whys':
+        case '5_porques':
+        case 'cinco_porques':
+          return await this.gerar5Whys(contexto);
+
         default:
-          console.warn('[TEMPLATE-SERVICE] Unknown type:', tipo);
+          console.warn('[TEMPLATE-SERVICE] Unknown type:', tipo, '- using generic fallback');
           return await this.gerarGenerico(tipo, contexto);
       }
     } catch (error) {
@@ -393,6 +415,180 @@ Retorne HTML profissional, visualmente organizado, com seções claras.`;
       nome: `Diagnóstico - ${empresa}`,
       html_conteudo: html,
       dados_utilizados: { empresa, contexto }
+    };
+  }
+
+  /**
+   * Generate Diagnostic Executive Report
+   */
+  private static async gerarDiagnosticoExec(contexto: any): Promise<DeliverableResult> {
+    const empresa = contexto.empresa_nome || contexto.empresa || 'Empresa';
+
+    const prompt = `Você é um consultor empresarial criando um Diagnóstico Executivo completo.
+
+EMPRESA: ${empresa}
+CONTEXTO COMPLETO: ${JSON.stringify(contexto, null, 2)}
+
+Gere relatório executivo consolidado com:
+1. SUMÁRIO EXECUTIVO (2-3 parágrafos destacando principais achados)
+2. CONTEXTO DO NEGÓCIO (dados da anamnese compilados)
+3. MODELAGEM ESTRATÉGICA (insights do Canvas + Cadeia de Valor)
+4. CAUSAS RAIZ IDENTIFICADAS (síntese do Ishikawa + 5 Porquês)
+5. PROCESSOS CRÍTICOS (lista dos processos problemáticos priorizados)
+6. GAPS E OPORTUNIDADES (o que falta, o que pode melhorar)
+7. RECOMENDAÇÕES ESTRATÉGICAS (top 5-7 ações prioritárias)
+8. PRÓXIMOS PASSOS (roadmap de execução)
+
+Use dados reais do contexto fornecido. Seja direto, executivo, acionável.
+Retorne HTML profissional com seções claras e visualmente organizadas.`;
+
+    const html = await this.callLLMForHTML(prompt);
+
+    return {
+      nome: `Diagnóstico Executivo - ${empresa}`,
+      html_conteudo: html,
+      dados_utilizados: { empresa, contexto }
+    };
+  }
+
+  /**
+   * Generate Business Model Canvas
+   */
+  private static async gerarCanvasModel(contexto: any): Promise<DeliverableResult> {
+    const empresa = contexto.empresa_nome || contexto.empresa || 'Empresa';
+
+    const prompt = `Você é um consultor empresarial criando um Business Model Canvas.
+
+EMPRESA: ${empresa}
+CONTEXTO: ${JSON.stringify(contexto, null, 2)}
+
+Gere Canvas completo com os 9 blocos:
+1. SEGMENTOS DE CLIENTES: quem são os clientes-alvo
+2. PROPOSTA DE VALOR: o que oferecemos que resolve problemas dos clientes
+3. CANAIS: como chegamos aos clientes (distribuição, comunicação)
+4. RELACIONAMENTO COM CLIENTES: tipo de relacionamento mantido
+5. FONTES DE RECEITA: como a empresa ganha dinheiro
+6. RECURSOS-CHAVE: recursos essenciais (físicos, intelectuais, humanos, financeiros)
+7. ATIVIDADES-CHAVE: atividades essenciais para entregar a proposta
+8. PARCERIAS-CHAVE: fornecedores e parceiros estratégicos
+9. ESTRUTURA DE CUSTOS: principais custos do modelo
+
+Use layout visual em grid 3x3. Baseie-se nos dados do contexto fornecido.
+Retorne HTML profissional, colorido, visualmente atraente.`;
+
+    const html = await this.callLLMForHTML(prompt);
+
+    return {
+      nome: `Business Model Canvas - ${empresa}`,
+      html_conteudo: html,
+      dados_utilizados: { empresa, contexto }
+    };
+  }
+
+  /**
+   * Generate Value Chain
+   */
+  private static async gerarCadeiaValor(contexto: any): Promise<DeliverableResult> {
+    const empresa = contexto.empresa_nome || contexto.empresa || 'Empresa';
+
+    const prompt = `Você é um consultor empresarial criando uma Cadeia de Valor.
+
+EMPRESA: ${empresa}
+CONTEXTO: ${JSON.stringify(contexto, null, 2)}
+
+Gere Cadeia de Valor completa com:
+
+ATIVIDADES PRIMÁRIAS (fluxo principal de criação de valor):
+1. Logística Interna (recebimento, armazenamento, controle de estoque)
+2. Operações (transformação de inputs em outputs)
+3. Logística Externa (distribuição, entrega)
+4. Marketing e Vendas (promoção, canal de vendas)
+5. Pós-Venda (suporte, manutenção, relacionamento)
+
+ATIVIDADES DE APOIO (suportam as primárias):
+1. Infraestrutura (gestão, finanças, jurídico, qualidade)
+2. Recursos Humanos (recrutamento, treinamento, desenvolvimento)
+3. Tecnologia (sistemas, automação, inovação)
+4. Compras (aquisição de insumos, negociação com fornecedores)
+
+Para cada atividade, liste 2-3 processos específicos baseados no contexto.
+Identifique onde estão as dores relatadas pelo cliente.
+Retorne HTML com layout visual de cadeia (formato Porter).`;
+
+    const html = await this.callLLMForHTML(prompt);
+
+    return {
+      nome: `Cadeia de Valor - ${empresa}`,
+      html_conteudo: html,
+      dados_utilizados: { empresa, contexto }
+    };
+  }
+
+  /**
+   * Generate Evidence Memory
+   */
+  private static async gerarMemoriaEvidencias(contexto: any): Promise<DeliverableResult> {
+    const empresa = contexto.empresa_nome || contexto.empresa || 'Empresa';
+
+    const evidencias = contexto.evidencias || [];
+    const historico = contexto.historico_rag || [];
+
+    const prompt = `Você é um consultor empresarial compilando uma Memória de Evidências.
+
+EMPRESA: ${empresa}
+EVIDÊNCIAS COLETADAS: ${JSON.stringify(evidencias, null, 2)}
+HISTÓRICO: ${JSON.stringify(historico, null, 2)}
+
+Gere documento cronológico listando:
+- Data/hora de cada coleta
+- Tipo de evidência (documento, entrevista, análise, observação)
+- Descrição resumida
+- Principais achados
+- Relação com dores/problemas identificados
+
+Organize por ordem cronológica. Use tabela HTML profissional.`;
+
+    const html = await this.callLLMForHTML(prompt);
+
+    return {
+      nome: `Memória de Evidências - ${empresa}`,
+      html_conteudo: html,
+      dados_utilizados: { empresa, evidencias, historico }
+    };
+  }
+
+  /**
+   * Generate 5 Whys Analysis
+   */
+  private static async gerar5Whys(contexto: any): Promise<DeliverableResult> {
+    const problema = contexto.problema_principal || contexto.titulo_problema || 'Problema identificado';
+
+    const prompt = `Você é um consultor empresarial aplicando a técnica dos 5 Porquês.
+
+PROBLEMA INICIAL: ${problema}
+CONTEXTO: ${JSON.stringify(contexto, null, 2)}
+
+Gere análise estruturada:
+
+PROBLEMA: [problema relatado]
+Por quê 1? [primeira causa aparente]
+Por quê 2? [causa da causa 1]
+Por quê 3? [aprofundando mais]
+Por quê 4? [chegando mais perto da raiz]
+Por quê 5? [causa raiz real]
+
+CAUSA RAIZ IDENTIFICADA: [síntese final]
+AÇÃO CORRETIVA SUGERIDA: [o que fazer para eliminar a causa raiz]
+
+Se houver múltiplos problemas, aplique 5 Porquês para cada um.
+Retorne HTML estruturado, visualmente organizado por problema.`;
+
+    const html = await this.callLLMForHTML(prompt);
+
+    return {
+      nome: `Análise 5 Porquês - ${problema.substring(0, 50)}`,
+      html_conteudo: html,
+      dados_utilizados: { problema, contexto }
     };
   }
 

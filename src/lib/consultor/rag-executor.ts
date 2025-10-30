@@ -22,28 +22,91 @@ import { TemplateService } from './template-service';
 const _jornadaBySessao: Record<string, string> = {};
 
 /**
- * Obtém jornada_id a partir de consultor_sessoes (fonte de verdade)
- * Exige jornada_id não-nulo pois o schema de entregáveis é NOT NULL
+ * Parser de datas flexível para Kanban
+ * Aceita: +7d, +3w, +1m, +2q, ISO date string
+ * Retorna: timestamptz válido do PostgreSQL
  */
-async function getJornadaId(sessaoId: string): Promise<string> {
+function toTimestamp(dateInput: string | null | undefined): string | null {
+  if (!dateInput) return null;
+
+  const input = dateInput.toString().trim();
+  if (!input) return null;
+
+  // Tentar ISO date string primeiro
+  if (input.match(/^\d{4}-\d{2}-\d{2}/)) {
+    try {
+      const date = new Date(input);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    } catch (e) {
+      // Continuar para outros formatos
+    }
+  }
+
+  // Parser de formato relativo: +7d, +3w, +1m, +2q
+  const match = input.match(/^\+(\d+)([dwmq])$/i);
+  if (match) {
+    const amount = parseInt(match[1], 10);
+    const unit = match[2].toLowerCase();
+
+    const now = new Date();
+
+    switch (unit) {
+      case 'd': // days
+        now.setDate(now.getDate() + amount);
+        break;
+      case 'w': // weeks
+        now.setDate(now.getDate() + (amount * 7));
+        break;
+      case 'm': // months
+        now.setMonth(now.getMonth() + amount);
+        break;
+      case 'q': // quarters (3 months)
+        now.setMonth(now.getMonth() + (amount * 3));
+        break;
+    }
+
+    return now.toISOString();
+  }
+
+  // Fallback: +7d (uma semana a partir de hoje)
+  console.warn('[RAG-EXECUTOR] Invalid date format:', input, '- using +7d fallback');
+  const fallback = new Date();
+  fallback.setDate(fallback.getDate() + 7);
+  return fallback.toISOString();
+}
+
+/**
+ * Obtém jornada_id a partir de consultor_sessoes (fonte de verdade)
+ * MODO NÃO-BLOQUEANTE: retorna null se não encontrar, em vez de throw
+ */
+async function getJornadaId(sessaoId: string): Promise<string | null> {
   if (_jornadaBySessao[sessaoId]) return _jornadaBySessao[sessaoId];
 
-  const { data, error } = await supabase
-    .from('consultor_sessoes')
-    .select('jornada_id')
-    .eq('id', sessaoId)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('consultor_sessoes')
+      .select('jornada_id')
+      .eq('id', sessaoId)
+      .single();
 
-  if (error) {
-    console.error('[RAG-EXECUTOR] Falha ao obter jornada_id da sessão:', error);
-    throw new Error('Não foi possível obter jornada_id da sessão.');
-  }
-  if (!data?.jornada_id) {
-    throw new Error('Sessão sem jornada vinculada (jornada_id null).');
-  }
+    if (error) {
+      console.error('[RAG-EXECUTOR] Falha ao obter jornada_id da sessão:', error);
+      return null;
+    }
 
-  _jornadaBySessao[sessaoId] = data.jornada_id;
-  return data.jornada_id;
+    if (!data?.jornada_id) {
+      console.warn('[RAG-EXECUTOR] Sessão sem jornada vinculada (jornada_id null)');
+      return null;
+    }
+
+    _jornadaBySessao[sessaoId] = data.jornada_id;
+    return data.jornada_id;
+  } catch (err: any) {
+    console.error('[RAG-EXECUTOR] Exceção ao buscar jornada_id:', err);
+    return null;
+  }
 }
 
 /**
@@ -355,10 +418,21 @@ async function executeGerarEntregavel(
 
     // Generate content using TemplateService
     const resultado = await TemplateService.gerar(tipoEntregavel, fullContext);
-    if (!resultado) throw new Error('TemplateService returned null');
+    if (!resultado) {
+      console.warn('[RAG-EXECUTOR] TemplateService returned null for', tipoEntregavel);
+      return { success: false, error: `Failed to generate ${tipoEntregavel}: TemplateService returned null` };
+    }
 
-    // Jornada obrigatória
+    // Tentar obter jornada (não-bloqueante)
     const jornadaId = await getJornadaId(sessaoId);
+
+    if (!jornadaId) {
+      console.warn('[RAG-EXECUTOR] No jornada_id found - deliverable not saved but content generated');
+      return {
+        success: false,
+        error: `Deliverable generated but not saved: jornada_id missing. Fix session setup.`
+      };
+    }
 
     // Prepare data for insertion - ALWAYS use sessao_id + jornada_id
     const entregavelData: any = {
@@ -380,7 +454,10 @@ async function executeGerarEntregavel(
       .select('id')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[RAG-EXECUTOR] Insert error:', error);
+      return { success: false, error: `Database insert failed: ${error.message}` };
+    }
 
     console.log('[RAG-EXECUTOR] Deliverable created:', entregavel.id);
     return { success: true, entregavel_id: entregavel.id };
@@ -537,7 +614,7 @@ async function executeUpdateKanban(
         titulo: card.title || card.titulo || card.What || card.o_que || 'Ação',
         descricao: card.description || card.descricao || card.Why || card.por_que || '',
         responsavel: card.assignee || card.responsavel || card.Who || card.quem || card.owner || 'Time',
-        due_at: card.due || card.due_at || card.When || card.quando || null,
+        due_at: toTimestamp(card.due || card.due_at || card.When || card.quando),
         status: 'a_fazer' as const,
         plano_hash: hash,
         plano_version: 1,
@@ -576,7 +653,7 @@ async function executeUpdateKanban(
         titulo: card.title || card.titulo || card.What || card.o_que || 'Ação',
         descricao: card.description || card.descricao || card.Why || card.por_que || '',
         responsavel: card.assignee || card.responsavel || card.Who || card.quem || card.owner || 'Time',
-        due_at: card.due || card.due_at || card.When || card.quando || null,
+        due_at: toTimestamp(card.due || card.due_at || card.When || card.quando),
         status: 'a_fazer' as const,
         plano_hash: hash,
         plano_version: nextVersion,
@@ -656,6 +733,11 @@ async function insertEvidenceMemo(
   try {
     const jornadaId = await getJornadaId(sessaoId);
 
+    if (!jornadaId) {
+      console.warn('[RAG-EXECUTOR] No jornada_id for evidence memo - skipping insert');
+      return { success: false, error: 'jornada_id missing - evidence not saved' };
+    }
+
     const { data, error } = await supabase
       .from('entregaveis_consultor')
       .insert({
@@ -664,13 +746,16 @@ async function insertEvidenceMemo(
         tipo: 'evidencia_memo',
         nome: `Evidência: ${action.type}`,
         conteudo_md: pretty,
-        html_conteudo: `<pre>${pretty}</pre>`
-        // OBS: não enviar created_by — coluna não existe no schema atual
+        html_conteudo: `<pre>${pretty}</pre>`,
+        etapa_origem: 'investigacao'
       } as any)
       .select('id')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[RAG-EXECUTOR] evidence insert error', error);
+      return { success: false, error: error.message };
+    }
 
     return { success: true, evidence_id: data.id };
   } catch (error: any) {
