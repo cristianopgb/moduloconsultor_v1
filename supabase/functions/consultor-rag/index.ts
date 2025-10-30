@@ -61,20 +61,43 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 1. ESTRATEGISTA: Inicializar orchestrator e carregar contexto
+    // 1. BUSCAR SESSÃO COMPLETA DO BANCO (COM CONTEXTO!)
+    const { data: sessaoCompleta, error: errSessao } = await supabase
+      .from('consultor_sessoes')
+      .select('*')
+      .eq('id', sessao.id)
+      .maybeSingle();
+
+    if (errSessao || !sessaoCompleta) {
+      console.error('[CONSULTOR-RAG] Erro buscando sessão:', errSessao);
+      return new Response(
+        JSON.stringify({ error: 'Sessão não encontrada' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('[CONSULTOR-RAG] Sessão completa carregada:', {
+      id: sessaoCompleta.id,
+      estado: sessaoCompleta.estado_atual,
+      tem_contexto: !!sessaoCompleta.contexto_coleta,
+      empresa: sessaoCompleta.empresa,
+      setor: sessaoCompleta.setor
+    });
+
+    // 2. ESTRATEGISTA: Inicializar orchestrator e carregar contexto
     const orchestrator = new ConsultorOrchestrator(supabase);
 
-    // Carrega adapter por setor
+    // Carrega adapter por setor (usar sessaoCompleta)
     const adapter = await orchestrator.loadAdapterFor({
-      setor: sessao.setor,
-      empresa: sessao.empresa
+      setor: sessaoCompleta.setor,
+      empresa: sessaoCompleta.empresa
     });
 
     // Carrega Knowledge Base relevante
     const tagsRelevantes = [
       ...(adapter?.setor ? [adapter.setor] : []),
       ...(adapter?.tags ?? []),
-      ...(sessao.setor ? [sessao.setor] : [])
+      ...(sessaoCompleta.setor ? [sessaoCompleta.setor] : [])
     ].filter(Boolean) as string[];
 
     const kb = await orchestrator.loadKnowledgeBaseBlocs(
@@ -82,28 +105,33 @@ Deno.serve(async (req: Request) => {
       6
     );
 
-    // Normalizar estado (campo correto: estado_atual)
-    const estadoAtual = sessao.estado_atual || sessao.estado || 'coleta';
+    // Normalizar estado
+    const estadoAtual = sessaoCompleta.estado_atual || 'coleta';
     const estadoNormalizado = normalizeToBackend(estadoAtual);
 
     if (!isValidBackendState(estadoNormalizado)) {
       console.warn('[CONSULTOR-RAG] Estado inválido, usando coleta:', estadoAtual);
     }
 
+    // Extrair contexto já coletado
+    const contextoColeta = sessaoCompleta.contexto_coleta || {};
+
     console.log('[CONSULTOR-RAG] Loaded:', {
       adapter: adapter?.setor || 'none',
       kb_docs: kb.length,
       estado_original: estadoAtual,
-      estado_normalizado: estadoNormalizado
+      estado_normalizado: estadoNormalizado,
+      contexto_keys: Object.keys(contextoColeta)
     });
 
-    // 2. TÁTICO: Montar prompt do Estrategista
+    // 3. TÁTICO: Montar prompt do Estrategista COM CONTEXTO
     const systemPrompt = orchestrator.getSystemPrompt({
-      empresa: sessao.empresa,
-      setor: sessao.setor,
+      empresa: sessaoCompleta.empresa,
+      setor: sessaoCompleta.setor,
       adapter,
       kb,
-      estado: estadoNormalizado
+      estado: estadoNormalizado,
+      contextoColeta  // PASSAR CONTEXTO JÁ COLETADO!
     });
 
     // Construir histórico para LLM (PRESERVAR ESTRUTURA DE CONVERSA)
@@ -164,7 +192,7 @@ Deno.serve(async (req: Request) => {
       actions: actions,
       contexto_incremental,
       etapa: estadoNormalizado,
-      sessao_id: sessao.id
+      sessao_id: sessaoCompleta.id
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

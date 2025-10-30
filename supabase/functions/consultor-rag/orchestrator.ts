@@ -148,6 +148,7 @@ export class ConsultorOrchestrator {
     adapter?: AdapterSetor|null;
     kb?: KBDoc[];
     estado?: string;
+    contextoColeta?: Record<string, any>;
   }): string {
     // 1. Obter prompt específico da fase
     const phase = this.getPhasePrompt(params.estado || 'coleta');
@@ -162,8 +163,21 @@ export class ConsultorOrchestrator {
 `### ${d.title} (${d.category})
 ${(d.content||'').slice(0,800)}...`).join('\n\n');
 
+    // Formatar contexto já coletado
+    const contexto = params.contextoColeta || {};
+    const contextoStr = Object.keys(contexto).length > 0
+      ? Object.entries(contexto)
+          .map(([k, v]) => `  - ${k}: ${JSON.stringify(v)}`)
+          .join('\n')
+      : '  (nenhum dado coletado ainda)';
+
     // 2. Usar o prompt da fase como base
     return `${phase.systemPrompt}
+
+# CONTEXTO JÁ COLETADO DA SESSÃO
+
+Os seguintes dados JÁ foram coletados (NÃO pergunte novamente):
+${contextoStr}
 
 # CONTEXTO ADICIONAL DO SETOR
 
