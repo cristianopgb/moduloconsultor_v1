@@ -127,6 +127,30 @@ function detectPlanDiff(existingCards: any[], newCards: any[]): CardDiff {
 }
 
 /**
+ * Query cards by hash from kanban_cards table
+ */
+async function getCardsByHash(sessaoId: string, hash: string): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('kanban_cards')
+      .select('id, titulo, title, descricao, description, status, plano_hash, plano_version')
+      .eq('sessao_id', sessaoId)
+      .eq('plano_hash', hash)
+      .eq('deprecated', false);
+
+    if (error) {
+      console.warn('[RAG-EXECUTOR] Error querying cards by hash:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error: any) {
+    console.error('[RAG-EXECUTOR] Exception in getCardsByHash:', error);
+    return [];
+  }
+}
+
+/**
  * Upsert inteligente de plano Kanban por hash
  * Garante coluna plano_hash e faz merge incremental
  */
@@ -416,22 +440,51 @@ async function executeDesignProcess(
 
 /**
  * HANDLER: Transição de estado
- * Aceita: to, novo_estado, estado
+ * Aceita múltiplos aliases e tem fallback seguro se nenhum alvo for fornecido
  */
 async function executeTransicaoEstado(
   action: RAGAction,
   sessaoId: string
 ): Promise<ExecutionResult> {
   const p = action.params || action;
-  const novoEstado = p.to || p.novo_estado || p.estado;
 
-  if (!novoEstado) {
-    return { success: false, error: 'No target state provided' };
-  }
+  // Aceita vários aliases e estruturas (com ou sem payload)
+  const novoEstadoRaw =
+    p.to ??
+    p.novo_estado ??
+    p.estado ??
+    p.target ??
+    p.state ??
+    p.payload?.to ??
+    p.payload?.estado ??
+    null;
 
-  console.log('[RAG-EXECUTOR] Transitioning state to:', novoEstado);
+  // Fallback: mantém estado atual salvo em consultor_sessoes,
+  // ou cai para 'coleta' se não achar.
+  let novoEstado = (novoEstadoRaw || '').toString().trim().toLowerCase();
 
   try {
+    if (!novoEstado) {
+      console.warn('[RAG-EXECUTOR] No target state provided, reading from DB...');
+      const { data: sess, error: sessErr } = await supabase
+        .from('consultor_sessoes')
+        .select('estado_atual')
+        .eq('id', sessaoId)
+        .maybeSingle();
+
+      if (sessErr) {
+        console.warn('[RAG-EXECUTOR] Não consegui ler estado atual, usando coleta:', sessErr);
+      }
+      novoEstado = (sess?.estado_atual || 'coleta').toString().trim().toLowerCase();
+    }
+
+    if (!novoEstado) {
+      // último paraquedas
+      novoEstado = 'coleta';
+    }
+
+    console.log('[RAG-EXECUTOR] Transitioning state to:', novoEstado);
+
     const { error } = await supabase
       .from('consultor_sessoes')
       .update({ estado_atual: novoEstado })

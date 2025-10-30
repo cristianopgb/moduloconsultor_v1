@@ -347,6 +347,42 @@ Vamos atacar duas frentes em paralelo:
     }
   }
 
+  /**
+   * Garante que transicao_estado sempre tenha um alvo 'to'
+   * Normaliza diferentes estruturas possíveis para formato canônico
+   */
+  fixTransicaoEstadoTargets(actions: any[], estadoAtualBackend: string): any[] {
+    const safeState = (s: any) => (s || '').toString().trim().toLowerCase() || 'coleta';
+
+    return (actions || []).map((a) => {
+      if (!a || typeof a !== 'object') return a;
+
+      const actionType = (a.type || '').toString().toLowerCase();
+      if (actionType !== 'transicao_estado') return a;
+
+      // Normaliza campos possíveis
+      const payload = a.payload || a.params || {};
+      const to =
+        a.to ??
+        payload.to ??
+        payload.novo_estado ??
+        payload.estado ??
+        a.estado ??
+        a.novo_estado ??
+        a.target ??
+        a.state ??
+        null;
+
+      const alvo = safeState(to) || safeState(estadoAtualBackend);
+
+      // Reescreve de forma canônica
+      return {
+        type: 'transicao_estado',
+        payload: { to: alvo }
+      };
+    });
+  }
+
   parseActionsBlock(textoLLM: string): { actions: any[], contexto_incremental: any } {
     console.log('[ORCH] Parsing actions from LLM response...');
 

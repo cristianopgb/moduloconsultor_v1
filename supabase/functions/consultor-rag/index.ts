@@ -140,6 +140,10 @@ Deno.serve(async (req: Request) => {
       actions = orchestrator.synthesizeFallbackActions(estadoNormalizado, ultimaMensagemUser);
     }
 
+    // 6. FIX: Normaliza transicao_estado para sempre ter 'to' válido
+    actions = orchestrator.fixTransicaoEstadoTargets(actions, estadoNormalizado);
+    console.log('[CONSULTOR-RAG] Actions after normalization:', actions.length);
+
     // Extrai texto limpo (antes de [PARTE B])
     const replyText = fullText.split('[PARTE B]')[0]?.trim() || 'Avançando com a próxima ação.';
 
@@ -149,7 +153,7 @@ Deno.serve(async (req: Request) => {
       etapa: estadoNormalizado
     });
 
-    // 6. Retornar para frontend (EXECUTOR executará as actions)
+    // 7. Retornar para frontend (EXECUTOR executará as actions)
     return new Response(JSON.stringify({
       reply: replyText,
       actions: actions,
