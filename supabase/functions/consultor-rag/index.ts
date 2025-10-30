@@ -173,7 +173,11 @@ Deno.serve(async (req: Request) => {
       actions = orchestrator.synthesizeFallbackActions(estadoNormalizado, ultimaMensagemUser);
     }
 
-    // 6. FIX: Normaliza transicao_estado para sempre ter 'to' válido
+    // 6. CRITICAL: Filtrar transições prematuras durante anamnese incompleta
+    actions = orchestrator.filterPrematureTransitions(actions, contextoColeta, estadoNormalizado);
+    console.log('[CONSULTOR-RAG] Actions after filtering premature transitions:', actions.length);
+
+    // 7. FIX: Normaliza transicao_estado para sempre ter 'to' válido
     actions = orchestrator.fixTransicaoEstadoTargets(actions, estadoNormalizado);
     console.log('[CONSULTOR-RAG] Actions after normalization:', actions.length);
 
@@ -183,10 +187,11 @@ Deno.serve(async (req: Request) => {
     console.log('[CONSULTOR-RAG] Returning:', {
       reply_length: replyText.length,
       actions_count: actions.length,
-      etapa: estadoNormalizado
+      etapa: estadoNormalizado,
+      contexto_incremental_keys: Object.keys(contexto_incremental || {})
     });
 
-    // 7. Retornar para frontend (EXECUTOR executará as actions)
+    // 8. Retornar para frontend (EXECUTOR executará as actions)
     return new Response(JSON.stringify({
       reply: replyText,
       actions: actions,

@@ -331,6 +331,49 @@ export async function executeRAGActions(
 
   console.log('[RAG-EXECUTOR] Executing', actions.length, 'actions for sessao', sessaoId);
 
+  // CRITICAL: Salvar contexto_incremental ANTES de executar qualquer action
+  if (contexto && Object.keys(contexto).length > 0) {
+    console.log('[RAG-EXECUTOR] Salvando contexto antes de executar actions:', Object.keys(contexto));
+
+    try {
+      // Buscar contexto atual
+      const { data: sessaoAtual } = await supabase
+        .from('consultor_sessoes')
+        .select('contexto_coleta')
+        .eq('id', sessaoId)
+        .maybeSingle();
+
+      const contextoAtual = sessaoAtual?.contexto_coleta || {};
+
+      // Mesclar contexto atual com novos dados (prioriza novos)
+      const contextoAtualizado = {
+        ...contextoAtual,
+        ...contexto
+      };
+
+      // Remover campos que não devem ser salvos
+      delete contextoAtualizado.estado_atual;
+      delete contextoAtualizado.contexto_negocio;
+
+      // Atualizar no banco
+      const { error: updateError } = await supabase
+        .from('consultor_sessoes')
+        .update({
+          contexto_coleta: contextoAtualizado,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', sessaoId);
+
+      if (updateError) {
+        console.error('[RAG-EXECUTOR] Erro salvando contexto:', updateError);
+      } else {
+        console.log('[RAG-EXECUTOR] Contexto salvo com sucesso:', Object.keys(contextoAtualizado));
+      }
+    } catch (err) {
+      console.error('[RAG-EXECUTOR] Exceção ao salvar contexto:', err);
+    }
+  }
+
   for (const action of actions) {
     try {
       let result: ExecutionResult;
@@ -369,42 +412,8 @@ export async function executeRAGActions(
           break;
 
         case 'coletar_info':
-          // SALVAR CONTEXTO INCREMENTAL NO BANCO!
-          if (response.contexto_incremental && Object.keys(response.contexto_incremental).length > 0) {
-            console.log('[RAG-EXECUTOR] Salvando contexto incremental:', response.contexto_incremental);
-
-            // Buscar contexto atual
-            const { data: sessaoAtual } = await supabase
-              .from('consultor_sessoes')
-              .select('contexto_coleta')
-              .eq('id', sessaoId)
-              .maybeSingle();
-
-            const contextoAtual = sessaoAtual?.contexto_coleta || {};
-            const contextoAtualizado = {
-              ...contextoAtual,
-              ...response.contexto_incremental
-            };
-
-            // Atualizar contexto no banco
-            const { error: updateError } = await supabase
-              .from('consultor_sessoes')
-              .update({
-                contexto_coleta: contextoAtualizado,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', sessaoId);
-
-            if (updateError) {
-              console.error('[RAG-EXECUTOR] Erro salvando contexto:', updateError);
-              result = { success: false, error: updateError.message };
-            } else {
-              console.log('[RAG-EXECUTOR] Contexto salvo:', Object.keys(contextoAtualizado));
-              result = { success: true };
-            }
-          } else {
-            result = { success: true };
-          }
+          // Action informacional - contexto já foi salvo no início da função
+          result = { success: true };
           break;
 
         case 'aplicar_metodologia':

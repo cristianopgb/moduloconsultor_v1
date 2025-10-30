@@ -115,6 +115,7 @@ export class ConsultorOrchestrator {
 
   /**
    * Mapeia estado do backend para prompt de fase
+   * CRITICAL: Durante coleta/anamnese, SEMPRE retornar ANAMNESE_PROMPT
    */
   getPhasePrompt(estado: string): ConsultorPhase {
     const estadoNorm = String(estado || '').trim().toLowerCase();
@@ -123,19 +124,55 @@ export class ConsultorOrchestrator {
     const mapping: Record<string, ConsultorPhase> = {
       'coleta': ANAMNESE_PROMPT,
       'anamnese': ANAMNESE_PROMPT,
+      'as_is': ANAMNESE_PROMPT,        // FIX: as_is durante coleta = ainda é anamnese!
       'modelagem': MODELAGEM_PROMPT,
       'investigacao': INVESTIGACAO_PROMPT,
       'priorizacao': PRIORIZACAO_PROMPT,
-      'mapeamento': MAPEAMENTO_PROMPT,
+      'mapeamento': MAPEAMENTO_PROMPT,  // Mapeamento só depois de concluir anamnese
       'diagnostico': DIAGNOSTICO_PROMPT,
-      'to_be': DIAGNOSTICO_PROMPT,  // to_be = diagnostico na prática
-      'as_is': MAPEAMENTO_PROMPT,   // as_is = mapeamento
+      'to_be': DIAGNOSTICO_PROMPT,
       'execucao': EXECUCAO_PROMPT,
       'plano': EXECUCAO_PROMPT,
       'concluido': EXECUCAO_PROMPT
     };
 
     return mapping[estadoNorm] || ANAMNESE_PROMPT; // Default: começar pela anamnese
+  }
+
+  /**
+   * Verifica completude da anamnese baseado no contexto coletado
+   */
+  private isAnamneseComplete(contexto: Record<string, any>): boolean {
+    const camposObrigatorios = [
+      'nome', 'cargo',           // Turno 1
+      'idade', 'formacao',        // Turno 2
+      'empresa', 'segmento',      // Turno 3-4
+      'faturamento',              // Turno 5
+      'dor_principal'             // Turno 7
+    ];
+
+    const coletados = camposObrigatorios.filter(campo => {
+      const valor = contexto[campo];
+      return valor && String(valor).trim().length > 0;
+    });
+
+    const completude = coletados.length / camposObrigatorios.length;
+    console.log('[ORCH] Anamnese completude:', completude * 100 + '%', 'coletados:', coletados);
+
+    return completude >= 0.85; // 85% dos campos obrigatórios
+  }
+
+  /**
+   * Calcula turno atual da anamnese baseado no contexto
+   */
+  private calcularTurnoAnamnese(contexto: Record<string, any>): number {
+    if (!contexto.nome || !contexto.cargo) return 1;
+    if (!contexto.idade || !contexto.formacao) return 2;
+    if (!contexto.empresa || !contexto.segmento) return 3;
+    if (!contexto.faturamento) return 4;
+    if (!contexto.dor_principal) return 5;
+    if (!contexto.expectativa_sucesso) return 6;
+    return 7; // Completo
   }
 
   /**
@@ -162,16 +199,36 @@ export class ConsultorOrchestrator {
 `### ${d.title} (${d.category})
 ${(d.content||'').slice(0,800)}...`).join('\n\n');
 
-    // Formatar contexto já coletado
+    // Formatar contexto já coletado com turno atual
     const contexto = params.contextoColeta || {};
+    const turnoAtual = this.calcularTurnoAnamnese(contexto);
+    const anamneseCompleta = this.isAnamneseComplete(contexto);
+
     const contextoStr = Object.keys(contexto).length > 0
       ? Object.entries(contexto)
           .map(([k, v]) => `  - ${k}: ${JSON.stringify(v)}`)
           .join('\n')
       : '  (nenhum dado coletado ainda)';
 
+    // Instruções específicas do turno se estiver em anamnese
+    const instrucaoTurno = phase.name === 'anamnese' && !anamneseCompleta
+      ? `\n\n═══════════════════════════════════════════════════════════════
+⚠️ VOCÊ ESTÁ NO TURNO ${turnoAtual} DE 7 DA ANAMNESE
+═══════════════════════════════════════════════════════════════
+
+CONTEXTO JÁ COLETADO (NÃO PERGUNTE NOVAMENTE):
+${contextoStr}
+
+⚠️ CRÍTICO: CONSULTE O PROMPT DE ANAMNESE E VEJA QUAL É A PRÓXIMA PERGUNTA
+DA SEQUÊNCIA PARA O TURNO ${turnoAtual}!
+
+NÃO REPITA PERGUNTAS JÁ RESPONDIDAS!
+NÃO TRANSICIONE DE ESTADO ATÉ COMPLETAR TODOS OS 7 TURNOS!
+`
+      : '';
+
     // 2. Usar o prompt da fase como base
-    return `${phase.systemPrompt}
+    return `${phase.systemPrompt}${instrucaoTurno}
 
 # CONTEXTO JÁ COLETADO DA SESSÃO
 
@@ -415,6 +472,31 @@ Vamos atacar duas frentes em paralelo:
     if (parsed.next_step && !nextSteps.includes(parsed.next_step)) {
       throw new Error("Invalid next_step.");
     }
+  }
+
+  /**
+   * Filtra transições prematuras durante anamnese incompleta
+   * CRITICAL: Não permite transicionar de coleta/anamnese/as_is até completar coleta
+   */
+  filterPrematureTransitions(actions: any[], contexto: Record<string, any>, estadoAtual: string): any[] {
+    const estadoNorm = String(estadoAtual || '').trim().toLowerCase();
+    const estadosAnamnese = ['coleta', 'anamnese', 'as_is'];
+
+    // Se está em anamnese e não está completa, bloquear transições
+    if (estadosAnamnese.includes(estadoNorm) && !this.isAnamneseComplete(contexto)) {
+      console.log('[ORCH] Bloqueando transições prematuras - anamnese incompleta');
+
+      return actions.filter(a => {
+        const tipo = (a?.type || '').toLowerCase();
+        if (tipo === 'transicao_estado') {
+          console.log('[ORCH] Removendo transição prematura:', a);
+          return false; // Remove transição
+        }
+        return true; // Mantém outras actions
+      });
+    }
+
+    return actions;
   }
 
   /**
