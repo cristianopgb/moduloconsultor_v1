@@ -38,14 +38,23 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 - `_shared/progress-calculator.ts`
 - + 6 outras functions
 
-### 3. Edge Function NÃO foi Redeployada
-**Problema:** Prompts corrigidos localmente mas edge function ainda usa código antigo
+### 3. Prompt Superficial e Não Profissional (CRÍTICO)
+**Problema:** Prompt genérico sem metodologia real de consultoria
 
-**AÇÃO NECESSÁRIA:** Redeploy da function `consultor-rag`
+**SOLUÇÃO APLICADA:**
+✅ Prompt de ANAMNESE completamente reescrito com:
+- Quebra-gelo profissional (consultor se apresenta)
+- 8 turnos estruturados (profissional → empresa → dores)
+- Contexto explicado (por quê de cada pergunta)
+- Máximo 2 perguntas por turno
+- Síntese e validação ao final
+- Tom CEO → CEO (profissional mas acessível)
+
+**Ver detalhes:** `PROMPT_ANAMNESE_PROFISSIONAL_REAL.md`
 
 ## ✅ O QUE FAZER AGORA (EM ORDEM)
 
-### PASSO 1: Deletar sessão antiga
+### PASSO 1: Deletar sessão antiga ✅ FEITO
 ```sql
 -- EXECUTE NO SUPABASE DASHBOARD → SQL EDITOR
 DELETE FROM consultor_sessoes WHERE id = '24a2175b-5805-4a18-8939-a23204dd775b';
