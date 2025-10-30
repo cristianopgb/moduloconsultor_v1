@@ -21,6 +21,16 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.0?target
 import { BACKEND_STATES } from '../_shared/state-mapping.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { getLLM } from '../_shared/llm-config.ts';
+import {
+  ANAMNESE_PROMPT,
+  MODELAGEM_PROMPT,
+  INVESTIGACAO_PROMPT,
+  PRIORIZACAO_PROMPT,
+  MAPEAMENTO_PROMPT,
+  DIAGNOSTICO_PROMPT,
+  EXECUCAO_PROMPT,
+  type ConsultorPhase
+} from './consultor-prompts.ts';
 
 export interface SessaoConsultor {
   id: string;
@@ -105,6 +115,31 @@ export class ConsultorOrchestrator {
   }
 
   /**
+   * Mapeia estado do backend para prompt de fase
+   */
+  getPhasePrompt(estado: string): ConsultorPhase {
+    const estadoNorm = String(estado || '').trim().toLowerCase();
+
+    // Mapear estado do banco para fase do consultor
+    const mapping: Record<string, ConsultorPhase> = {
+      'coleta': ANAMNESE_PROMPT,
+      'anamnese': ANAMNESE_PROMPT,
+      'modelagem': MODELAGEM_PROMPT,
+      'investigacao': INVESTIGACAO_PROMPT,
+      'priorizacao': PRIORIZACAO_PROMPT,
+      'mapeamento': MAPEAMENTO_PROMPT,
+      'diagnostico': DIAGNOSTICO_PROMPT,
+      'to_be': DIAGNOSTICO_PROMPT,  // to_be = diagnostico na prática
+      'as_is': MAPEAMENTO_PROMPT,   // as_is = mapeamento
+      'execucao': EXECUCAO_PROMPT,
+      'plano': EXECUCAO_PROMPT,
+      'concluido': EXECUCAO_PROMPT
+    };
+
+    return mapping[estadoNorm] || ANAMNESE_PROMPT; // Default: começar pela anamnese
+  }
+
+  /**
    * ESTRATEGISTA: System prompt com especialização por setor e portfólio adaptativo
    */
   getSystemPrompt(params: {
@@ -112,7 +147,11 @@ export class ConsultorOrchestrator {
     setor?: string|null;
     adapter?: AdapterSetor|null;
     kb?: KBDoc[];
+    estado?: string;
   }): string {
+    // 1. Obter prompt específico da fase
+    const phase = this.getPhasePrompt(params.estado || 'coleta');
+
     const setor = String(params.setor || '').trim() || 'negócio do cliente';
     const empresa = String(params.empresa || '').trim() || 'empresa';
     const kpis = (params.adapter?.kpis ?? []).slice(0,8).join(', ');
@@ -123,7 +162,25 @@ export class ConsultorOrchestrator {
 `### ${d.title} (${d.category})
 ${(d.content||'').slice(0,800)}...`).join('\n\n');
 
-    return `Você é "Rafael", consultor sênior do PROCEda especializado em ${setor}.
+    // 2. Usar o prompt da fase como base
+    return `${phase.systemPrompt}
+
+# CONTEXTO ADICIONAL DO SETOR
+
+**Setor:** ${setor}
+**Empresa:** ${empresa}
+**KPIs-chave:** ${kpis || '(não cadastrado)'}
+
+**Perguntas úteis do setor:**
+${perguntas || '-'}
+
+**Metodologias preferidas:** ${metod || '-'}
+
+# BASE DE CONHECIMENTO (trechos relevantes)
+
+${kbSnippets || '(sem documentos relevantes)'}
+
+# LEMBRE-SE
 
 # ARQUITETURA DE 3 CAMADAS
 

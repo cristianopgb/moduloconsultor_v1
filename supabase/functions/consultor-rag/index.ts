@@ -102,7 +102,8 @@ Deno.serve(async (req: Request) => {
       empresa: sessao.empresa,
       setor: sessao.setor,
       adapter,
-      kb
+      kb,
+      estado: estadoNormalizado
     });
 
     // Construir histórico para LLM
