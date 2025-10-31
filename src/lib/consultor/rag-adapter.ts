@@ -1,118 +1,30 @@
-// src/lib/consultor/rag-adapter.ts
+// src/lib/consultor/rag-adapter-simplified.ts
 import { supabase } from '../supabase';
-import { normalizeToUI } from './state-mapping';
-
-export interface RAGRequest {
-  sessaoId: string;
-  message: string;
-}
-
-export interface RAGAction {
-  type: string;
-  payload?: any;
-  enforce?: boolean;
-}
-
-export interface RAGResponse {
-  reply: string;
-  actions: RAGAction[];
-  etapa?: string; // backend state (coleta/analise/...)
-  progresso?: number;
-}
 
 export interface ConsultorResponse {
   text: string;
-  actions: RAGAction[];
-  estado: string;   // UI state
-  progresso: number;
+  estado: string;
+  turno_atual: number;
+  anamnese_completa: boolean;
+  contexto_coletado: number;
   sessaoId: string;
-  contexto_incremental?: any;
-  ragInfo?: any;
 }
 
 /**
- * Busca ou cria jornada do consultor vinculada ao user
- * IMPORTANTE: Usa constraint UNIQUE (user_id, conversation_id)
- */
-async function getOrCreateJornada(
-  userId: string,
-  conversationId: string,
-  empresaNome?: string
-): Promise<string> {
-  try {
-    // 1. Tentar buscar jornada existente primeiro
-    const { data: existing, error: searchError } = await supabase
-      .from('jornadas_consultor')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('conversation_id', conversationId)
-      .maybeSingle();
-
-    if (!searchError && existing?.id) {
-      console.log('[RAG-ADAPTER] Jornada existente encontrada:', existing.id);
-      return existing.id;
-    }
-
-    // 2. Criar nova jornada
-    const { data: jornada, error } = await supabase
-      .from('jornadas_consultor')
-      .insert([{
-        user_id: userId,
-        conversation_id: conversationId,
-        empresa_nome: empresaNome || null,
-        etapa_atual: 'anamnese',
-        dados_anamnese: {},
-        areas_priorizadas: [],
-        progresso_geral: 0
-      }])
-      .select('id')
-      .single();
-
-    if (error) {
-      // Se erro de duplicata, tentar buscar novamente
-      if (error.code === '23505') {
-        console.warn('[RAG-ADAPTER] Jornada duplicada detectada, buscando existente...');
-        const { data: retry } = await supabase
-          .from('jornadas_consultor')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('conversation_id', conversationId)
-          .single();
-
-        if (retry?.id) {
-          return retry.id;
-        }
-      }
-
-      console.error('[RAG-ADAPTER] Erro ao criar jornada:', error);
-      throw new Error(`Erro ao criar jornada: ${error.message}`);
-    }
-
-    console.log('[RAG-ADAPTER] Jornada criada:', jornada.id);
-    return jornada.id as string;
-  } catch (err: any) {
-    console.error('[RAG-ADAPTER] Exceção ao criar jornada:', err);
-    throw new Error(`Falha ao criar jornada: ${err?.message || 'desconhecido'}`);
-  }
-}
-
-/**
- * Cria/recupera sessão do consultor.
- * - SEMPRE cria jornada vinculada automaticamente
- * - Garante que jornada_id nunca seja null
- * - Progressivo fallback para evitar schema cache errors
+ * Cria/recupera sessão do consultor de forma simplificada
  */
 export async function getOrCreateSessao(
   userId: string,
   conversationId: string,
   tituloProblemaPadrao = 'Nova Consultoria'
 ): Promise<string> {
-  // 1) Tenta buscar sessão existente com ativo=true
+  // 1) Tentar buscar sessão existente com ativo=true
   try {
     const { data: sessExistente, error: errBusca } = await supabase
       .from('consultor_sessoes')
-      .select('id, estado_atual, empresa, setor, jornada_id')
+      .select('id')
       .eq('user_id', userId)
+      .eq('conversation_id', conversationId)
       .eq('ativo', true)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -120,21 +32,6 @@ export async function getOrCreateSessao(
 
     if (!errBusca && sessExistente?.id) {
       console.log('[RAG-ADAPTER] Sessão existente encontrada:', sessExistente.id);
-
-      // Se sessão existe mas não tem jornada, buscar ou criar
-      if (!sessExistente.jornada_id) {
-        console.log('[RAG-ADAPTER] Sessão sem jornada, buscando ou criando...');
-        const jornadaId = await getOrCreateJornada(userId, conversationId, sessExistente.empresa);
-
-        // Vincular jornada à sessão
-        await supabase
-          .from('consultor_sessoes')
-          .update({ jornada_id: jornadaId })
-          .eq('id', sessExistente.id);
-
-        console.log('[RAG-ADAPTER] Jornada vinculada à sessão existente');
-      }
-
       return sessExistente.id;
     }
 
@@ -145,14 +42,10 @@ export async function getOrCreateSessao(
     console.warn('[RAG-ADAPTER] Exceção ao buscar sessão:', err?.message || err);
   }
 
-  // 2) Cria nova sessão com jornada vinculada
-  console.log('[RAG-ADAPTER] Criando nova sessão com jornada...');
+  // 2) Criar nova sessão
+  console.log('[RAG-ADAPTER] Criando nova sessão...');
 
   try {
-    // Buscar ou criar jornada primeiro
-    const jornadaId = await getOrCreateJornada(userId, conversationId);
-
-    // Criar sessão com jornada vinculada
     const { data: created, error: errCreate } = await supabase
       .from('consultor_sessoes')
       .insert([{
@@ -160,7 +53,7 @@ export async function getOrCreateSessao(
         conversation_id: conversationId,
         titulo_problema: tituloProblemaPadrao,
         estado_atual: 'coleta',
-        jornada_id: jornadaId,
+        contexto_coleta: {},
         contexto_negocio: {},
         metodologias_aplicadas: [],
         documentos_usados: [],
@@ -177,7 +70,7 @@ export async function getOrCreateSessao(
       throw new Error(`Erro ao criar sessão: ${errCreate.message || 'desconhecido'}`);
     }
 
-    console.log('[RAG-ADAPTER] Nova sessão criada com jornada:', created.id);
+    console.log('[RAG-ADAPTER] Nova sessão criada:', created.id);
     return created.id as string;
 
   } catch (err: any) {
@@ -187,7 +80,7 @@ export async function getOrCreateSessao(
 }
 
 /**
- * Chama a Edge Function consultor-rag e normaliza a resposta para a UI
+ * Chama a Edge Function consultor-rag simplificada
  */
 export async function callConsultorRAG(input: {
   sessaoId?: string;
@@ -198,33 +91,16 @@ export async function callConsultorRAG(input: {
   const sessaoId = input.sessaoId || (await getOrCreateSessao(input.userId, input.conversationId, input.message));
   const message = input.message || '...';
 
-  // Buscar dados da sessão para enviar ao Edge Function
-  const { data: sessaoData, error: sessaoError } = await supabase
-    .from('consultor_sessoes')
-    .select('id, empresa, setor, estado_atual')
-    .eq('id', sessaoId)
-    .single();
+  console.log('[RAG-ADAPTER] Calling consultor-rag function with:', {
+    sessaoId,
+    messageLength: message.length
+  });
 
-  if (sessaoError || !sessaoData) {
-    console.error('[RAG-ADAPTER] Error loading sessao data:', sessaoError);
-    throw new Error('Falha ao carregar dados da sessão');
-  }
-
-  // Montar payload no formato esperado pelo Edge Function
+  // Chamar Edge Function
   const { data, error } = await supabase.functions.invoke('consultor-rag', {
     body: {
-      sessao: {
-        id: sessaoData.id,
-        empresa: sessaoData.empresa,
-        setor: sessaoData.setor,
-        estado: sessaoData.estado_atual
-      },
-      messages: [
-        {
-          role: 'user',
-          content: message
-        }
-      ]
+      sessao_id: sessaoId,
+      message: message
     }
   });
 
@@ -233,23 +109,18 @@ export async function callConsultorRAG(input: {
     throw new Error(error.message || 'Falha ao chamar consultor-rag');
   }
 
-  const rag: RAGResponse = {
-    reply: data?.reply ?? '',
-    actions: data?.actions ?? [],
-    etapa: data?.etapa ?? 'coleta',
-    progresso: data?.progresso ?? 0
-  };
+  console.log('[RAG-ADAPTER] Response received:', {
+    estado: data?.estado,
+    turno: data?.turno_atual,
+    completa: data?.anamnese_completa
+  });
 
   return {
-    text: rag.reply,
-    actions: rag.actions,
-    estado: normalizeToUI(rag.etapa),
-    progresso: rag.progresso,
-    sessaoId: sessaoId,
-    contexto_incremental: data?.contexto_incremental,
-    ragInfo: {
-      methodologies: data?.methodologies,
-      kbDocs: data?.kb_docs
-    }
+    text: data?.reply ?? '',
+    estado: data?.estado ?? 'coleta',
+    turno_atual: data?.turno_atual ?? 1,
+    anamnese_completa: data?.anamnese_completa ?? false,
+    contexto_coletado: data?.contexto_coletado ?? 0,
+    sessaoId: sessaoId
   };
 }

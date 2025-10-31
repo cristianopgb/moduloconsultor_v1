@@ -30,7 +30,8 @@ import { detectFormMarker, removeFormMarkers } from '../../utils/form-markers'
 import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
 import { ValidateScopeButton } from './ValidateScopeButton'
 import { callConsultorRAG, getOrCreateSessao } from '../../lib/consultor/rag-adapter'
-import { executeRAGActions, updateSessaoContext } from '../../lib/consultor/rag-executor'
+// NOTE: Refactored - executeRAGActions and updateSessaoContext removed
+// Actions are no longer used in the simplified architecture
 
 async function loadXLSX() {
   const mod = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm')
@@ -1022,14 +1023,14 @@ function ChatPage() {
               .eq('id', sessaoId)
               .single();
 
-            const contexto = {
-              ...(sessaoData?.contexto_negocio || {}),
-              ...(ragResponse.contexto_incremental || {}),
-              estado_atual: sessaoData?.estado_atual || 'coleta'
-            };
-
-            await executeRAGActions(actions, sessaoId, user!.id, contexto);
-            console.log('[RAG-EXECUTOR] All actions executed successfully');
+            // REFACTORED: Actions removed - context is handled automatically by Edge Function
+            // const contexto = {
+            //   ...(sessaoData?.contexto_negocio || {}),
+            //   ...(ragResponse.contexto_incremental || {}),
+            //   estado_atual: sessaoData?.estado_atual || 'coleta'
+            // };
+            // await executeRAGActions(actions, sessaoId, user!.id, contexto);
+            // console.log('[RAG-EXECUTOR] All actions executed successfully');
 
             window.dispatchEvent(new CustomEvent('entregavel:created', { detail: { sessaoId } }));
           } catch (execError) {
@@ -2017,23 +2018,16 @@ function ChatPage() {
                 console.warn('[FORMULARIO] falha ao persistir mensagem de form:', e);
               }
 
-              // CRITICAL: Call consultor-rag (not consultor-chat) with form data
-              // First, update sessao context
+              // REFACTORED: Form data now sent directly as message to consultor-rag
               if (isConsultorMode) {
                 const sessaoId = await getOrCreateSessao(user.id, current.id, formattedMessage);
-                if (sessaoId) {
-                  await updateSessaoContext(sessaoId, dados);
-                  console.log('[FORMULARIO] Context updated in sessao:', sessaoId);
-                }
 
-                // Now call RAG with form submission action
+                // Send form data as regular message - Edge Function handles context automatically
                 const ragResponse = await callConsultorRAG({
                   message: formattedMessage,
                   userId: user.id,
                   conversationId: current.id,
-                  sessaoId: sessaoId,
-                  formData: dados,
-                  action: 'form_submitted'
+                  sessaoId: sessaoId
                 });
 
                 const reply = ragResponse.text || 'Formulário recebido com sucesso!';
@@ -2048,28 +2042,9 @@ function ChatPage() {
                       params: { tipo_form: ragResponse.formType }
                     });
                   }
-                  if (ragResponse.shouldGenerateDeliverable) {
-                    actions.push({
-                      type: 'gerar_entregavel',
-                      params: { tipo_entregavel: ragResponse.deliverableType }
-                    });
-                  }
-
-                  if (actions.length > 0) {
-                    const { data: sessaoData } = await supabase
-                      .from('consultor_sessoes')
-                      .select('contexto_negocio, estado_atual')
-                      .eq('id', ragResponse.sessaoId)
-                      .single();
-
-                    const contexto = {
-                      ...(sessaoData?.contexto_negocio || {}),
-                      estado_atual: sessaoData?.estado_atual || 'coleta'
-                    };
-
-                    await executeRAGActions(actions, ragResponse.sessaoId, user.id, contexto);
-                    window.dispatchEvent(new CustomEvent('entregavel:created', { detail: { sessaoId: ragResponse.sessaoId } }));
-                  }
+                  // REFACTORED: Actions removed - Edge Function handles everything
+                  // Document generation will be handled by LLM when appropriate
+                  window.dispatchEvent(new CustomEvent('entregavel:created', { detail: { sessaoId: ragResponse.sessaoId } }));
                 }
               } else {
                 // Fallback to old consultor-chat for non-consultor mode
