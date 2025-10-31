@@ -21,13 +21,7 @@
 -- PART 1: NORMALIZAR estado_atual (coleta → anamnese)
 -- ============================================================================
 
--- Atualizar sessões existentes que estão em 'coleta' para 'anamnese'
-UPDATE consultor_sessoes
-SET estado_atual = 'anamnese',
-    updated_at = now()
-WHERE estado_atual = 'coleta';
-
--- Remover TODOS os constraints antigos de estado_atual
+-- PRIMEIRO: Remover TODOS os constraints antigos de estado_atual
 DO $$
 DECLARE
   constraint_name_var text;
@@ -45,13 +39,19 @@ BEGIN
     RAISE NOTICE 'Dropped constraint: %', constraint_name_var;
   END LOOP;
 
-  -- Adicionar novo constraint com estados corretos (inclui 'coleta' para compatibilidade temporária)
-  ALTER TABLE consultor_sessoes
-  ADD CONSTRAINT consultor_sessoes_estado_atual_check_new
-  CHECK (estado_atual IN ('coleta', 'anamnese', 'mapeamento', 'investigacao', 'priorizacao', 'mapeamento_processos', 'diagnostico', 'execucao', 'concluido'));
-
-  RAISE NOTICE 'Added new constraint: consultor_sessoes_estado_atual_check_new';
+  RAISE NOTICE 'All estado_atual constraints removed';
 END $$;
+
+-- SEGUNDO: Atualizar sessões existentes que estão em 'coleta' para 'anamnese'
+UPDATE consultor_sessoes
+SET estado_atual = 'anamnese',
+    updated_at = now()
+WHERE estado_atual = 'coleta';
+
+-- TERCEIRO: Adicionar novo constraint com estados corretos
+ALTER TABLE consultor_sessoes
+ADD CONSTRAINT consultor_sessoes_estado_atual_check_new
+CHECK (estado_atual IN ('coleta', 'anamnese', 'mapeamento', 'investigacao', 'priorizacao', 'mapeamento_processos', 'diagnostico', 'execucao', 'concluido'));
 
 -- ============================================================================
 -- PART 2: GARANTIR COLUNA PROGRESSO EXISTE
