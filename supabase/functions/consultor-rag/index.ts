@@ -289,23 +289,30 @@ Deno.serve(async (req: Request) => {
     if (faseAtual === 'anamnese' && actions.length === 0) {
       const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa'];
       const contextData = { ...contexto, ...contextoIncremental };
-      const collectedFields = Object.keys(contextData).filter(k => requiredFields.includes(k) || contextData.anamnese?.[k]);
+
+      // Check both root level and nested in anamnese object
+      const anamneseData = contextData.anamnese || contextData;
+      const collectedFields = requiredFields.filter(field => {
+        return anamneseData[field] != null || contextData[field] != null;
+      });
 
       console.log('[CONSULTOR] Anamnese completion check:', {
         required: requiredFields.length,
         collected: collectedFields.length,
-        fields: collectedFields
+        fields: collectedFields,
+        hasAnamneseNested: !!contextData.anamnese,
+        anamneseKeys: Object.keys(anamneseData).length
       });
 
       // Check if we have enough data to complete anamnese (at least 8 out of 10 fields)
-      if (collectedFields.length >= 8 || Object.keys(contextData.anamnese || {}).length >= 8) {
+      if (collectedFields.length >= 8) {
         console.log('[CONSULTOR] AUTO-TRANSITION: Anamnese complete, forcing transition to mapeamento');
         actions.push(
           {
             type: 'gerar_entregavel',
             params: {
               tipo: 'anamnese_empresarial',
-              contexto: { ...contexto, ...contextoIncremental }
+              contexto: { ...anamneseData, ...contextoIncremental }
             }
           },
           {
@@ -460,7 +467,7 @@ Deno.serve(async (req: Request) => {
         novoContexto[novaFase] = {};
       }
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('consultor_sessoes')
         .update({
           contexto_coleta: novoContexto,
@@ -470,7 +477,11 @@ Deno.serve(async (req: Request) => {
         })
         .eq('id', body.sessao_id);
 
-      console.log('[CONSULTOR] Context updated. New phase:', novaFase);
+      if (updateError) {
+        console.error('[CONSULTOR] Failed to update session:', updateError);
+      } else {
+        console.log('[CONSULTOR] Context updated. New phase:', novaFase);
+      }
 
       // Registrar na timeline se mudou de fase
       if (novaFase !== faseAtual) {

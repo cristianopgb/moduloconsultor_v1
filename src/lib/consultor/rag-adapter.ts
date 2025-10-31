@@ -117,10 +117,12 @@ export async function callConsultorRAG(input: {
 
   return {
     text: data?.reply ?? '',
-    estado: data?.estado ?? 'coleta',
+    estado: data?.fase ?? data?.estado ?? 'coleta',  // Edge Function returns 'fase', not 'estado'
     turno_atual: data?.turno_atual ?? 1,
     anamnese_completa: data?.anamnese_completa ?? false,
     contexto_coletado: data?.contexto_coletado ?? 0,
-    sessaoId: sessaoId
+    sessaoId: sessaoId,
+    actions: data?.actions_processadas ? [] : (data?.actions || []),  // Pass actions through
+    progresso: data?.progresso
   };
 }
