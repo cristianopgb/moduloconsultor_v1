@@ -1,21 +1,20 @@
 /**
- * CONSULTOR RAG - VERSÃO SIMPLIFICADA E FUNCIONAL
+ * CONSULTOR RAG - ORQUESTRADOR COMPLETO DE CONSULTORIA
  *
- * Fluxo Linear:
- * 1. Recebe mensagem do usuário
- * 2. Carrega histórico completo de mensagens
- * 3. Carrega contexto acumulado da sessão
- * 4. Monta prompt com knowledge base e adapter do setor
- * 5. Chama LLM uma vez com histórico completo
- * 6. Salva resposta no histórico
- * 7. Atualiza contexto se houver dados novos
- * 8. Retorna resposta ao usuário
+ * Sistema inteligente que conduz todo o processo de consultoria:
+ * 1. ANAMNESE: Conhecer o profissional e o negócio (7 turnos)
+ * 2. MAPEAMENTO: Canvas + Cadeia de Valor (automático após anamnese)
+ * 3. PRIORIZAÇÃO: Matriz GUT + Escopo (aguarda validação do usuário)
+ * 4. INVESTIGAÇÃO: Ishikawa + 5 Porquês por processo
+ * 5. MAPEAMENTO PROCESSOS: SIPOC + BPMN AS-IS
+ * 6. DIAGNÓSTICO: Consolidação de achados
+ * 7. EXECUÇÃO: Plano 5W2H + Kanban automático
  *
- * Sem orchestrators, sem action parsing complexo, sem fallbacks elaborados.
- * Apenas uma conversação simples e confiável.
+ * O sistema gera entregáveis automaticamente ao final de cada fase.
  */
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { getSystemPrompt } from './consultor-prompts.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,47 +27,27 @@ interface RequestBody {
   message: string;
 }
 
-// Prompt sistema simples e focado
-const ANAMNESE_PROMPT = `Você é o PROCEDA | Consultor Empresarial Sênior.
+// Mapeamento de fases para próxima fase
+const PHASE_FLOW: Record<string, string> = {
+  'anamnese': 'mapeamento',
+  'mapeamento': 'investigacao',
+  'investigacao': 'priorizacao',
+  'priorizacao': 'mapeamento_processos',
+  'mapeamento_processos': 'diagnostico',
+  'diagnostico': 'execucao',
+  'execucao': 'concluido'
+};
 
-OBJETIVO: Conduzir uma anamnese empresarial em exatamente 7 turnos, coletando:
-
-TURNO 1: Nome completo e cargo do respondente
-TURNO 2: Idade e formação acadêmica
-TURNO 3: Nome da empresa
-TURNO 4: Segmento de atuação e o que a empresa vende/oferece
-TURNO 5: Faturamento anual estimado
-TURNO 6: Principal dor ou desafio que motivou a buscar consultoria
-TURNO 7: Expectativa de sucesso (como saberá que funcionou?)
-
-REGRAS CRÍTICAS:
-1. SEMPRE verifique o CONTEXTO JÁ COLETADO antes de perguntar!
-2. NÃO repita perguntas já respondidas
-3. Faça APENAS 1 pergunta direta por turno
-4. Seja breve (máximo 4 linhas) e direto
-5. Informe o turno atual: "Turno X/7: ..."
-6. Após coletar os 7 turnos, informe que a anamnese foi concluída
-
-FORMATO DE RESPOSTA:
-
-[PARTE A]
-Turno X/7: [sua pergunta objetiva aqui]
-
-[PARTE B]
-{
-  "contexto_incremental": {
-    "turno_atual": X,
-    "[campo]": "[resposta do usuário]"
-  },
-  "anamnese_completa": false
-}
-
-Quando completar os 7 turnos, retorne:
-{
-  "contexto_incremental": {},
-  "anamnese_completa": true
-}
-`;
+// Mapeamento de progresso por fase
+const PHASE_PROGRESS: Record<string, number> = {
+  'anamnese': 15,
+  'mapeamento': 30,
+  'investigacao': 45,
+  'priorizacao': 55,
+  'mapeamento_processos': 70,
+  'diagnostico': 85,
+  'execucao': 100
+};
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -111,7 +90,21 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 2. Carregar histórico de mensagens
+    // 2. Detectar fase atual
+    const contexto = sessao.contexto_coleta || {};
+    let faseAtual = sessao.estado_atual || 'anamnese';
+
+    // Verificar se está aguardando validação de escopo
+    const aguardandoValidacao = sessao.aguardando_validacao;
+    if (aguardandoValidacao === 'escopo') {
+      console.log('[CONSULTOR] Waiting for scope validation');
+      // Usuário ainda pode conversar para ajustar escopo
+      faseAtual = 'priorizacao';
+    }
+
+    console.log('[CONSULTOR] Current phase:', faseAtual);
+
+    // 3. Carregar histórico de mensagens
     const { data: historico, error: histError } = await supabase
       .from('consultor_mensagens')
       .select('role, content, created_at')
@@ -125,18 +118,7 @@ Deno.serve(async (req: Request) => {
     const messages = historico || [];
     console.log('[CONSULTOR] Loaded', messages.length, 'previous messages');
 
-    // 3. Carregar contexto acumulado
-    const contexto = sessao.contexto_coleta || {};
-    const turnoAtual = contexto.turno_atual || 1;
-    const anamneseCompleta = contexto.anamnese_completa === true;
-
-    console.log('[CONSULTOR] Current context:', {
-      turno: turnoAtual,
-      completed: anamneseCompleta,
-      keys: Object.keys(contexto)
-    });
-
-    // 4. Carregar knowledge base e adapter (simplificado - pode ser expandido depois)
+    // 4. Buscar knowledge base relevante (simplificado por enquanto)
     let kbContext = '';
     if (sessao.setor) {
       const { data: adapter } = await supabase
@@ -155,16 +137,21 @@ Deno.serve(async (req: Request) => {
 
     // 5. Montar contexto já coletado de forma legível
     const contextoStr = Object.entries(contexto)
-      .filter(([k]) => k !== 'turno_atual' && k !== 'anamnese_completa')
-      .map(([k, v]) => `  - ${k}: ${v}`)
+      .filter(([k]) => !['fase_atual', 'progresso'].includes(k))
+      .map(([k, v]) => {
+        if (typeof v === 'object') {
+          return `  - ${k}: ${JSON.stringify(v, null, 2)}`;
+        }
+        return `  - ${k}: ${v}`;
+      })
       .join('\n');
 
     const contextoSection = contextoStr
       ? `\n\n═══ CONTEXTO JÁ COLETADO (NÃO PERGUNTE NOVAMENTE) ═══\n${contextoStr}\n═══════════════════════════════════════════════════════\n`
-      : '\n\nNenhum dado coletado ainda. Comece pela primeira pergunta do Turno 1.\n';
+      : '\n\nNenhum dado coletado ainda. Comece pela primeira pergunta.\n';
 
-    // 6. Montar prompt do sistema
-    const systemPrompt = ANAMNESE_PROMPT + contextoSection + kbContext;
+    // 6. Carregar prompt específico da fase
+    const systemPrompt = getSystemPrompt(faseAtual) + contextoSection + kbContext;
 
     // 7. Construir array de mensagens para LLM
     const llmMessages: Array<{ role: string; content: string }> = [
@@ -197,10 +184,10 @@ Deno.serve(async (req: Request) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: llmMessages,
         temperature: 0.7,
-        max_tokens: 800
+        max_tokens: 2000
       })
     });
 
@@ -221,9 +208,10 @@ Deno.serve(async (req: Request) => {
       ? parteAMatch[1].trim()
       : fullResponse.split('[PARTE B]')[0].trim() || fullResponse;
 
-    // 10. Extrair PARTE B (contexto incremental)
-    let contextoIncremental = {};
-    let anamneseCompletaAgora = false;
+    // 10. Extrair PARTE B (contexto incremental e actions)
+    let contextoIncremental: any = {};
+    let actions: any[] = [];
+    let progressoAtualizado = PHASE_PROGRESS[faseAtual] || 0;
 
     const parteBMatch = fullResponse.match(/\[PARTE B\]([\s\S]*)/i);
     if (parteBMatch) {
@@ -234,11 +222,14 @@ Deno.serve(async (req: Request) => {
           .trim();
         const parsed = JSON.parse(jsonStr);
         contextoIncremental = parsed.contexto_incremental || {};
-        anamneseCompletaAgora = parsed.anamnese_completa === true;
+        actions = parsed.actions || [];
+        progressoAtualizado = parsed.progresso || progressoAtualizado;
       } catch (e) {
         console.warn('[CONSULTOR] Failed to parse PARTE B:', e);
       }
     }
+
+    console.log('[CONSULTOR] Parsed actions:', actions.length);
 
     // 11. Salvar mensagem do usuário no histórico
     await supabase.from('consultor_mensagens').insert({
@@ -254,34 +245,174 @@ Deno.serve(async (req: Request) => {
       content: responseText
     });
 
-    // 13. Atualizar contexto acumulado
-    if (Object.keys(contextoIncremental).length > 0 || anamneseCompletaAgora) {
+    // 13. Processar actions
+    let novaFase = faseAtual;
+    let aguardandoValidacaoNova: string | null = aguardandoValidacao;
+    const entregaveisGerados: string[] = [];
+
+    for (const action of actions) {
+      const actionType = action.type;
+
+      if (actionType === 'gerar_entregavel') {
+        // Gerar entregável automaticamente
+        const tipoEntregavel = action.params?.tipo || 'relatorio';
+        const contextoEntregavel = action.params?.contexto || contexto;
+
+        console.log('[CONSULTOR] Generating deliverable:', tipoEntregavel);
+
+        try {
+          // Chamar generate-document
+          const docResponse = await fetch(`${SUPA_URL}/functions/v1/generate-document`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${SUPA_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              type: 'html',
+              title: `${tipoEntregavel} - ${sessao.setor || 'Consultoria'}`,
+              content: JSON.stringify(contextoEntregavel),
+              template_json: {
+                template_name: tipoEntregavel,
+                theme: {
+                  font_family: 'Inter, sans-serif',
+                  primary_color: '#2563eb',
+                  text_color: '#1f2937'
+                }
+              }
+            })
+          });
+
+          if (docResponse.ok) {
+            const docData = await docResponse.json();
+
+            // Salvar em entregaveis_consultor
+            const { data: entregavel } = await supabase
+              .from('entregaveis_consultor')
+              .insert({
+                sessao_id: body.sessao_id,
+                nome: tipoEntregavel,
+                tipo: 'html',
+                conteudo_html: docData.content,
+                etapa_origem: faseAtual,
+                visualizado: false
+              })
+              .select()
+              .single();
+
+            if (entregavel) {
+              entregaveisGerados.push(entregavel.id);
+              console.log('[CONSULTOR] Deliverable saved:', entregavel.id);
+            }
+          }
+        } catch (e) {
+          console.error('[CONSULTOR] Error generating deliverable:', e);
+        }
+      }
+
+      if (actionType === 'transicao_estado') {
+        // Transição para próxima fase
+        const proximaFase = action.params?.to || PHASE_FLOW[faseAtual];
+        if (proximaFase) {
+          novaFase = proximaFase;
+          console.log('[CONSULTOR] Phase transition:', faseAtual, '->', novaFase);
+
+          // Se transicionando para priorizacao, aguardar validação de escopo
+          if (novaFase === 'mapeamento_processos') {
+            aguardandoValidacaoNova = 'escopo';
+            console.log('[CONSULTOR] Waiting for scope validation');
+          } else {
+            aguardandoValidacaoNova = null;
+          }
+        }
+      }
+
+      if (actionType === 'update_kanban') {
+        // Criar cards no Kanban
+        const plano = action.params?.plano;
+        if (plano?.cards) {
+          console.log('[CONSULTOR] Creating Kanban cards:', plano.cards.length);
+
+          for (const card of plano.cards) {
+            try {
+              // Criar ação em acoes_plano
+              const { data: acao } = await supabase
+                .from('acoes_plano')
+                .insert({
+                  sessao_id: body.sessao_id,
+                  nome: card.title,
+                  descricao: card.description,
+                  responsavel: card.assignee,
+                  prazo: card.due,
+                  status: 'pendente'
+                })
+                .select()
+                .single();
+
+              if (acao) {
+                // Criar card no Kanban
+                await supabase
+                  .from('kanban_cards')
+                  .insert({
+                    sessao_id: body.sessao_id,
+                    acao_id: acao.id,
+                    titulo: card.title,
+                    descricao: card.description,
+                    status: 'a_fazer',
+                    prioridade: 'media'
+                  });
+              }
+            } catch (e) {
+              console.error('[CONSULTOR] Error creating Kanban card:', e);
+            }
+          }
+        }
+      }
+    }
+
+    // 14. Atualizar contexto acumulado na sessão
+    if (Object.keys(contextoIncremental).length > 0 || novaFase !== faseAtual) {
       const novoContexto = {
         ...contexto,
         ...contextoIncremental,
-        anamnese_completa: anamneseCompletaAgora
+        fase_atual: novaFase,
+        progresso: progressoAtualizado
       };
 
       await supabase
         .from('consultor_sessoes')
         .update({
           contexto_coleta: novoContexto,
-          estado_atual: anamneseCompletaAgora ? 'mapeamento' : 'coleta',
+          estado_atual: novaFase,
+          aguardando_validacao: aguardandoValidacaoNova,
           updated_at: new Date().toISOString()
         })
         .eq('id', body.sessao_id);
 
-      console.log('[CONSULTOR] Context updated:', Object.keys(novoContexto));
+      console.log('[CONSULTOR] Context updated. New phase:', novaFase);
+
+      // Registrar na timeline se mudou de fase
+      if (novaFase !== faseAtual) {
+        await supabase
+          .from('timeline_consultor')
+          .insert({
+            sessao_id: body.sessao_id,
+            fase: novaFase,
+            evento: `Avançou para fase: ${novaFase}`,
+            created_at: new Date().toISOString()
+          });
+      }
     }
 
-    // 14. Retornar resposta
+    // 15. Retornar resposta
     return new Response(
       JSON.stringify({
         reply: responseText,
-        estado: anamneseCompletaAgora ? 'mapeamento' : 'coleta',
-        turno_atual: contextoIncremental.turno_atual || turnoAtual,
-        anamnese_completa: anamneseCompletaAgora,
-        contexto_coletado: Object.keys({ ...contexto, ...contextoIncremental }).length
+        fase: novaFase,
+        progresso: progressoAtualizado,
+        aguardando_validacao: aguardandoValidacaoNova,
+        entregaveis_gerados: entregaveisGerados.length,
+        actions_processadas: actions.length
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
