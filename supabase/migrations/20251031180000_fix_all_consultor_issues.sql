@@ -27,22 +27,30 @@ SET estado_atual = 'anamnese',
     updated_at = now()
 WHERE estado_atual = 'coleta';
 
--- Criar constraint para validar estados permitidos
+-- Remover TODOS os constraints antigos de estado_atual
 DO $$
+DECLARE
+  constraint_name_var text;
 BEGIN
-  -- Remover constraint antiga se existir
-  IF EXISTS (
-    SELECT 1 FROM information_schema.table_constraints
-    WHERE constraint_name = 'consultor_sessoes_estado_check'
-    AND table_name = 'consultor_sessoes'
-  ) THEN
-    ALTER TABLE consultor_sessoes DROP CONSTRAINT consultor_sessoes_estado_check;
-  END IF;
+  -- Buscar e remover todos os constraints relacionados a estado_atual
+  FOR constraint_name_var IN
+    SELECT con.conname
+    FROM pg_constraint con
+    INNER JOIN pg_class rel ON rel.oid = con.conrelid
+    WHERE rel.relname = 'consultor_sessoes'
+    AND con.contype = 'c'
+    AND pg_get_constraintdef(con.oid) LIKE '%estado_atual%'
+  LOOP
+    EXECUTE format('ALTER TABLE consultor_sessoes DROP CONSTRAINT IF EXISTS %I', constraint_name_var);
+    RAISE NOTICE 'Dropped constraint: %', constraint_name_var;
+  END LOOP;
 
-  -- Adicionar constraint com estados normalizados
+  -- Adicionar novo constraint com estados corretos (inclui 'coleta' para compatibilidade temporária)
   ALTER TABLE consultor_sessoes
-  ADD CONSTRAINT consultor_sessoes_estado_check
-  CHECK (estado_atual IN ('anamnese', 'mapeamento', 'investigacao', 'priorizacao', 'mapeamento_processos', 'diagnostico', 'execucao', 'concluido'));
+  ADD CONSTRAINT consultor_sessoes_estado_atual_check_new
+  CHECK (estado_atual IN ('coleta', 'anamnese', 'mapeamento', 'investigacao', 'priorizacao', 'mapeamento_processos', 'diagnostico', 'execucao', 'concluido'));
+
+  RAISE NOTICE 'Added new constraint: consultor_sessoes_estado_atual_check_new';
 END $$;
 
 -- ============================================================================
