@@ -15,6 +15,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { getSystemPrompt } from './consultor-prompts.ts';
+import { getTemplateForType } from '../_shared/deliverable-templates.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -118,8 +119,10 @@ Deno.serve(async (req: Request) => {
     const messages = historico || [];
     console.log('[CONSULTOR] Loaded', messages.length, 'previous messages');
 
-    // 4. Buscar knowledge base relevante (simplificado por enquanto)
+    // 4. Buscar knowledge base relevante e adapters de setor
     let kbContext = '';
+
+    // 4.1. Buscar adapter de setor
     if (sessao.setor) {
       const { data: adapter } = await supabase
         .from('adapters_setor')
@@ -129,9 +132,39 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       if (adapter) {
-        kbContext = `\n\nCONTEXTO DO SETOR ${sessao.setor}:\n` +
-          `KPIs relevantes: ${adapter.kpis?.slice(0, 5).join(', ') || 'N/A'}\n` +
-          `Metodologias recomendadas: ${adapter.metodologias?.slice(0, 3).join(', ') || 'N/A'}`;
+        kbContext += `\n\nCONTEXTO DO SETOR ${sessao.setor}:\n`;
+        kbContext += `KPIs relevantes: ${adapter.kpis?.slice(0, 5).join(', ') || 'N/A'}\n`;
+        kbContext += `Metodologias recomendadas: ${adapter.metodologias?.slice(0, 3).join(', ') || 'N/A'}\n`;
+      }
+    }
+
+    // 4.2. Buscar exemplos de ferramentas na knowledge base para a fase atual
+    const ferramentasPorFase: Record<string, string[]> = {
+      'mapeamento': ['canvas', 'cadeia de valor', 'value chain'],
+      'investigacao': ['ishikawa', '5 porques', 'causa raiz'],
+      'priorizacao': ['matriz gut', 'priorizacao', 'matriz de decisao'],
+      'mapeamento_processos': ['sipoc', 'bpmn', 'fluxograma', 'processo'],
+      'execucao': ['5w2h', 'plano de acao', 'pdca']
+    };
+
+    const ferramentas = ferramentasPorFase[faseAtual];
+    if (ferramentas && ferramentas.length > 0) {
+      try {
+        const { data: kbItems } = await supabase
+          .from('rag_knowledge_base')
+          .select('titulo, conteudo, categoria')
+          .in('categoria', ferramentas)
+          .limit(3);
+
+        if (kbItems && kbItems.length > 0) {
+          kbContext += `\n\nEXEMPLOS DE FERRAMENTAS (Knowledge Base):\n`;
+          for (const item of kbItems) {
+            kbContext += `\n--- ${item.titulo} ---\n`;
+            kbContext += `${item.conteudo.slice(0, 300)}...\n`;
+          }
+        }
+      } catch (e) {
+        console.warn('[CONSULTOR] Error fetching knowledge base (non-fatal):', e);
       }
     }
 
@@ -254,56 +287,39 @@ Deno.serve(async (req: Request) => {
       const actionType = action.type;
 
       if (actionType === 'gerar_entregavel') {
-        // Gerar entregável automaticamente
+        // Gerar entregável automaticamente usando templates profissionais
         const tipoEntregavel = action.params?.tipo || 'relatorio';
         const contextoEntregavel = action.params?.contexto || contexto;
 
         console.log('[CONSULTOR] Generating deliverable:', tipoEntregavel);
 
         try {
-          // Chamar generate-document
-          const docResponse = await fetch(`${SUPA_URL}/functions/v1/generate-document`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${SUPA_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              type: 'html',
-              title: `${tipoEntregavel} - ${sessao.setor || 'Consultoria'}`,
-              content: JSON.stringify(contextoEntregavel),
-              template_json: {
-                template_name: tipoEntregavel,
-                theme: {
-                  font_family: 'Inter, sans-serif',
-                  primary_color: '#2563eb',
-                  text_color: '#1f2937'
-                }
-              }
-            })
+          // Gerar HTML usando template profissional
+          const htmlContent = getTemplateForType(tipoEntregavel, {
+            ...contextoEntregavel,
+            empresa: sessao.setor || contextoEntregavel.empresa || 'Empresa',
+            data_geracao: new Date().toLocaleDateString('pt-BR')
           });
 
-          if (docResponse.ok) {
-            const docData = await docResponse.json();
+          // Salvar diretamente em entregaveis_consultor
+          const { data: entregavel } = await supabase
+            .from('entregaveis_consultor')
+            .insert({
+              sessao_id: body.sessao_id,
+              nome: tipoEntregavel,
+              titulo: `${tipoEntregavel} - ${sessao.setor || 'Consultoria'}`,
+              tipo: 'html',
+              conteudo_html: htmlContent,
+              etapa_origem: faseAtual,
+              visualizado: false,
+              created_at: new Date().toISOString()
+            })
+            .select()
+            .single();
 
-            // Salvar em entregaveis_consultor
-            const { data: entregavel } = await supabase
-              .from('entregaveis_consultor')
-              .insert({
-                sessao_id: body.sessao_id,
-                nome: tipoEntregavel,
-                tipo: 'html',
-                conteudo_html: docData.content,
-                etapa_origem: faseAtual,
-                visualizado: false
-              })
-              .select()
-              .single();
-
-            if (entregavel) {
-              entregaveisGerados.push(entregavel.id);
-              console.log('[CONSULTOR] Deliverable saved:', entregavel.id);
-            }
+          if (entregavel) {
+            entregaveisGerados.push(entregavel.id);
+            console.log('[CONSULTOR] Deliverable saved:', entregavel.id);
           }
         } catch (e) {
           console.error('[CONSULTOR] Error generating deliverable:', e);
@@ -370,14 +386,26 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 14. Atualizar contexto acumulado na sessão
+    // 14. Atualizar contexto acumulado na sessão (estruturado por fases)
     if (Object.keys(contextoIncremental).length > 0 || novaFase !== faseAtual) {
+      // Estruturar contexto por fase
       const novoContexto = {
         ...contexto,
-        ...contextoIncremental,
+        // Manter estrutura organizada por fase
+        [faseAtual]: {
+          ...(contexto[faseAtual] || {}),
+          ...contextoIncremental
+        },
+        // Metadados gerais
         fase_atual: novaFase,
-        progresso: progressoAtualizado
+        progresso: progressoAtualizado,
+        ultima_atualizacao: new Date().toISOString()
       };
+
+      // Se mudou de fase, criar seção vazia para nova fase
+      if (novaFase !== faseAtual && !novoContexto[novaFase]) {
+        novoContexto[novaFase] = {};
+      }
 
       await supabase
         .from('consultor_sessoes')
@@ -399,8 +427,39 @@ Deno.serve(async (req: Request) => {
             sessao_id: body.sessao_id,
             fase: novaFase,
             evento: `Avançou para fase: ${novaFase}`,
+            metadata: {
+              fase_anterior: faseAtual,
+              progresso: progressoAtualizado
+            },
             created_at: new Date().toISOString()
           });
+
+        // Atualizar gamificação com XP por conclusão de fase
+        try {
+          const { data: gamif } = await supabase
+            .from('gamificacao_consultor')
+            .select('xp_total')
+            .eq('sessao_id', body.sessao_id)
+            .maybeSingle();
+
+          const xpAtual = gamif?.xp_total || 0;
+          const xpFase = PHASE_PROGRESS[faseAtual] || 10;
+
+          await supabase
+            .from('gamificacao_consultor')
+            .upsert({
+              sessao_id: body.sessao_id,
+              xp_total: xpAtual + xpFase,
+              nivel: Math.floor((xpAtual + xpFase) / 100) + 1,
+              ultima_fase_concluida: faseAtual
+            }, {
+              onConflict: 'sessao_id'
+            });
+
+          console.log('[CONSULTOR] XP awarded for phase completion:', xpFase);
+        } catch (e) {
+          console.warn('[CONSULTOR] Error awarding XP (non-fatal):', e);
+        }
       }
     }
 
