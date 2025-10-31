@@ -253,9 +253,9 @@ QUANDO tiver TODAS as respostas (nome, cargo, idade, formação, empresa, segmen
 3. EXPLIQUE: "Agora vou mapear o sistema da empresa para identificar as causas raiz."
 4. **OBRIGATÓRIO**: Gere os actions de transição
 
-VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM:
+VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM JSON COMPLETO:
 
-```json
+[PARTE B]
 {
   "actions": [
     {
@@ -283,7 +283,6 @@ VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM:
   },
   "progresso": 30
 }
-```
 
 🔴 **NUNCA USE "{...dados coletados...}" - ESCREVA O JSON COMPLETO!**
 
@@ -329,7 +328,7 @@ QUANDO tiver TODOS os dados essenciais do checklist (nome, cargo, idade, formaç
 3. EXPLIQUE próxima etapa: "Agora vou mapear o sistema da empresa para identificar as causas raiz."
 
 [PARTE B] - **OBRIGATÓRIO GERAR EXATAMENTE ESTE FORMATO:**
-```json
+
 {
   "actions": [
     {
@@ -337,16 +336,16 @@ QUANDO tiver TODOS os dados essenciais do checklist (nome, cargo, idade, formaç
       "params": {
         "tipo": "anamnese_empresarial",
         "contexto": {
-          "nome": "...",
-          "cargo": "...",
-          "idade": "...",
-          "formacao": "...",
-          "empresa": "...",
-          "segmento": "...",
-          "faturamento": "...",
-          "funcionarios": "...",
-          "dor_principal": "...",
-          "expectativa": "..."
+          "nome": "VALOR_REAL_DO_CONTEXTO",
+          "cargo": "VALOR_REAL_DO_CONTEXTO",
+          "idade": "VALOR_REAL_DO_CONTEXTO",
+          "formacao": "VALOR_REAL_DO_CONTEXTO",
+          "empresa": "VALOR_REAL_DO_CONTEXTO",
+          "segmento": "VALOR_REAL_DO_CONTEXTO",
+          "faturamento": "VALOR_REAL_DO_CONTEXTO",
+          "funcionarios": "VALOR_REAL_DO_CONTEXTO",
+          "dor_principal": "VALOR_REAL_DO_CONTEXTO",
+          "expectativa": "VALOR_REAL_DO_CONTEXTO"
         }
       }
     },
@@ -361,7 +360,6 @@ QUANDO tiver TODOS os dados essenciais do checklist (nome, cargo, idade, formaç
   },
   "progresso": 30
 }
-```
 
 ⚠️ **ATENÇÃO MÁXIMA**: Se você NÃO gerar a [PARTE B] com esses actions exatos, o sistema ficará preso em loop infinito! A transição é OBRIGATÓRIA quando todos os dados forem coletados!
 
