@@ -123,12 +123,35 @@ Resumi corretamente? Agora vou mapear o sistema da empresa para identificar as c
 [PARTE B]
 {
   "actions": [
-    {"type": "gerar_entregavel", "params": {"tipo": "anamnese_empresarial", "contexto": {...todos os dados...}}},
+    {
+      "type": "gerar_entregavel",
+      "params": {
+        "tipo": "anamnese_empresarial",
+        "contexto": {
+          "nome": "Cristiano",
+          "cargo": "Sócio",
+          "idade": "48",
+          "formacao": "Administração",
+          "empresa": "Helpers BPO",
+          "segmento": "Consultoria Financeira",
+          "faturamento": "80000",
+          "funcionarios": "6",
+          "dor_principal": "Escalar vendas e organizar processos",
+          "expectativa": "Dobrar faturamento com estabilidade"
+        }
+      }
+    },
     {"type": "transicao_estado", "params": {"to": "mapeamento"}}
   ],
   "contexto_incremental": {"anamnese_completa": true},
   "progresso": 30
-}`;
+}
+
+🔴 **CRÍTICO - NUNCA USE RETICÊNCIAS "{...}" NO JSON!**
+- SEMPRE escreva o JSON COMPLETO com TODOS os campos preenchidos
+- Use os valores REAIS coletados do contexto
+- NUNCA use placeholders como "{...todos os dados...}" ou "{...}"
+`;
 
 /**
  * FASE 1: ANAMNESE
@@ -235,7 +258,24 @@ VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM:
 ```json
 {
   "actions": [
-    {"type": "gerar_entregavel", "params": {"tipo": "anamnese_empresarial", "contexto": {...dados coletados...}}},
+    {
+      "type": "gerar_entregavel",
+      "params": {
+        "tipo": "anamnese_empresarial",
+        "contexto": {
+          "nome": "VALOR_REAL",
+          "cargo": "VALOR_REAL",
+          "idade": "VALOR_REAL",
+          "formacao": "VALOR_REAL",
+          "empresa": "VALOR_REAL",
+          "segmento": "VALOR_REAL",
+          "faturamento": "VALOR_REAL",
+          "funcionarios": "VALOR_REAL",
+          "dor_principal": "VALOR_REAL",
+          "expectativa": "VALOR_REAL"
+        }
+      }
+    },
     {"type": "transicao_estado", "params": {"to": "mapeamento"}}
   ],
   "contexto_incremental": {
@@ -244,6 +284,8 @@ VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM:
   "progresso": 30
 }
 ```
+
+🔴 **NUNCA USE "{...dados coletados...}" - ESCREVA O JSON COMPLETO!**
 
 ⚠️ SE NÃO GERAR ESSES ACTIONS, O SISTEMA FICARÁ EM LOOP! ⚠️
 
@@ -626,12 +668,36 @@ AO COMPLETAR:
 {
   "reply": "Mapeamento concluído! [síntese dos processos]\\n\\nIdentifiquei os seguintes gaps: [lista]\\n\\nCom todos esses dados, tenho um diagnóstico completo. Vou consolidar os achados.",
   "actions": [
-    {"type": "gerar_entregavel", "params": {"tipo": "sipoc", "contexto": {...}}},
-    {"type": "gerar_entregavel", "params": {"tipo": "bpmn_as_is", "contexto": {...}}},
+    {
+      "type": "gerar_entregavel",
+      "params": {
+        "tipo": "sipoc",
+        "contexto": {
+          "processo_nome": "VALOR_REAL",
+          "suppliers": ["lista real"],
+          "inputs": ["lista real"],
+          "process_steps": ["lista real"],
+          "outputs": ["lista real"],
+          "customers": ["lista real"]
+        }
+      }
+    },
+    {
+      "type": "gerar_entregavel",
+      "params": {
+        "tipo": "bpmn_as_is",
+        "contexto": {
+          "processo_nome": "VALOR_REAL",
+          "etapas": ["lista real de etapas"]
+        }
+      }
+    },
     {"type": "transicao_estado", "params": {"to": "diagnostico"}}
   ],
   "progresso": 80
-}`,
+}
+
+🔴 **NUNCA USE "{...}" - ESCREVA OBJETOS COMPLETOS!**`,
   completionCriteria: [
     'SIPOC completo',
     'BPMN AS-IS gerado',
