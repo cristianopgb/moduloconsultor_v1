@@ -472,6 +472,7 @@ Deno.serve(async (req: Request) => {
         .update({
           contexto_coleta: novoContexto,
           estado_atual: novaFase,
+          progresso: progressoAtualizado,
           aguardando_validacao: aguardandoValidacaoNova,
           updated_at: new Date().toISOString()
         })
@@ -532,10 +533,12 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         reply: responseText,
         fase: novaFase,
+        estado: novaFase,
         progresso: progressoAtualizado,
         aguardando_validacao: aguardandoValidacaoNova,
         entregaveis_gerados: entregaveisGerados.length,
-        actions_processadas: actions.length
+        actions_processadas: actions.length,
+        actions: actions
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
