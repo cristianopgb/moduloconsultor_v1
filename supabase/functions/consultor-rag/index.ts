@@ -30,6 +30,7 @@ interface RequestBody {
 
 // Mapeamento de fases para próxima fase
 const PHASE_FLOW: Record<string, string> = {
+  'coleta': 'mapeamento',
   'anamnese': 'mapeamento',
   'mapeamento': 'investigacao',
   'investigacao': 'priorizacao',
@@ -37,6 +38,18 @@ const PHASE_FLOW: Record<string, string> = {
   'mapeamento_processos': 'diagnostico',
   'diagnostico': 'execucao',
   'execucao': 'concluido'
+};
+
+// Normalização de nomes de fase (database -> interno)
+const PHASE_NORMALIZE: Record<string, string> = {
+  'coleta': 'anamnese',
+  'anamnese': 'anamnese',
+  'mapeamento': 'mapeamento',
+  'investigacao': 'investigacao',
+  'priorizacao': 'priorizacao',
+  'mapeamento_processos': 'mapeamento_processos',
+  'diagnostico': 'diagnostico',
+  'execucao': 'execucao'
 };
 
 // Mapeamento de progresso por fase
@@ -91,9 +104,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 2. Detectar fase atual
+    // 2. Detectar fase atual e normalizar nome
     const contexto = sessao.contexto_coleta || {};
-    let faseAtual = sessao.estado_atual || 'anamnese';
+    let faseAtual = PHASE_NORMALIZE[sessao.estado_atual || 'anamnese'] || 'anamnese';
 
     // Verificar se está aguardando validação de escopo
     const aguardandoValidacao = sessao.aguardando_validacao;
@@ -257,12 +270,52 @@ Deno.serve(async (req: Request) => {
         contextoIncremental = parsed.contexto_incremental || {};
         actions = parsed.actions || [];
         progressoAtualizado = parsed.progresso || progressoAtualizado;
+        console.log('[CONSULTOR] Successfully parsed PARTE B:', {
+          contextoKeys: Object.keys(contextoIncremental).length,
+          actionsCount: actions.length,
+          progresso: progressoAtualizado
+        });
       } catch (e) {
-        console.warn('[CONSULTOR] Failed to parse PARTE B:', e);
+        console.error('[CONSULTOR] Failed to parse PARTE B:', e);
+        console.log('[CONSULTOR] Raw PARTE B content:', parteBMatch[1].substring(0, 200));
       }
+    } else {
+      console.warn('[CONSULTOR] No PARTE B found in response');
     }
 
     console.log('[CONSULTOR] Parsed actions:', actions.length);
+
+    // CRITICAL FIX: Auto-detect phase completion and inject transition if missing
+    if (faseAtual === 'anamnese' && actions.length === 0) {
+      const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa'];
+      const contextData = { ...contexto, ...contextoIncremental };
+      const collectedFields = Object.keys(contextData).filter(k => requiredFields.includes(k) || contextData.anamnese?.[k]);
+
+      console.log('[CONSULTOR] Anamnese completion check:', {
+        required: requiredFields.length,
+        collected: collectedFields.length,
+        fields: collectedFields
+      });
+
+      // Check if we have enough data to complete anamnese (at least 8 out of 10 fields)
+      if (collectedFields.length >= 8 || Object.keys(contextData.anamnese || {}).length >= 8) {
+        console.log('[CONSULTOR] AUTO-TRANSITION: Anamnese complete, forcing transition to mapeamento');
+        actions.push(
+          {
+            type: 'gerar_entregavel',
+            params: {
+              tipo: 'anamnese_empresarial',
+              contexto: { ...contexto, ...contextoIncremental }
+            }
+          },
+          {
+            type: 'transicao_estado',
+            params: { to: 'mapeamento' }
+          }
+        );
+        progressoAtualizado = 30;
+      }
+    }
 
     // 11. Salvar mensagem do usuário no histórico
     await supabase.from('consultor_mensagens').insert({

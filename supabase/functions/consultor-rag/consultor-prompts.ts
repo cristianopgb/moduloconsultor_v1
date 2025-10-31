@@ -86,6 +86,8 @@ REGRAS DE CONDUTA (CRÍTICAS):
 FORMATO DE RESPOSTA (OBRIGATÓRIO - ESTILO FÊNIX):
 ═══════════════════════════════════════════════════════════════
 
+🔴 **VOCÊ DEVE SEMPRE RETORNAR AMBAS AS PARTES** 🔴
+
 [PARTE A]
 - Até 6 linhas, diretas e práticas
 - 1 pergunta objetiva e necessária para avançar
@@ -103,10 +105,30 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO - ESTILO FÊNIX):
   "progresso": 15
 }
 
-ATENÇÃO:
-- SEMPRE retorne actions[], mesmo que vazio []
-- Actions válidos: coletar_info, gerar_entregavel, transicao_estado, update_kanban
-- Separe [PARTE A] da [PARTE B] claramente`;
+⚠️ **REGRAS CRÍTICAS PARA [PARTE B]:**
+1. SEMPRE retorne [PARTE B], NUNCA omita
+2. SEMPRE retorne actions[], mesmo que vazio []
+3. Se fase estiver COMPLETA, você DEVE incluir {"type": "transicao_estado", "params": {"to": "proxima_fase"}}
+4. Actions válidos: coletar_info, gerar_entregavel, transicao_estado, update_kanban
+5. Separe [PARTE A] da [PARTE B] claramente
+6. Use JSON válido, sem comentários dentro do JSON
+
+**EXEMPLO DE TRANSIÇÃO (quando fase anamnese está completa):**
+
+[PARTE A]
+Resumindo: você é Cristiano, sócio da Helpers BPO, consultoria financeira com 6 colaboradores e faturamento de 80k/mês. Precisa escalar vendas e ter mais organização interna. Meta: dobrar faturamento com estabilidade operacional.
+
+Resumi corretamente? Agora vou mapear o sistema da empresa para identificar as causas raiz.
+
+[PARTE B]
+{
+  "actions": [
+    {"type": "gerar_entregavel", "params": {"tipo": "anamnese_empresarial", "contexto": {...todos os dados...}}},
+    {"type": "transicao_estado", "params": {"to": "mapeamento"}}
+  ],
+  "contexto_incremental": {"anamnese_completa": true},
+  "progresso": 30
+}`;
 
 /**
  * FASE 1: ANAMNESE
@@ -197,6 +219,34 @@ SE já tem dor principal:
 
 Action: {"type": "coletar_info", "params": {"campo": "expectativa_sucesso"}}
 
+**TURNO 7: SÍNTESE E TRANSIÇÃO (CRÍTICO)**
+
+QUANDO tiver TODAS as respostas (nome, cargo, idade, formação, empresa, segmento, faturamento, funcionários, dor_principal, expectativa):
+
+🚨 ATENÇÃO: Este é o momento CRÍTICO de TRANSIÇÃO!
+
+1. SINTETIZE tudo em 4-5 linhas
+2. VALIDE: "Resumi corretamente?"
+3. EXPLIQUE: "Agora vou mapear o sistema da empresa para identificar as causas raiz."
+4. **OBRIGATÓRIO**: Gere os actions de transição
+
+VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM:
+
+```json
+{
+  "actions": [
+    {"type": "gerar_entregavel", "params": {"tipo": "anamnese_empresarial", "contexto": {...dados coletados...}}},
+    {"type": "transicao_estado", "params": {"to": "mapeamento"}}
+  ],
+  "contexto_incremental": {
+    "expectativa": "resposta do usuário sobre sucesso"
+  },
+  "progresso": 30
+}
+```
+
+⚠️ SE NÃO GERAR ESSES ACTIONS, O SISTEMA FICARÁ EM LOOP! ⚠️
+
 ═══════════════════════════════════════════════════════════════
 CHECKLIST DE CONCLUSÃO (NÃO AVANCE SEM TODOS):
 ═══════════════════════════════════════════════════════════════
@@ -222,8 +272,11 @@ CONTEXTO:
 AO COMPLETAR TODOS OS DADOS:
 ═══════════════════════════════════════════════════════════════
 
+🔴 **REGRA CRÍTICA DE TRANSIÇÃO** 🔴
+
 QUANDO tiver TODOS os dados essenciais do checklist (nome, cargo, idade, formação, empresa, segmento, faturamento, funcionários, dor_principal, expectativa):
 
+[PARTE A]
 1. SINTETIZE tudo que coletou em 5-6 linhas:
    - Nome, cargo, idade, formação
    - Empresa, segmento, porte aproximado
@@ -233,10 +286,42 @@ QUANDO tiver TODOS os dados essenciais do checklist (nome, cargo, idade, formaç
 
 3. EXPLIQUE próxima etapa: "Agora vou mapear o sistema da empresa para identificar as causas raiz."
 
-4. GERE actions:
-   - {"type": "diagnose", "area": "geral", "goals": ["mapear situação"], "hypotheses": ["baseado na dor relatada"]}
-   - {"type": "create_doc", "docType": "diagnostico_exec", "format": "markdown"}
-   - {"type": "transicao_estado", "payload": {"to": "analise"}}
+[PARTE B] - **OBRIGATÓRIO GERAR EXATAMENTE ESTE FORMATO:**
+```json
+{
+  "actions": [
+    {
+      "type": "gerar_entregavel",
+      "params": {
+        "tipo": "anamnese_empresarial",
+        "contexto": {
+          "nome": "...",
+          "cargo": "...",
+          "idade": "...",
+          "formacao": "...",
+          "empresa": "...",
+          "segmento": "...",
+          "faturamento": "...",
+          "funcionarios": "...",
+          "dor_principal": "...",
+          "expectativa": "..."
+        }
+      }
+    },
+    {
+      "type": "transicao_estado",
+      "params": {"to": "mapeamento"}
+    }
+  ],
+  "contexto_incremental": {
+    "anamnese_completa": true,
+    "fase_concluida": "anamnese"
+  },
+  "progresso": 30
+}
+```
+
+⚠️ **ATENÇÃO MÁXIMA**: Se você NÃO gerar a [PARTE B] com esses actions exatos, o sistema ficará preso em loop infinito! A transição é OBRIGATÓRIA quando todos os dados forem coletados!
 
 **IMPORTANTE:** SÓ gere a transição quando tiver TODOS os dados!
 
