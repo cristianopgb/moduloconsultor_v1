@@ -411,13 +411,325 @@ export function generatePlanoAcaoHTML(contexto: any): string {
 `;
 }
 
+export function generateCadeiaValorHTML(contexto: any): string {
+  const cadeia = contexto.mapeamento?.cadeia_valor || contexto.cadeia_valor || contexto;
+  const processosPrimarios = cadeia.processos_primarios || [];
+  const processosApoio = cadeia.processos_apoio || [];
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cadeia de Valor - ${contexto.empresa || 'Empresa'}</title>
+  ${BASE_STYLES}
+  <style>
+    .chain { border: 3px solid ${BRAND_COLORS.primary}; padding: 1.5rem; border-radius: 12px; margin: 1rem 0; }
+    .chain-primary { background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); }
+    .chain-support { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔄 Cadeia de Valor</h1>
+      <p>Processos que criam e entregam valor</p>
+    </div>
+
+    <div class="section">
+      <h2>Atividades Primárias</h2>
+      <p>Processos que geram valor direto ao cliente:</p>
+      <div class="chain chain-primary">
+        ${processosPrimarios.map((p: any) => `
+          <div class="card">
+            <h4>⚙️ ${typeof p === 'string' ? p : p.nome}</h4>
+            ${p.descricao ? `<p>${p.descricao}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Atividades de Apoio</h2>
+      <p>Processos que suportam as atividades primárias:</p>
+      <div class="chain chain-support">
+        ${processosApoio.map((p: any) => `
+          <div class="card">
+            <h4>🛠️ ${typeof p === 'string' ? p : p.nome}</h4>
+            ${p.descricao ? `<p>${p.descricao}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+export function generateIshikawaHTML(contexto: any): string {
+  const ishikawa = contexto.ishikawa || contexto;
+  const categorias = ishikawa.categorias_6m || {};
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagrama Ishikawa - ${contexto.empresa || 'Análise'}</title>
+  ${BASE_STYLES}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🐟 Diagrama de Ishikawa (6M)</h1>
+      <p>Análise de causas por categoria</p>
+    </div>
+
+    <div class="section">
+      <h2>Problema Analisado</h2>
+      <div class="card" style="background: #fee2e2; border-color: #ef4444;">
+        <h3>⚠️ ${ishikawa.dor || ishikawa.problema || 'Problema não especificado'}</h3>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h4>📦 Máquina</h4>
+        <ul>
+          ${(categorias.maquina || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>📝 Método</h4>
+        <ul>
+          ${(categorias.metodo || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>🧱 Material</h4>
+        <ul>
+          ${(categorias.material || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>👥 Mão de Obra</h4>
+        <ul>
+          ${(categorias.mao_obra || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>🌳 Meio Ambiente</h4>
+        <ul>
+          ${(categorias.meio_ambiente || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>📊 Medição</h4>
+        <ul>
+          ${(categorias.medicao || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Causa Raiz Identificada</h2>
+      <div class="card" style="background: #dcfce7; border-color: #10b981;">
+        <h3>🎯 ${ishikawa.causa_raiz || 'Não identificada'}</h3>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+export function generate5WhysHTML(contexto: any): string {
+  const whys = contexto.whys || contexto;
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>5 Porquês - ${contexto.empresa || 'Análise'}</title>
+  ${BASE_STYLES}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>❓ Método dos 5 Porquês</h1>
+      <p>Identificação de causa raiz</p>
+    </div>
+
+    <div class="section">
+      <h2>Problema Inicial</h2>
+      <div class="card" style="background: #fee2e2;">
+        <h3>🚨 ${whys.problema || 'Não especificado'}</h3>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Análise de Causas</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Pergunta</th>
+            <th>Resposta</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>1</strong></td>
+            <td>Por quê?</td>
+            <td>${whys.porque_1 || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td><strong>2</strong></td>
+            <td>Por quê?</td>
+            <td>${whys.porque_2 || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td><strong>3</strong></td>
+            <td>Por quê?</td>
+            <td>${whys.porque_3 || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td><strong>4</strong></td>
+            <td>Por quê?</td>
+            <td>${whys.porque_4 || 'N/A'}</td>
+          </tr>
+          <tr style="background: #dcfce7;">
+            <td><strong>5</strong></td>
+            <td><strong>Por quê?</strong></td>
+            <td><strong>${whys.porque_5 || 'N/A'}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Causa Raiz Final</h2>
+      <div class="card" style="background: #dcfce7; border-left: 4px solid #10b981;">
+        <h3>🎯 ${whys.causa_raiz || 'Não identificada'}</h3>
+      </div>
+      ${whys.processos_afetados && whys.processos_afetados.length > 0 ? `
+        <h3>Processos Afetados</h3>
+        <ul>
+          ${whys.processos_afetados.map((p: string) => `<li><strong>${p}</strong></li>`).join('')}
+        </ul>
+      ` : ''}
+    </div>
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+export function generateSIPOCHTML(contexto: any): string {
+  const sipoc = contexto.sipoc || contexto;
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIPOC - ${sipoc.processo_nome || 'Processo'}</title>
+  ${BASE_STYLES}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📊 SIPOC - ${sipoc.processo_nome || 'Processo'}</h1>
+      <p>Mapeamento estruturado do processo</p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h4>📦 Suppliers (Fornecedores)</h4>
+        <ul>
+          ${(sipoc.suppliers || []).map((s: string) => `<li>${s}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>⬇️ Inputs (Entradas)</h4>
+        <ul>
+          ${(sipoc.inputs || []).map((i: string) => `<li>${i}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>⚙️ Process (Processo)</h2>
+      <ol>
+        ${(sipoc.process_steps || sipoc.process || []).map((step: string) => `
+          <li><strong>${step}</strong></li>
+        `).join('')}
+      </ol>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h4>⬆️ Outputs (Saídas)</h4>
+        <ul>
+          ${(sipoc.outputs || []).map((o: string) => `<li>${o}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="card">
+        <h4>👥 Customers (Clientes)</h4>
+        <ul>
+          ${(sipoc.customers || []).map((c: string) => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+
+    ${sipoc.metricas ? `
+      <div class="section">
+        <h2>📊 Métricas e Metas</h2>
+        <p>${sipoc.metricas}</p>
+      </div>
+    ` : ''}
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
 export function getTemplateForType(tipo: string, contexto: any): string {
   const templates: Record<string, (ctx: any) => string> = {
     'anamnese': generateAnamneseHTML,
+    'anamnese_empresarial': generateAnamneseHTML,
     'relatorio_anamnese': generateAnamneseHTML,
     'canvas': generateCanvasHTML,
     'canvas_model': generateCanvasHTML,
-    'value_chain': generateCanvasHTML, // Simplificado por enquanto
+    'value_chain': generateCadeiaValorHTML,
+    'cadeia_valor': generateCadeiaValorHTML,
+    'ishikawa': generateIshikawaHTML,
+    '5whys': generate5WhysHTML,
+    '5_porques': generate5WhysHTML,
+    'sipoc': generateSIPOCHTML,
+    'bpmn_as_is': generateSIPOCHTML,  // Simplificado por enquanto
     'matriz_priorizacao': generateMatrizPriorizacaoHTML,
     'escopo': generateMatrizPriorizacaoHTML,
     '5w2h': generatePlanoAcaoHTML,

@@ -29,9 +29,11 @@ interface RequestBody {
 }
 
 // Mapeamento de fases para próxima fase
+// Fluxo correto: anamnese → mapeamento (Canvas) → investigacao → priorizacao → mapeamento_processos (SIPOC) → diagnostico → execucao
 const PHASE_FLOW: Record<string, string> = {
-  'coleta': 'mapeamento',
+  'coleta': 'mapeamento',  // Alias antigo
   'anamnese': 'mapeamento',
+  'modelagem': 'investigacao',  // Alias antigo (modelagem = mapeamento)
   'mapeamento': 'investigacao',
   'investigacao': 'priorizacao',
   'priorizacao': 'mapeamento_processos',
@@ -41,26 +43,32 @@ const PHASE_FLOW: Record<string, string> = {
 };
 
 // Normalização de nomes de fase (database -> interno)
+// Suporta aliases antigos para retrocompatibilidade
 const PHASE_NORMALIZE: Record<string, string> = {
-  'coleta': 'anamnese',
+  'coleta': 'anamnese',  // Alias antigo
   'anamnese': 'anamnese',
-  'mapeamento': 'mapeamento',
+  'modelagem': 'mapeamento',  // Alias antigo
+  'mapeamento': 'mapeamento',  // Canvas + Cadeia de Valor
   'investigacao': 'investigacao',
   'priorizacao': 'priorizacao',
-  'mapeamento_processos': 'mapeamento_processos',
+  'mapeamento_processos': 'mapeamento_processos',  // SIPOC + BPMN
   'diagnostico': 'diagnostico',
-  'execucao': 'execucao'
+  'execucao': 'execucao',
+  'concluido': 'concluido'
 };
 
 // Mapeamento de progresso por fase
 const PHASE_PROGRESS: Record<string, number> = {
+  'coleta': 10,  // Alias
   'anamnese': 15,
-  'mapeamento': 30,
+  'modelagem': 30,  // Alias
+  'mapeamento': 30,  // Canvas + Cadeia
   'investigacao': 45,
   'priorizacao': 55,
-  'mapeamento_processos': 70,
+  'mapeamento_processos': 70,  // SIPOC + BPMN
   'diagnostico': 85,
-  'execucao': 100
+  'execucao': 100,
+  'concluido': 100
 };
 
 Deno.serve(async (req: Request) => {
