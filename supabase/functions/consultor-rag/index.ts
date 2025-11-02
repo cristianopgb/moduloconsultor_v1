@@ -72,6 +72,8 @@ const PHASE_PROGRESS: Record<string, number> = {
 };
 
 Deno.serve(async (req: Request) => {
+  console.log('[CONSULTOR] 🚀 VERSÃO 2.0 - COM DETECTORES E TIMELINE AUTOMÁTICA');
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
