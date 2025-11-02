@@ -596,10 +596,9 @@ Deno.serve(async (req: Request) => {
               nome: tipoEntregavel,
               titulo: `${tipoEntregavel} - ${sessao.setor || 'Consultoria'}`,
               tipo: 'html',
-              conteudo_html: htmlContent,
+              html_conteudo: htmlContent,
               etapa_origem: faseAtual,
-              visualizado: false,
-              created_at: new Date().toISOString()
+              visualizado: false
             })
             .select()
             .single();
