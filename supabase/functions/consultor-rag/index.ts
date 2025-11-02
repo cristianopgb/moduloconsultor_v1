@@ -357,7 +357,8 @@ Deno.serve(async (req: Request) => {
     const contextData = { ...contexto, ...contextoIncremental };
 
     // Detector 1: ANAMNESE COMPLETA
-    if (faseAtual === 'anamnese' && actions.length === 0) {
+    // Roda SEMPRE na fase anamnese, independente de actions
+    if (faseAtual === 'anamnese') {
       const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa'];
       const contextData = { ...contexto, ...contextoIncremental };
 
@@ -376,8 +377,11 @@ Deno.serve(async (req: Request) => {
       });
 
       // Check if we have enough data to complete anamnese (at least 8 out of 10 fields)
-      if (collectedFields.length >= 8) {
-        console.log('[CONSULTOR] AUTO-TRANSITION: Anamnese complete, forcing transition to mapeamento');
+      const hasTransition = actions.some(a => a.type === 'transicao_estado');
+      const hasEntregavel = actions.some(a => a.type === 'gerar_entregavel' && a.params?.tipo === 'anamnese_empresarial');
+
+      if (collectedFields.length >= 8 && !hasTransition && !hasEntregavel) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: Anamnese completa, forçando transição para mapeamento');
         actions.push(
           {
             type: 'gerar_entregavel',
@@ -396,7 +400,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // Detector 2: PRIORIZAÇÃO COMPLETA (Matriz GUT + Escopo)
-    if (faseAtual === 'priorizacao' && actions.length === 0) {
+    // Roda SEMPRE na fase priorizacao, independente de actions
+    if (faseAtual === 'priorizacao') {
       const processos = contextData.processos_identificados || contextData.priorizacao?.processos || [];
 
       // Verificar se todos os processos têm pontuação GUT
@@ -404,7 +409,9 @@ Deno.serve(async (req: Request) => {
         p.gravidade != null && p.urgencia != null && p.tendencia != null
       );
 
-      if (todosComGUT) {
+      const hasEscopoAction = actions.some(a => a.type === 'gerar_entregavel' && (a.params?.tipo === 'matriz_priorizacao' || a.params?.tipo === 'escopo'));
+
+      if (todosComGUT && !contextData.escopo_definido && !hasEscopoAction) {
         console.log('[CONSULTOR] AUTO-DETECTOR: Matriz GUT completa, gerando entregáveis');
 
         // Calcular scores
@@ -454,7 +461,9 @@ Deno.serve(async (req: Request) => {
                        mensagemLower.includes('perfeito') ||
                        mensagemLower.includes('correto');
 
-      if (aprovado && actions.length === 0) {
+      const hasTransition = actions.some(a => a.type === 'transicao_estado');
+
+      if (aprovado && !hasTransition) {
         console.log('[CONSULTOR] AUTO-DETECTOR: Escopo aprovado, transicionando para mapeamento de processos');
         actions.push({
           type: 'transicao_estado',
@@ -466,7 +475,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // Detector 4: MAPEAMENTO DE PROCESSOS COMPLETO (SIPOC)
-    if (faseAtual === 'mapeamento_processos' && actions.length === 0) {
+    // Roda SEMPRE na fase mapeamento_processos, independente de actions
+    if (faseAtual === 'mapeamento_processos') {
       const processosEscopo = contextData.escopo_definido || [];
       const sipocData = contextData.sipoc || {};
 
@@ -534,7 +544,8 @@ Deno.serve(async (req: Request) => {
     });
 
     // 14. ATUALIZAR TIMELINE (SEMPRE, EM TODA INTERAÇÃO)
-    await supabase.from('timeline_consultor').insert({
+    console.log('[CONSULTOR] Registrando na timeline...');
+    const { error: timelineError } = await supabase.from('timeline_consultor').insert({
       sessao_id: body.sessao_id,
       fase: faseAtual,
       evento: `Interação na fase ${faseAtual}`,
@@ -547,6 +558,12 @@ Deno.serve(async (req: Request) => {
       },
       created_at: new Date().toISOString()
     });
+
+    if (timelineError) {
+      console.error('[CONSULTOR] ❌ Erro ao registrar timeline:', timelineError);
+    } else {
+      console.log('[CONSULTOR] ✅ Timeline registrada com sucesso');
+    }
 
     // 15. Processar actions
     let novaFase = faseAtual;
