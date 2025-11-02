@@ -230,7 +230,7 @@ Deno.serve(async (req: Request) => {
 
     console.log('[CONSULTOR] Calling LLM with', llmMessages.length, 'messages');
 
-    // 8. Chamar OpenAI
+    // 8. Chamar OpenAI com JSON mode forçado
     const llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -240,8 +240,9 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: llmMessages,
-        temperature: 0.7,
-        max_tokens: 2000
+        temperature: 0.5,
+        max_tokens: 2500,
+        response_format: { type: 'json_object' }
       })
     });
 
@@ -255,45 +256,105 @@ Deno.serve(async (req: Request) => {
     const fullResponse = llmData?.choices?.[0]?.message?.content || '';
 
     console.log('[CONSULTOR] LLM response length:', fullResponse.length);
+    console.log('[CONSULTOR] LLM response preview:', fullResponse.substring(0, 300));
 
-    // 9. Extrair PARTE A (texto para usuário)
-    const parteAMatch = fullResponse.match(/\[PARTE A\]([\s\S]*?)(\[PARTE B\]|$)/i);
-    const responseText = parteAMatch
-      ? parteAMatch[1].trim()
-      : fullResponse.split('[PARTE B]')[0].trim() || fullResponse;
+    // 9. Parser multi-estratégia robusto
+    let parsedResponse: any = null;
+    let parseStrategy = 'none';
 
-    // 10. Extrair PARTE B (contexto incremental e actions)
+    // Estratégia 1: Parse direto (JSON mode)
+    try {
+      parsedResponse = JSON.parse(fullResponse);
+      parseStrategy = 'direct_json';
+      console.log('[CONSULTOR] Strategy 1 (direct JSON) succeeded');
+    } catch (e) {
+      // Estratégia 2: Buscar por [PARTE B] com JSON
+      const parteBMatch = fullResponse.match(/\[PARTE B\]([\s\S]*)/i);
+      if (parteBMatch) {
+        try {
+          const jsonStr = parteBMatch[1].trim().replace(/```json|```/g, '').trim();
+          parsedResponse = JSON.parse(jsonStr);
+          parseStrategy = 'parte_b_marker';
+          console.log('[CONSULTOR] Strategy 2 (PARTE B marker) succeeded');
+        } catch (e2) {
+          console.warn('[CONSULTOR] Strategy 2 failed:', e2);
+        }
+      }
+
+      // Estratégia 3: Buscar por objeto JSON com "actions"
+      if (!parsedResponse) {
+        const jsonMatch = fullResponse.match(/\{[\s\S]*"actions"[\s\S]*\}/i);
+        if (jsonMatch) {
+          try {
+            parsedResponse = JSON.parse(jsonMatch[0]);
+            parseStrategy = 'actions_search';
+            console.log('[CONSULTOR] Strategy 3 (actions search) succeeded');
+          } catch (e3) {
+            console.warn('[CONSULTOR] Strategy 3 failed:', e3);
+          }
+        }
+      }
+
+      // Estratégia 4: Extrair último bloco JSON válido
+      if (!parsedResponse) {
+        const jsonBlocks = fullResponse.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+        if (jsonBlocks && jsonBlocks.length > 0) {
+          for (let i = jsonBlocks.length - 1; i >= 0; i--) {
+            try {
+              const candidate = JSON.parse(jsonBlocks[i]);
+              if (candidate.actions || candidate.contexto_incremental) {
+                parsedResponse = candidate;
+                parseStrategy = 'last_valid_json';
+                console.log('[CONSULTOR] Strategy 4 (last valid JSON) succeeded');
+                break;
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // 10. Extrair dados do response parseado
+    let responseText = '';
     let contextoIncremental: any = {};
     let actions: any[] = [];
     let progressoAtualizado = PHASE_PROGRESS[faseAtual] || 0;
 
-    const parteBMatch = fullResponse.match(/\[PARTE B\]([\s\S]*)/i);
-    if (parteBMatch) {
-      try {
-        const jsonStr = parteBMatch[1]
-          .trim()
-          .replace(/```json|```/g, '')
-          .trim();
-        const parsed = JSON.parse(jsonStr);
-        contextoIncremental = parsed.contexto_incremental || {};
-        actions = parsed.actions || [];
-        progressoAtualizado = parsed.progresso || progressoAtualizado;
-        console.log('[CONSULTOR] Successfully parsed PARTE B:', {
-          contextoKeys: Object.keys(contextoIncremental).length,
-          actionsCount: actions.length,
-          progresso: progressoAtualizado
-        });
-      } catch (e) {
-        console.error('[CONSULTOR] Failed to parse PARTE B:', e);
-        console.log('[CONSULTOR] Raw PARTE B content:', parteBMatch[1].substring(0, 200));
+    if (parsedResponse) {
+      responseText = parsedResponse.resposta_usuario || parsedResponse.reply || '';
+      contextoIncremental = parsedResponse.contexto_incremental || {};
+      actions = parsedResponse.actions || [];
+      progressoAtualizado = parsedResponse.progresso || progressoAtualizado;
+
+      // Fallback: se não tem resposta_usuario, extrair PARTE A do texto
+      if (!responseText) {
+        const parteAMatch = fullResponse.match(/\[PARTE A\]([\s\S]*?)(\[PARTE B\]|$)/i);
+        responseText = parteAMatch ? parteAMatch[1].trim() : fullResponse.split(/\{|\[PARTE B\]/)[0].trim();
       }
+
+      console.log('[CONSULTOR] Successfully parsed response:', {
+        strategy: parseStrategy,
+        textLength: responseText.length,
+        contextoKeys: Object.keys(contextoIncremental).length,
+        actionsCount: actions.length,
+        progresso: progressoAtualizado
+      });
     } else {
-      console.warn('[CONSULTOR] No PARTE B found in response');
+      // Fallback total: usar response como texto e criar estrutura vazia
+      console.error('[CONSULTOR] ALL PARSING STRATEGIES FAILED');
+      console.log('[CONSULTOR] Raw response:', fullResponse.substring(0, 500));
+      responseText = fullResponse;
+      // Aplicar detectores automáticos abaixo
     }
 
     console.log('[CONSULTOR] Parsed actions:', actions.length);
 
-    // CRITICAL FIX: Auto-detect phase completion and inject transition if missing
+    // 11. DETECTORES AUTOMÁTICOS DE COMPLETUDE POR FASE
+    // Gerar entregáveis e transições automaticamente quando critérios forem atingidos
+
+    const contextData = { ...contexto, ...contextoIncremental };
+
+    // Detector 1: ANAMNESE COMPLETA
     if (faseAtual === 'anamnese' && actions.length === 0) {
       const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa'];
       const contextData = { ...contexto, ...contextoIncremental };
@@ -332,21 +393,160 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 11. Salvar mensagem do usuário no histórico
+    // Detector 2: PRIORIZAÇÃO COMPLETA (Matriz GUT + Escopo)
+    if (faseAtual === 'priorizacao' && actions.length === 0) {
+      const processos = contextData.processos_identificados || contextData.priorizacao?.processos || [];
+
+      // Verificar se todos os processos têm pontuação GUT
+      const todosComGUT = processos.length > 0 && processos.every((p: any) =>
+        p.gravidade != null && p.urgencia != null && p.tendencia != null
+      );
+
+      if (todosComGUT) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: Matriz GUT completa, gerando entregáveis');
+
+        // Calcular scores
+        const processosComScore = processos.map((p: any) => ({
+          ...p,
+          score: (p.gravidade || 0) * (p.urgencia || 0) * (p.tendencia || 0)
+        })).sort((a: any, b: any) => b.score - a.score);
+
+        // Definir escopo: top 3-5 processos
+        const escopo = processosComScore.slice(0, Math.min(5, processosComScore.length));
+
+        actions.push(
+          {
+            type: 'gerar_entregavel',
+            params: {
+              tipo: 'matriz_priorizacao',
+              contexto: { processos: processosComScore }
+            }
+          },
+          {
+            type: 'gerar_entregavel',
+            params: {
+              tipo: 'escopo',
+              contexto: {
+                processos_escopo: escopo.map((p: any) => p.nome),
+                justificativa: `Selecionados ${escopo.length} processos com maior impacto (scores: ${escopo.map((p: any) => p.score).join(', ')})`
+              }
+            }
+          }
+        );
+
+        // Marcar aguardando validação do escopo
+        contextoIncremental.escopo_definido = escopo.map((p: any) => p.nome);
+        contextoIncremental.aguardando_validacao_escopo = true;
+        progressoAtualizado = 55;
+
+        console.log('[CONSULTOR] Escopo definido:', escopo.map((p: any) => p.nome));
+      }
+    }
+
+    // Detector 3: VALIDAÇÃO DE ESCOPO (usuário aprovou)
+    if (faseAtual === 'priorizacao' && aguardandoValidacao === 'escopo') {
+      const mensagemLower = body.message.toLowerCase();
+      const aprovado = mensagemLower.includes('sim') ||
+                       mensagemLower.includes('ok') ||
+                       mensagemLower.includes('concordo') ||
+                       mensagemLower.includes('perfeito') ||
+                       mensagemLower.includes('correto');
+
+      if (aprovado && actions.length === 0) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: Escopo aprovado, transicionando para mapeamento de processos');
+        actions.push({
+          type: 'transicao_estado',
+          params: { to: 'mapeamento_processos' }
+        });
+        contextoIncremental.escopo_aprovado = true;
+        progressoAtualizado = 60;
+      }
+    }
+
+    // Detector 4: MAPEAMENTO DE PROCESSOS COMPLETO (SIPOC)
+    if (faseAtual === 'mapeamento_processos' && actions.length === 0) {
+      const processosEscopo = contextData.escopo_definido || [];
+      const sipocData = contextData.sipoc || {};
+
+      if (processosEscopo.length > 0) {
+        const todosComSIPOC = processosEscopo.every((pNome: string) => {
+          const sipoc = sipocData[pNome];
+          return sipoc && sipoc.suppliers && sipoc.inputs && sipoc.process && sipoc.outputs && sipoc.customers;
+        });
+
+        if (todosComSIPOC) {
+          console.log('[CONSULTOR] AUTO-DETECTOR: SIPOC completo para todos processos, gerando entregáveis');
+
+          // Gerar entregável para cada processo
+          processosEscopo.forEach((pNome: string) => {
+            actions.push({
+              type: 'gerar_entregavel',
+              params: {
+                tipo: 'sipoc',
+                contexto: {
+                  processo_nome: pNome,
+                  ...sipocData[pNome]
+                }
+              }
+            });
+          });
+
+          // Transicionar para diagnóstico
+          actions.push({
+            type: 'transicao_estado',
+            params: { to: 'diagnostico' }
+          });
+
+          progressoAtualizado = 80;
+        }
+      }
+    }
+
+    // Detector 5: VALIDAÇÃO DE TRANSIÇÃO DE FASE
+    // Garantir que fluxo correto seja seguido
+    const proximaFaseAction = actions.find((a: any) => a.type === 'transicao_estado');
+    if (proximaFaseAction) {
+      const proximaFaseDesejada = proximaFaseAction.params?.to;
+      const proximaFaseEsperada = PHASE_FLOW[faseAtual];
+
+      if (proximaFaseDesejada !== proximaFaseEsperada) {
+        console.warn('[CONSULTOR] CORREÇÃO DE FLUXO: Transição inválida detectada');
+        console.log(`[CONSULTOR] Desejada: ${faseAtual} → ${proximaFaseDesejada}`);
+        console.log(`[CONSULTOR] Corrigindo para: ${faseAtual} → ${proximaFaseEsperada}`);
+        proximaFaseAction.params.to = proximaFaseEsperada;
+      }
+    }
+
+    // 12. Salvar mensagem do usuário no histórico
     await supabase.from('consultor_mensagens').insert({
       sessao_id: body.sessao_id,
       role: 'user',
       content: body.message
     });
 
-    // 12. Salvar resposta do assistente no histórico
+    // 13. Salvar resposta do assistente no histórico
     await supabase.from('consultor_mensagens').insert({
       sessao_id: body.sessao_id,
       role: 'assistant',
       content: responseText
     });
 
-    // 13. Processar actions
+    // 14. ATUALIZAR TIMELINE (SEMPRE, EM TODA INTERAÇÃO)
+    await supabase.from('timeline_consultor').insert({
+      sessao_id: body.sessao_id,
+      fase: faseAtual,
+      evento: `Interação na fase ${faseAtual}`,
+      metadata: {
+        mensagem_usuario: body.message.substring(0, 100),
+        actions_detectadas: actions.length,
+        contexto_atualizado: Object.keys(contextoIncremental).length > 0,
+        progresso_atual: progressoAtualizado,
+        parse_strategy: parseStrategy || 'fallback'
+      },
+      created_at: new Date().toISOString()
+    });
+
+    // 15. Processar actions
     let novaFase = faseAtual;
     let aguardandoValidacaoNova: string | null = aguardandoValidacao;
     const entregaveisGerados: string[] = [];
@@ -388,6 +588,18 @@ Deno.serve(async (req: Request) => {
           if (entregavel) {
             entregaveisGerados.push(entregavel.id);
             console.log('[CONSULTOR] Deliverable saved:', entregavel.id);
+
+            // Registrar na timeline
+            await supabase.from('timeline_consultor').insert({
+              sessao_id: body.sessao_id,
+              fase: faseAtual,
+              evento: `Entregável gerado: ${tipoEntregavel}`,
+              metadata: {
+                entregavel_id: entregavel.id,
+                tipo: tipoEntregavel
+              },
+              created_at: new Date().toISOString()
+            });
           }
         } catch (e) {
           console.error('[CONSULTOR] Error generating deliverable:', e);

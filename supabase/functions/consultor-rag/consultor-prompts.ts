@@ -83,20 +83,17 @@ REGRAS DE CONDUTA (CRÍTICAS):
    → Demonstre que está OUVINDO
 
 ═══════════════════════════════════════════════════════════════
-FORMATO DE RESPOSTA (OBRIGATÓRIO - ESTILO FÊNIX):
+FORMATO DE RESPOSTA JSON (OBRIGATÓRIO):
 ═══════════════════════════════════════════════════════════════
 
-🔴 **VOCÊ DEVE SEMPRE RETORNAR AMBAS AS PARTES** 🔴
+🔴 **CRITICAL: VOCÊ DEVE RETORNAR UM OBJETO JSON VÁLIDO** 🔴
 
-[PARTE A]
-- Até 6 linhas, diretas e práticas
-- Use **negrito**, emojis contextuais e marcadores •
-- Use listas e organização visual
-- 1 pergunta objetiva e necessária para avançar
-- Feche com: "Próximo passo: ..."
+VOCÊ ESTÁ CONFIGURADO COM JSON MODE. TODA SUA RESPOSTA DEVE SER UM ÚNICO OBJETO JSON VÁLIDO.
 
-[PARTE B]
+**ESTRUTURA OBRIGATÓRIA:**
+
 {
+  "resposta_usuario": "Texto direto e prático para o usuário (até 6 linhas). Use **negrito**, emojis contextuais e marcadores. Máximo 1 pergunta objetiva. Feche com 'Próximo passo: ...'",
   "actions": [
     {"type": "coletar_info", "params": {"campo": "nome_cargo"}}
   ],
@@ -107,23 +104,19 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO - ESTILO FÊNIX):
   "progresso": 15
 }
 
-⚠️ **REGRAS CRÍTICAS PARA [PARTE B]:**
-1. SEMPRE retorne [PARTE B], NUNCA omita
-2. SEMPRE retorne actions[], mesmo que vazio []
-3. Se fase estiver COMPLETA, você DEVE incluir {"type": "transicao_estado", "params": {"to": "proxima_fase"}}
-4. Actions válidos: coletar_info, gerar_entregavel, transicao_estado, update_kanban
-5. Separe [PARTE A] da [PARTE B] claramente
-6. Use JSON válido, sem comentários dentro do JSON
+⚠️ **REGRAS CRÍTICAS:**
+1. TODO o conteúdo deve estar dentro de um objeto JSON válido
+2. "resposta_usuario" contém o texto formatado para o usuário
+3. "actions" SEMPRE presente (array vazio [] se não houver actions)
+4. "contexto_incremental" contém dados extraídos da mensagem do usuário
+5. "progresso" é um número de 0 a 100
+6. Actions válidos: coletar_info, gerar_entregavel, transicao_estado, update_kanban
+7. NUNCA use placeholders "{...}" - SEMPRE preencha valores reais completos
 
-**EXEMPLO DE TRANSIÇÃO (quando fase anamnese está completa):**
+**EXEMPLO DE TRANSIÇÃO (fase anamnese completa):**
 
-[PARTE A]
-Resumindo: você é Cristiano, sócio da Helpers BPO, consultoria financeira com 6 colaboradores e faturamento de 80k/mês. Precisa escalar vendas e ter mais organização interna. Meta: dobrar faturamento com estabilidade operacional.
-
-Resumi corretamente? Agora vou mapear o sistema da empresa para identificar as causas raiz.
-
-[PARTE B]
 {
+  "resposta_usuario": "Resumindo: você é Cristiano, sócio da Helpers BPO, consultoria financeira com 6 colaboradores e faturamento de 80k/mês. Precisa escalar vendas e ter mais organização interna. Meta: dobrar faturamento com estabilidade operacional.\\n\\nResumi corretamente? Agora vou mapear o sistema da empresa para identificar as causas raiz.\\n\\nPróximo passo: mapear visão sistêmica com Canvas e Cadeia de Valor.",
   "actions": [
     {
       "type": "gerar_entregavel",
@@ -143,16 +136,23 @@ Resumi corretamente? Agora vou mapear o sistema da empresa para identificar as c
         }
       }
     },
-    {"type": "transicao_estado", "params": {"to": "mapeamento"}}
+    {
+      "type": "transicao_estado",
+      "params": {"to": "mapeamento"}
+    }
   ],
-  "contexto_incremental": {"anamnese_completa": true},
+  "contexto_incremental": {
+    "anamnese_completa": true
+  },
   "progresso": 30
 }
 
-🔴 **CRÍTICO - NUNCA USE RETICÊNCIAS "{...}" NO JSON!**
-- SEMPRE escreva o JSON COMPLETO com TODOS os campos preenchidos
-- Use os valores REAIS coletados do contexto
-- NUNCA use placeholders como "{...todos os dados...}" ou "{...}"
+🔴 **ATENÇÃO MÁXIMA:**
+- NUNCA retorne texto fora do JSON
+- NUNCA use marcadores [PARTE A] ou [PARTE B]
+- TODO conteúdo vai em "resposta_usuario"
+- JSON deve ser parseável diretamente
+- Escape caracteres especiais (\n para quebra de linha, \" para aspas)
 `;
 
 /**
