@@ -546,17 +546,17 @@ Deno.serve(async (req: Request) => {
     // 14. ATUALIZAR TIMELINE (SEMPRE, EM TODA INTERAÇÃO)
     console.log('[CONSULTOR] Registrando na timeline...');
     const { error: timelineError } = await supabase.from('timeline_consultor').insert({
+      jornada_id: sessao.jornada_id,
       sessao_id: body.sessao_id,
       fase: faseAtual,
-      evento: `Interação na fase ${faseAtual}`,
-      metadata: {
+      tipo_evento: `Interação na fase ${faseAtual}`,
+      detalhe: {
         mensagem_usuario: body.message.substring(0, 100),
         actions_detectadas: actions.length,
         contexto_atualizado: Object.keys(contextoIncremental).length > 0,
         progresso_atual: progressoAtualizado,
         parse_strategy: parseStrategy || 'fallback'
-      },
-      created_at: new Date().toISOString()
+      }
     });
 
     if (timelineError) {
@@ -610,14 +610,14 @@ Deno.serve(async (req: Request) => {
 
             // Registrar na timeline
             await supabase.from('timeline_consultor').insert({
+              jornada_id: sessao.jornada_id,
               sessao_id: body.sessao_id,
               fase: faseAtual,
-              evento: `Entregável gerado: ${tipoEntregavel}`,
-              metadata: {
+              tipo_evento: `Entregável gerado: ${tipoEntregavel}`,
+              detalhe: {
                 entregavel_id: entregavel.id,
                 tipo: tipoEntregavel
-              },
-              created_at: new Date().toISOString()
+              }
             });
           }
         } catch (e) {
