@@ -728,14 +728,14 @@ Deno.serve(async (req: Request) => {
         await supabase
           .from('timeline_consultor')
           .insert({
+            jornada_id: sessao.jornada_id,
             sessao_id: body.sessao_id,
             fase: novaFase,
-            evento: `Avançou para fase: ${novaFase}`,
-            metadata: {
+            tipo_evento: `Avançou para fase: ${novaFase}`,
+            detalhe: {
               fase_anterior: faseAtual,
               progresso: progressoAtualizado
-            },
-            created_at: new Date().toISOString()
+            }
           });
 
         // Atualizar gamificação com XP por conclusão de fase
