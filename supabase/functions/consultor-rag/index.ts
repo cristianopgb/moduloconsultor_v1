@@ -334,7 +334,7 @@ Deno.serve(async (req: Request) => {
         responseText = parteAMatch ? parteAMatch[1].trim() : fullResponse.split(/\{|\[PARTE B\]/)[0].trim();
       }
 
-      console.log('[CONSULTOR] Successfully parsed response:', {
+      console.log('[CONSULTOR] ✅ Successfully parsed response:', {
         strategy: parseStrategy,
         textLength: responseText.length,
         contextoKeys: Object.keys(contextoIncremental).length,
@@ -343,13 +343,18 @@ Deno.serve(async (req: Request) => {
       });
     } else {
       // Fallback total: usar response como texto e criar estrutura vazia
-      console.error('[CONSULTOR] ALL PARSING STRATEGIES FAILED');
+      console.error('[CONSULTOR] ❌ ALL PARSING STRATEGIES FAILED');
       console.log('[CONSULTOR] Raw response:', fullResponse.substring(0, 500));
       responseText = fullResponse;
-      // Aplicar detectores automáticos abaixo
+      // 🔧 IMPORTANTE: Detectores automáticos ainda funcionarão abaixo
+      // Eles não dependem de actions parseadas, apenas do contexto acumulado
+      console.log('[CONSULTOR] 🤖 Detectores automáticos continuarão funcionando independentemente do parse');
     }
 
     console.log('[CONSULTOR] Parsed actions:', actions.length);
+    if (actions.length === 0) {
+      console.log('[CONSULTOR] ⚠️ Nenhuma action parseada. Detectores automáticos assumirão controle.');
+    }
 
     // 11. DETECTORES AUTOMÁTICOS DE COMPLETUDE POR FASE
     // Gerar entregáveis e transições automaticamente quando critérios forem atingidos
@@ -401,6 +406,7 @@ Deno.serve(async (req: Request) => {
 
     // Detector 2: PRIORIZAÇÃO COMPLETA (Matriz GUT + Escopo)
     // Roda SEMPRE na fase priorizacao, independente de actions
+    let escopoDefinidoAgora = false;
     if (faseAtual === 'priorizacao') {
       const processos = contextData.processos_identificados || contextData.priorizacao?.processos || [];
 
@@ -443,12 +449,14 @@ Deno.serve(async (req: Request) => {
           }
         );
 
-        // Marcar aguardando validação do escopo
+        // Marcar aguardando validação do escopo (NO CONTEXTO E NA FLAG)
         contextoIncremental.escopo_definido = escopo.map((p: any) => p.nome);
         contextoIncremental.aguardando_validacao_escopo = true;
+        escopoDefinidoAgora = true;  // Flag para atualizar coluna imediatamente
         progressoAtualizado = 55;
 
         console.log('[CONSULTOR] Escopo definido:', escopo.map((p: any) => p.nome));
+        console.log('[CONSULTOR] ⚠️ IMPORTANTE: Setando aguardando_validacao = escopo na sessão');
       }
     }
 
@@ -459,12 +467,16 @@ Deno.serve(async (req: Request) => {
                        mensagemLower.includes('ok') ||
                        mensagemLower.includes('concordo') ||
                        mensagemLower.includes('perfeito') ||
+                       mensagemLower.includes('bora') ||
+                       mensagemLower.includes('vamos') ||
+                       mensagemLower.includes('aprovado') ||
                        mensagemLower.includes('correto');
 
       const hasTransition = actions.some(a => a.type === 'transicao_estado');
 
       if (aprovado && !hasTransition) {
-        console.log('[CONSULTOR] AUTO-DETECTOR: Escopo aprovado, transicionando para mapeamento de processos');
+        console.log('[CONSULTOR] ✅ AUTO-DETECTOR: Escopo aprovado pelo usuário!');
+        console.log('[CONSULTOR] Transicionando para mapeamento de processos...');
         actions.push({
           type: 'transicao_estado',
           params: { to: 'mapeamento_processos' }
@@ -588,20 +600,33 @@ Deno.serve(async (req: Request) => {
             data_geracao: new Date().toLocaleDateString('pt-BR')
           });
 
-          // Salvar diretamente em entregaveis_consultor
+          // Validar que temos jornada_id
+          if (!sessao.jornada_id) {
+            console.warn('[CONSULTOR] ⚠️ Sessão sem jornada_id! Entregavel poderá não aparecer em painéis filtrados por jornada.');
+          }
+
+          // CORREÇÃO CRÍTICA: Salvar com jornada_id E tipo correto
           const { data: entregavel } = await supabase
             .from('entregaveis_consultor')
             .insert({
               sessao_id: body.sessao_id,
-              nome: tipoEntregavel,
+              jornada_id: sessao.jornada_id,  // �� CORREÇÃO 1: Adicionar jornada_id
+              nome: tipoEntregavel,           // Ex: 'canvas', 'matriz_priorizacao', 'anamnese_empresarial'
               titulo: `${tipoEntregavel} - ${sessao.setor || 'Consultoria'}`,
-              tipo: 'html',
+              tipo: tipoEntregavel,           // 🔧 CORREÇÃO 2: tipo é o TIPO DO DOCUMENTO (não formato)
               html_conteudo: htmlContent,
               etapa_origem: faseAtual,
               visualizado: false
             })
             .select()
             .single();
+
+          console.log('[CONSULTOR] 📦 Entregavel criado:', {
+            id: entregavel?.id,
+            tipo: tipoEntregavel,
+            jornada_id: sessao.jornada_id,
+            sessao_id: body.sessao_id
+          });
 
           if (entregavel) {
             entregaveisGerados.push(entregavel.id);
@@ -685,7 +710,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // 14. Atualizar contexto acumulado na sessão (estruturado por fases)
-    if (Object.keys(contextoIncremental).length > 0 || novaFase !== faseAtual) {
+    if (Object.keys(contextoIncremental).length > 0 || novaFase !== faseAtual || escopoDefinidoAgora) {
       // Estruturar contexto por fase
       const novoContexto = {
         ...contexto,
@@ -705,21 +730,36 @@ Deno.serve(async (req: Request) => {
         novoContexto[novaFase] = {};
       }
 
+      // CORREÇÃO CRÍTICA: Se escopo foi definido agora, setar a coluna aguardando_validacao
+      let finalAguardandoValidacao = aguardandoValidacaoNova;
+      if (escopoDefinidoAgora) {
+        finalAguardandoValidacao = 'escopo';
+        console.log('[CONSULTOR] 🔧 CORREÇÃO: Setando aguardando_validacao=escopo na coluna');
+      }
+
       const { error: updateError } = await supabase
         .from('consultor_sessoes')
         .update({
           contexto_coleta: novoContexto,
           estado_atual: novaFase,
           progresso: progressoAtualizado,
-          aguardando_validacao: aguardandoValidacaoNova,
+          aguardando_validacao: finalAguardandoValidacao,
           updated_at: new Date().toISOString()
         })
         .eq('id', body.sessao_id);
 
       if (updateError) {
-        console.error('[CONSULTOR] Failed to update session:', updateError);
+        console.error('[CONSULTOR] ❌ Failed to update session:', updateError);
+        // Não falhar por erro de update, continuar fluxo
       } else {
-        console.log('[CONSULTOR] Context updated. New phase:', novaFase);
+        console.log('[CONSULTOR] ✅ Context updated. New phase:', novaFase);
+        console.log('[CONSULTOR] 📊 Progresso atual:', progressoAtualizado + '%');
+        if (escopoDefinidoAgora) {
+          console.log('[CONSULTOR] ✅ Coluna aguardando_validacao atualizada para: escopo');
+        }
+        if (aguardandoValidacaoNova) {
+          console.log('[CONSULTOR] ⏸️ Aguardando validação:', aguardandoValidacaoNova);
+        }
       }
 
       // Registrar na timeline se mudou de fase
