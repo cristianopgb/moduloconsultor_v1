@@ -381,18 +381,34 @@ Deno.serve(async (req: Request) => {
         anamneseKeys: Object.keys(anamneseData).length
       });
 
-      // Check if we have enough data to complete anamnese (at least 8 out of 10 fields)
+      // Check if we have ALL required fields (10 out of 10) including dor_principal and expectativa
       const hasTransition = actions.some(a => a.type === 'transicao_estado');
       const hasEntregavel = actions.some(a => a.type === 'gerar_entregavel' && a.params?.tipo === 'anamnese_empresarial');
 
-      if (collectedFields.length >= 8 && !hasTransition && !hasEntregavel) {
-        console.log('[CONSULTOR] AUTO-DETECTOR: Anamnese completa, forçando transição para mapeamento');
+      // CRITICAL: Must have ALL 10 fields, especially dor_principal and expectativa
+      if (collectedFields.length === 10 && !hasTransition && !hasEntregavel) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: Anamnese completa (10/10 campos), forçando transição para mapeamento');
+
+        // Consolidate all anamnese data in one place
+        const anamneseCompleta = {
+          nome: anamneseData.nome || contextData.nome,
+          cargo: anamneseData.cargo || contextData.cargo,
+          idade: anamneseData.idade || contextData.idade,
+          formacao: anamneseData.formacao || contextData.formacao,
+          empresa: anamneseData.empresa || contextData.empresa,
+          segmento: anamneseData.segmento || contextData.segmento,
+          faturamento: anamneseData.faturamento || contextData.faturamento,
+          funcionarios: anamneseData.funcionarios || contextData.funcionarios,
+          dor_principal: anamneseData.dor_principal || contextData.dor_principal || contextoIncremental.dor_principal,
+          expectativa: anamneseData.expectativa || contextData.expectativa || contextoIncremental.expectativa
+        };
+
         actions.push(
           {
             type: 'gerar_entregavel',
             params: {
               tipo: 'anamnese_empresarial',
-              contexto: { ...anamneseData, ...contextoIncremental }
+              contexto: anamneseCompleta
             }
           },
           {

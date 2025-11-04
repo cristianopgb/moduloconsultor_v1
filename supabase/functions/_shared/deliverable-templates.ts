@@ -198,12 +198,28 @@ export function generateAnamneseHTML(contexto: any): string {
     </div>
 
     <div class="section">
+      <h2>Resumo Executivo</h2>
+      <p style="line-height: 1.8; margin-bottom: 1rem;">
+        <strong>${anamnese.nome || 'O profissional'}</strong>, ${anamnese.cargo || 'responsável'} da <strong>${anamnese.empresa || 'empresa'}</strong>,
+        atua no segmento de <strong>${anamnese.segmento || 'seu mercado'}</strong>.
+        ${anamnese.funcionarios ? `A empresa conta com ${anamnese.funcionarios} colaboradores` : 'A equipe'}
+        ${anamnese.faturamento ? ` e faturamento de R$ ${anamnese.faturamento}` : ''}.
+      </p>
+      <p style="line-height: 1.8; margin-bottom: 1rem;">
+        <strong>Desafio Principal:</strong> ${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}
+      </p>
+      <p style="line-height: 1.8;">
+        <strong>Objetivo de Sucesso:</strong> ${anamnese.expectativa || anamnese.expectativa_sucesso || anamnese.expectativas || 'Não especificado'}
+      </p>
+    </div>
+
+    <div class="section">
       <h2>Contexto e Motivação</h2>
       <h3>Principal Dor/Desafio</h3>
       <p>${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}</p>
 
       <h3>Expectativa de Sucesso</h3>
-      <p>${anamnese.expectativa_sucesso || anamnese.expectativas || 'Não especificado'}</p>
+      <p>${anamnese.expectativa || anamnese.expectativa_sucesso || anamnese.expectativas || 'Não especificado'}</p>
     </div>
 
     <div class="footer">
