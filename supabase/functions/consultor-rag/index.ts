@@ -714,41 +714,120 @@ Deno.serve(async (req: Request) => {
       }
 
       if (actionType === 'update_kanban') {
-        const plano = action.params?.plano;
-        if (plano?.cards) {
-          console.log('[CONSULTOR] Creating Kanban cards:', plano.cards.length);
+        const params = action.params || {};
 
-          for (const card of plano.cards) {
+        console.log('[CONSULTOR] 📋 Processing update_kanban action');
+        console.log('[CONSULTOR] Params structure keys:', Object.keys(params));
+        console.log('[CONSULTOR] Full params:', JSON.stringify(params, null, 2));
+
+        // Normalizar estrutura - aceitar múltiplas variações
+        let cards = [];
+
+        if (params.plano?.cards) {
+          console.log('[CONSULTOR] ✅ Found plano.cards structure');
+          cards = params.plano.cards;
+        } else if (params.cards) {
+          console.log('[CONSULTOR] ✅ Found direct cards structure');
+          cards = params.cards;
+        } else if (params.etapas) {
+          console.log('[CONSULTOR] ⚠️ Found etapas structure, converting to cards');
+          cards = params.etapas.map((etapa: any) => ({
+            title: etapa.nome || etapa.title || 'Ação sem título',
+            description: etapa.descricao || etapa.description || 'Sem descrição',
+            assignee: etapa.responsavel || etapa.assignee || 'Não definido',
+            due: etapa.prazo || etapa.due || '+30d'
+          }));
+        } else if (params.acoes) {
+          console.log('[CONSULTOR] ⚠️ Found acoes structure, converting to cards');
+          cards = params.acoes.map((acao: any) => ({
+            title: acao.what || acao.o_que || 'Ação sem título',
+            description: `${acao.why || acao.por_que || ''}\n\n**Como:** ${acao.how || acao.como || ''}\n**Onde:** ${acao.where || acao.onde || ''}\n**Custo:** ${acao.how_much || acao.quanto || 'N/A'}`,
+            assignee: acao.who || acao.quem || 'Não definido',
+            due: acao.when || acao.quando || '+30d'
+          }));
+        }
+
+        if (cards.length === 0) {
+          console.error('[CONSULTOR] ❌ No valid cards found in update_kanban action');
+          console.error('[CONSULTOR] Params received:', JSON.stringify(params, null, 2));
+        } else {
+          console.log('[CONSULTOR] ✅ Creating', cards.length, 'Kanban cards');
+
+          for (const card of cards) {
             try {
-              const { data: acao } = await supabase
+              // Validar campos obrigatórios
+              if (!card.title) {
+                console.warn('[CONSULTOR] ⚠️ Card without title, skipping:', card);
+                continue;
+              }
+
+              console.log('[CONSULTOR] Creating card:', card.title);
+
+              // Criar ação em acoes_plano
+              const { data: acao, error: acaoError } = await supabase
                 .from('acoes_plano')
                 .insert({
                   sessao_id: body.sessao_id,
-                  nome: card.title,
-                  descricao: card.description,
-                  responsavel: card.assignee,
-                  prazo: card.due,
-                  status: 'pendente'
+                  area_id: null,
+                  what: card.title,
+                  why: card.description || '',
+                  where_field: 'Empresa',
+                  who: card.assignee || 'Não definido',
+                  how: card.description || '',
+                  how_much: 'A definir',
+                  status: 'a_fazer',
+                  prioridade: 'media'
                 })
                 .select()
                 .single();
 
+              if (acaoError) {
+                console.error('[CONSULTOR] ❌ Error inserting into acoes_plano:', acaoError);
+                console.error('[CONSULTOR] Card data:', card);
+                continue;
+              }
+
+              console.log('[CONSULTOR] ✅ Created acao_plano:', acao.id);
+
               if (acao) {
-                await supabase
+                // Criar card no Kanban
+                const { error: cardError } = await supabase
                   .from('kanban_cards')
                   .insert({
                     sessao_id: body.sessao_id,
-                    acao_id: acao.id,
+                    jornada_id: sessao.jornada_id,
+                    area_id: null,
                     titulo: card.title,
-                    descricao: card.description,
-                    status: 'a_fazer',
-                    prioridade: 'media'
+                    descricao: card.description || '',
+                    responsavel: card.assignee || 'Não definido',
+                    prazo: card.due || '+30d',
+                    status: 'todo',
+                    ordem: 0,
+                    dados_5w2h: {
+                      o_que: card.title,
+                      por_que: card.description || '',
+                      quem: card.assignee || '',
+                      quando: card.due || '',
+                      onde: 'Empresa',
+                      como: card.description || '',
+                      quanto: 'A definir'
+                    }
                   });
+
+                if (cardError) {
+                  console.error('[CONSULTOR] ❌ Error inserting into kanban_cards:', cardError);
+                  console.error('[CONSULTOR] Card data:', card);
+                } else {
+                  console.log('[CONSULTOR] ✅ Created kanban_card:', card.title);
+                }
               }
             } catch (e) {
-              console.error('[CONSULTOR] Error creating Kanban card:', e);
+              console.error('[CONSULTOR] ❌ Exception creating Kanban card:', e);
+              console.error('[CONSULTOR] Card data:', card);
             }
           }
+
+          console.log('[CONSULTOR] ✅ Kanban update completed');
         }
       }
     }
