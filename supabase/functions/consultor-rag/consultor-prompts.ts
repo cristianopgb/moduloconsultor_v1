@@ -828,13 +828,14 @@ FERRAMENTA: MATRIZ GUT
 
 COMO CONDUZIR:
 1. Liste todos os processos problemáticos identificados
-2. Para cada um, pergunte (ou infira do contexto):
-   - Qual o impacto se não resolver? (Gravidade)
-   - Quanto tempo temos? (Urgência)
-   - Vai piorar se não agir? (Tendência)
-3. Calcule scores e ordene por prioridade
-4. Defina TOP 3-5 processos para o escopo
-5. Obtenha concordância do usuário
+2. **INFIRA AUTOMATICAMENTE** os valores GUT baseado no contexto coletado:
+   - Gravidade (1-5): Analise o impacto do problema no negócio
+   - Urgência (1-5): Avalie o tempo disponível baseado nas dores relatadas
+   - Tendência (1-5): Estime se o problema tende a piorar
+   **⚠️ CRÍTICO: NÃO PEÇA esses valores ao usuário! VOCÊ decide baseado nas informações que já tem.**
+3. Calcule scores (G × U × T) e ordene por prioridade
+4. Defina TOP 3-5 processos para o escopo automaticamente
+5. **APRESENTE** a matriz pronta e peça concordância (não peça para ele preencher)
 
 ═══════════════════════════════════════════════════════════════
 FORMATAÇÃO VISUAL:

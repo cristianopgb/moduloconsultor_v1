@@ -656,13 +656,8 @@ Deno.serve(async (req: Request) => {
           novaFase = proximaFase;
           console.log('[CONSULTOR] Phase transition:', faseAtual, '->', novaFase);
 
-          // Se transicionando para priorizacao, aguardar validação de escopo
-          if (novaFase === 'mapeamento_processos') {
-            aguardandoValidacaoNova = 'escopo';
-            console.log('[CONSULTOR] Waiting for scope validation');
-          } else {
-            aguardandoValidacaoNova = null;
-          }
+          // Limpar flag de validação ao transicionar (validação já foi feita)
+          aguardandoValidacaoNova = null;
         }
       }
 
