@@ -824,6 +824,78 @@ export function generateSIPOCHTML(contexto: any): string {
 `;
 }
 
+function generateDiagnosticoExecutivoHTML(contexto: any): string {
+  const diagnostico = contexto.diagnostico || {};
+  const processosCriticos = diagnostico.processos_criticos || contexto.processos_criticos || [];
+  const principais_dores = diagnostico.principais_dores || contexto.principais_dores || [];
+  const recomendacoes = diagnostico.recomendacoes || contexto.recomendacoes || [];
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagnóstico Executivo - ${contexto.empresa || contexto.anamnese?.empresa || 'Empresa'}</title>
+  ${BASE_STYLES}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📋 Diagnóstico Executivo</h1>
+      <p>Consolidação de achados e análise estratégica</p>
+    </div>
+
+    ${processosCriticos.length > 0 ? `
+    <div class="section">
+      <h2>🎯 Processos Críticos Mapeados</h2>
+      ${processosCriticos.map((p: any, i: number) => `
+        <div class="card">
+          <h4>${i + 1}. ${typeof p === 'string' ? p : p.nome || p.processo}</h4>
+          <p>${typeof p === 'object' ? p.descricao || p.problema || '' : ''}</p>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    ${principais_dores.length > 0 ? `
+    <div class="section">
+      <h2>⚠️ Principais Dores Identificadas</h2>
+      <ul>
+        ${principais_dores.map((d: any) => `
+          <li><strong>${typeof d === 'string' ? d : d.dor || d.descricao}</strong></li>
+        `).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    ${recomendacoes.length > 0 ? `
+    <div class="section">
+      <h2>💡 Recomendações Estratégicas</h2>
+      ${recomendacoes.map((r: any, i: number) => `
+        <div class="card">
+          <h4>Recomendação ${i + 1}</h4>
+          <p>${typeof r === 'string' ? r : r.recomendacao || r.descricao}</p>
+          ${r.impacto ? `<p><strong>Impacto:</strong> ${r.impacto}</p>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    <div class="section">
+      <h2>📊 Resumo Geral</h2>
+      <p>${diagnostico.resumo || 'Diagnóstico consolidado com base na anamnese, mapeamento de processos e investigação de causas raiz.'}</p>
+    </div>
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
 export function getTemplateForType(tipo: string, contexto: any): string {
   const templates: Record<string, (ctx: any) => string> = {
     'anamnese': generateAnamneseHTML,
@@ -837,11 +909,13 @@ export function getTemplateForType(tipo: string, contexto: any): string {
     '5whys': generate5WhysHTML,
     '5_porques': generate5WhysHTML,
     'sipoc': generateSIPOCHTML,
-    'bpmn_as_is': generateSIPOCHTML,  // Simplificado por enquanto
+    'bpmn_as_is': generateSIPOCHTML,
     'matriz_priorizacao': generateMatrizPriorizacaoHTML,
     'escopo': generateMatrizPriorizacaoHTML,
     '5w2h': generatePlanoAcaoHTML,
-    'plano_acao': generatePlanoAcaoHTML
+    'plano_acao': generatePlanoAcaoHTML,
+    'diagnostico_executivo': generateDiagnosticoExecutivoHTML,
+    'diagnostico': generateDiagnosticoExecutivoHTML
   };
 
   const template = templates[tipo.toLowerCase()];

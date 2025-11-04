@@ -359,7 +359,10 @@ Deno.serve(async (req: Request) => {
       const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa'];
       const anamneseData = contextData.anamnese || contextData;
       const collectedFields = requiredFields.filter(field => {
-        return anamneseData[field] != null || contextData[field] != null;
+        // Verificar múltiplos locais para garantir que o dado foi coletado
+        const valor = anamneseData[field] || contextData[field] || contextoIncremental[field] ||
+                     anamneseData[`expectativa_sucesso`] || contextData[`expectativa_sucesso`]; // Alias para expectativa
+        return valor != null && valor !== '';
       });
 
       console.log('[CONSULTOR] Anamnese completion check:', {
@@ -455,18 +458,30 @@ Deno.serve(async (req: Request) => {
 
     // Detector 3: VALIDAÇÃO DE ESCOPO (usuário aprovou)
     if (faseAtual === 'priorizacao' && aguardandoValidacao === 'escopo') {
-      const mensagemLower = body.message.toLowerCase();
-      const aprovado = mensagemLower.includes('sim') ||
-                       mensagemLower.includes('ok') ||
-                       mensagemLower.includes('concordo') ||
-                       mensagemLower.includes('perfeito') ||
-                       mensagemLower.includes('bora') ||
-                       mensagemLower.includes('vamos') ||
-                       mensagemLower.includes('aprovado');
+      const mensagemLower = body.message.toLowerCase().trim();
+
+      // Lista expandida de termos de aprovação
+      const termosAprovacao = [
+        'sim', 'ok', 'okay', 'yes',
+        'concordo', 'perfeito', 'certo', 'correto',
+        'bora', 'vamos', 'pode', 'seguir',
+        'aprovado', 'aprovar', 'confirmo',
+        'beleza', 'show', 'tranquilo', 'legal',
+        'tudo bem', 'tá bom', 'está bom',
+        'vamos lá', 'pode seguir', 'vamos seguir',
+        'pode ir', 'pode continuar', 'continuar',
+        'avançar', 'próximo', 'próxima',
+        'positivo', 'afirmativo'
+      ];
+
+      const aprovado = termosAprovacao.some(termo => mensagemLower.includes(termo));
+
+      // Também detectar mensagens muito curtas como aprovação
+      const mensagemCurta = mensagemLower.length < 15 && !mensagemLower.includes('não') && !mensagemLower.includes('nao');
 
       const hasTransition = actions.some(a => a.type === 'transicao_estado');
 
-      if (aprovado && !hasTransition) {
+      if ((aprovado || mensagemCurta) && !hasTransition) {
         console.log('[CONSULTOR] ✅ AUTO-DETECTOR: Escopo aprovado!');
         actions.push({
           type: 'transicao_estado',
@@ -557,6 +572,7 @@ Deno.serve(async (req: Request) => {
     let novaFase = faseAtual;
     let aguardandoValidacaoNova: string | null = aguardandoValidacao;
     const entregaveisGerados: string[] = [];
+    const dadosExtraidosActions: any = {};  // Acumular dados dos actions
 
     for (const action of actions) {
       const actionType = action.type;
@@ -564,6 +580,24 @@ Deno.serve(async (req: Request) => {
       if (actionType === 'gerar_entregavel') {
         const tipoEntregavel = action.params?.tipo || 'relatorio';
         const contextoEspecifico = action.params?.contexto || {};
+
+        // CRÍTICO: Salvar dados do action no contexto acumulado
+        if (Object.keys(contextoEspecifico).length > 0) {
+          console.log('[CONSULTOR] Extracting data from action:', tipoEntregavel, Object.keys(contextoEspecifico));
+
+          // Salvar baseado no tipo de entregável
+          if (tipoEntregavel === '5w2h' || tipoEntregavel === 'plano_acao') {
+            dadosExtraidosActions.plano_acao = contextoEspecifico;
+            if (contextoEspecifico.acoes) {
+              dadosExtraidosActions.acoes = contextoEspecifico.acoes;
+            }
+          } else if (tipoEntregavel === 'matriz_priorizacao' || tipoEntregavel === 'escopo') {
+            if (!dadosExtraidosActions.priorizacao) dadosExtraidosActions.priorizacao = {};
+            Object.assign(dadosExtraidosActions.priorizacao, contextoEspecifico);
+          } else if (tipoEntregavel === 'diagnostico_executivo' || tipoEntregavel === 'diagnostico') {
+            dadosExtraidosActions.diagnostico = contextoEspecifico;
+          }
+        }
 
         console.log('[CONSULTOR] Generating deliverable:', tipoEntregavel);
 
@@ -681,12 +715,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // 15. Atualizar contexto
-    if (Object.keys(contextoIncremental).length > 0 || novaFase !== faseAtual || escopoDefinidoAgora) {
+    const temDadosParaSalvar = Object.keys(contextoIncremental).length > 0 ||
+                               Object.keys(dadosExtraidosActions).length > 0 ||
+                               novaFase !== faseAtual ||
+                               escopoDefinidoAgora;
+
+    if (temDadosParaSalvar) {
+      console.log('[CONSULTOR] Saving context. Extracted from actions:', Object.keys(dadosExtraidosActions));
+
       const novoContexto = {
         ...contexto,
         [faseAtual]: {
           ...(contexto[faseAtual] || {}),
-          ...contextoIncremental
+          ...contextoIncremental,
+          ...dadosExtraidosActions  // CRÍTICO: Incluir dados extraídos dos actions
         },
         fase_atual: novaFase,
         progresso: progressoAtualizado,

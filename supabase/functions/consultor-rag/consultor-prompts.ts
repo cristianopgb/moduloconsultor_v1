@@ -504,10 +504,16 @@ FERRAMENTAS:
 - Pós-Venda (suporte, manutenção)
 
 **Atividades de Apoio** (suportam as primárias):
-- Infraestrutura (gestão, finanças, jurídico)
-- Gestão de Pessoas (RH, treinamento)
-- Tecnologia (TI, sistemas)
-- Aquisições (compras, fornecedores)
+- Infraestrutura (finanças, jurídico, administrativo)
+- Gestão de Pessoas (RH, treinamento, desenvolvimento)
+- Tecnologia (TI, sistemas, automação)
+- Aquisições (compras, fornecedores, contratos)
+
+**Atividades de Gestão** (coordenam e controlam):
+- Planejamento Estratégico
+- Controle de Qualidade
+- Gestão de Riscos
+- Compliance e Governança
 
 ═══════════════════════════════════════════════════════════════
 COMO CONDUZIR (PASSO A PASSO):
@@ -545,7 +551,8 @@ Turno 4: Recursos-Chave + Atividades-Chave
 Turno 5: Parcerias + Estrutura de Custos
 Turno 6: Processos Primários (do pedido até entrega)
 Turno 7: Processos de Apoio (RH, TI, Financeiro, etc)
-Turno 8: Identificar TODOS os processos específicos
+Turno 8: Processos de Gestão (planejamento, controle, qualidade, etc)
+Turno 9: Consolidar TODOS os processos identificados
 
 **TURNO 8 - CRÍTICO (LISTAR PROCESSOS):**
 
