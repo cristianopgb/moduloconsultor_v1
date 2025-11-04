@@ -563,14 +563,34 @@ Deno.serve(async (req: Request) => {
 
       if (actionType === 'gerar_entregavel') {
         const tipoEntregavel = action.params?.tipo || 'relatorio';
-        const contextoEntregavel = action.params?.contexto || contexto;
+        const contextoEspecifico = action.params?.contexto || {};
 
         console.log('[CONSULTOR] Generating deliverable:', tipoEntregavel);
 
+        // CRÍTICO: Mesclar contexto completo (todo contexto acumulado + contexto específico do action)
+        const contextoCompleto = {
+          ...contexto,  // Contexto base da sessão
+          ...contextData,  // Contexto atual com incrementais
+          ...contextoEspecifico,  // Contexto específico deste entregável
+          // Garantir que mapeamento está disponível para Canvas e Cadeia
+          mapeamento: {
+            ...(contexto.mapeamento || {}),
+            ...(contextData.mapeamento || {}),
+            ...(contextoEspecifico.mapeamento || {})
+          },
+          anamnese: {
+            ...(contexto.anamnese || {}),
+            ...(contextData.anamnese || {}),
+            ...(contextoEspecifico.anamnese || {})
+          }
+        };
+
+        console.log('[CONSULTOR] Context keys for template:', Object.keys(contextoCompleto));
+
         try {
           const htmlContent = getTemplateForType(tipoEntregavel, {
-            ...contextoEntregavel,
-            empresa: sessao.setor || contextoEntregavel.empresa || 'Empresa',
+            ...contextoCompleto,
+            empresa: sessao.setor || contextoCompleto.empresa || contextoCompleto.anamnese?.empresa || 'Empresa',
             data_geracao: new Date().toLocaleDateString('pt-BR')
           });
 
