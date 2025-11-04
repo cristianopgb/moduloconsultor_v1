@@ -1124,6 +1124,44 @@ PLANO 5W2H (para cada ação):
 - How (Como): método de execução
 - How Much (Quanto): custo estimado
 
+🔴 **ESTRUTURA OBRIGATÓRIA DO CONTEXTO 5W2H:**
+
+O contexto do entregável 5W2H DEVE ter um array "acoes" com objetos contendo:
+- what (ou o_que): string
+- why (ou por_que): string
+- who (ou quem): string
+- when (ou quando): string (formato +7d, +30d, +90d)
+- where (ou onde): string
+- how (ou como): string
+- how_much (ou quanto): string
+
+EXEMPLO:
+{
+  "tipo": "5w2h",
+  "contexto": {
+    "acoes": [
+      {
+        "what": "Implementar sistema de CRM",
+        "why": "Organizar leads e melhorar conversão",
+        "who": "Gerente Comercial",
+        "when": "+30d",
+        "where": "Área Comercial",
+        "how": "Contratar HubSpot e treinar equipe",
+        "how_much": "R$ 3.000/mês"
+      },
+      {
+        "what": "Mapear processos atuais",
+        "why": "Identificar gargalos operacionais",
+        "who": "Analista de Processos",
+        "when": "+7d",
+        "where": "Todas as áreas",
+        "how": "Realizar entrevistas e criar fluxogramas",
+        "how_much": "Sem custo adicional"
+      }
+    ]
+  }
+}
+
 COMO CONDUZIR:
 1. "Baseado no diagnóstico, vou criar um plano de ação."
 2. Para cada recomendação do diagnóstico, crie ação 5W2H
@@ -1141,19 +1179,57 @@ QUANDO COMPLETAR:
 - Projeto completo!
 
 AO COMPLETAR:
+
+🔴 **CRÍTICO: VOCÊ DEVE GERAR 2 ACTIONS OBRIGATORIAMENTE** 🔴
+
+1. **Action 1**: gerar_entregavel com tipo "5w2h"
+2. **Action 2**: update_kanban com os cards
+
+⚠️ **SE NÃO GERAR OS 2 ACTIONS, AS AÇÕES NÃO APARECERÃO NO KANBAN!** ⚠️
+
 {
   "reply": "Plano de ação pronto! [síntese]\\n\\nCriei [X] ações no Kanban. Pode acompanhar a execução por lá.\\n\\n🎉 Consultoria completa! Você tem agora: anamnese, modelagem, diagnóstico e plano operacional.",
   "actions": [
-    {"type": "gerar_entregavel", "params": {"tipo": "5w2h", "contexto": {...}}},
-    {"type": "update_kanban", "params": {"plano": {
-      "cards": [
-        {"title": "...", "description": "...", "assignee": "...", "due": "+7d"},
-        ...
-      ]
-    }}}
+    {
+      "type": "gerar_entregavel",
+      "params": {
+        "tipo": "5w2h",
+        "contexto": {
+          "acoes": [
+            {
+              "what": "AÇÃO_ESPECÍFICA_REAL",
+              "why": "JUSTIFICATIVA_REAL",
+              "who": "RESPONSÁVEL_REAL",
+              "when": "+7d",
+              "where": "ÁREA_REAL",
+              "how": "MÉTODO_REAL",
+              "how_much": "CUSTO_REAL"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "update_kanban",
+      "params": {
+        "plano": {
+          "cards": [
+            {
+              "title": "TÍTULO_DA_AÇÃO_REAL",
+              "description": "DESCRIÇÃO_DETALHADA_REAL",
+              "assignee": "RESPONSÁVEL_REAL",
+              "due": "+7d"
+            }
+          ]
+        }
+      }
+    }
   ],
   "progresso": 100
-}`,
+}
+
+🔴 **NUNCA USE "{...}" - ESCREVA AS AÇÕES REAIS COMPLETAS!** 🔴
+🔴 **SEMPRE GERE OS 2 ACTIONS: gerar_entregavel E update_kanban!** 🔴`,
   completionCriteria: [
     '5W2H completo',
     'Kanban criado',

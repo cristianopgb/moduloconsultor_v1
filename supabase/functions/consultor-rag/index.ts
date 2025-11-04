@@ -529,7 +529,46 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Detector 5: VALIDAÇÃO DE TRANSIÇÃO
+    // Detector 5: EXECUÇÃO COMPLETA (5W2H + Kanban)
+    if (faseAtual === 'execucao') {
+      const has5W2H = actions.some(a => a.type === 'gerar_entregavel' && a.params?.tipo === '5w2h');
+      const hasKanban = actions.some(a => a.type === 'update_kanban');
+
+      // Se tem 5W2H mas não tem Kanban, extrair ações e criar Kanban automaticamente
+      if (has5W2H && !hasKanban) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: 5W2H gerado sem Kanban, criando cards automaticamente');
+
+        const action5W2H = actions.find(a => a.type === 'gerar_entregavel' && a.params?.tipo === '5w2h');
+        const contexto5W2H = action5W2H?.params?.contexto || {};
+
+        // Extrair ações do contexto 5W2H
+        const acoes5W2H = contexto5W2H.acoes || [];
+
+        if (acoes5W2H.length > 0) {
+          const kanbanCards = acoes5W2H.map((acao: any) => ({
+            title: acao.what || acao.o_que || 'Ação sem título',
+            description: `${acao.why || acao.por_que || ''}\n\n**Como:** ${acao.how || acao.como || ''}\n**Onde:** ${acao.where || acao.onde || ''}\n**Custo:** ${acao.how_much || acao.quanto || 'N/A'}`,
+            assignee: acao.who || acao.quem || 'Não definido',
+            due: acao.when || acao.quando || '+30d'
+          }));
+
+          console.log('[CONSULTOR] Criando', kanbanCards.length, 'cards automaticamente');
+
+          actions.push({
+            type: 'update_kanban',
+            params: {
+              plano: {
+                cards: kanbanCards
+              }
+            }
+          });
+        } else {
+          console.warn('[CONSULTOR] 5W2H sem ações definidas, não é possível criar Kanban');
+        }
+      }
+    }
+
+    // Detector 6: VALIDAÇÃO DE TRANSIÇÃO
     const proximaFaseAction = actions.find((a: any) => a.type === 'transicao_estado');
     if (proximaFaseAction) {
       const proximaFaseDesejada = proximaFaseAction.params?.to;
