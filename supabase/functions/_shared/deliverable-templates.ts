@@ -232,7 +232,24 @@ export function generateAnamneseHTML(contexto: any): string {
 }
 
 export function generateCanvasHTML(contexto: any): string {
-  const canvas = contexto.mapeamento?.canvas || contexto.canvas || {};
+  // Suporta múltiplos formatos de estrutura de dados
+  const mapeamento = contexto.mapeamento || {};
+  const canvas = mapeamento.canvas || contexto.canvas || {};
+
+  // Extrair dados de canvas_ prefixado (formato atual do LLM)
+  const canvasData = {
+    proposta_valor: canvas.proposta_valor || mapeamento.canvas_proposta_valor || canvas.value_proposition || 'Não especificado',
+    segmentos_cliente: canvas.segmentos_cliente || mapeamento.canvas_segmentos_cliente || canvas.customer_segments || 'N/A',
+    canais: canvas.canais || mapeamento.canvas_canais || canvas.channels || 'N/A',
+    relacionamento: canvas.relacionamento || mapeamento.canvas_relacionamento || canvas.customer_relationships || 'N/A',
+    receitas: canvas.receitas || mapeamento.canvas_receitas || canvas.revenue_streams || 'N/A',
+    recursos: canvas.recursos || mapeamento.canvas_recursos || canvas.key_resources || 'N/A',
+    atividades: canvas.atividades || mapeamento.canvas_atividades || canvas.key_activities || 'N/A',
+    parcerias: canvas.parcerias || mapeamento.canvas_parcerias || canvas.key_partnerships || 'N/A',
+    custos: canvas.custos || mapeamento.canvas_custos || canvas.cost_structure || 'N/A'
+  };
+
+  const empresa = contexto.empresa || contexto.anamnese?.empresa || mapeamento.empresa || 'Empresa';
 
   return `
 <!DOCTYPE html>
@@ -240,53 +257,68 @@ export function generateCanvasHTML(contexto: any): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Business Model Canvas - ${contexto.empresa || 'Empresa'}</title>
+  <title>Business Model Canvas - ${empresa}</title>
   ${BASE_STYLES}
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1>🎯 Business Model Canvas</h1>
-      <p>Modelo de negócio mapeado</p>
+      <p>Modelo de negócio da ${empresa}</p>
+    </div>
+
+    <div class="section">
+      <h2>Resumo Executivo</h2>
+      <p style="line-height: 1.8; margin-bottom: 1rem;">
+        A <strong>${empresa}</strong> opera no modelo de negócio baseado em <strong>${canvasData.proposta_valor}</strong>,
+        atendendo <strong>${canvasData.segmentos_cliente}</strong>.
+        A empresa mantém relacionamento com clientes através de <strong>${canvasData.relacionamento}</strong>
+        e gera receita por meio de <strong>${canvasData.receitas}</strong>.
+      </p>
+      <p style="line-height: 1.8;">
+        As operações dependem de recursos como <strong>${canvasData.recursos}</strong>,
+        executando atividades de <strong>${canvasData.atividades}</strong>,
+        com suporte de parcerias estratégicas com <strong>${canvasData.parcerias}</strong>.
+      </p>
     </div>
 
     <div class="section">
       <h2>Proposta de Valor</h2>
-      <p>${canvas.proposta_valor || canvas.value_proposition || 'Não especificado'}</p>
+      <p>${canvasData.proposta_valor}</p>
     </div>
 
     <div class="grid">
       <div class="card">
         <h4>Segmentos de Cliente</h4>
-        <p>${canvas.segmentos_cliente || canvas.customer_segments || 'N/A'}</p>
+        <p>${canvasData.segmentos_cliente}</p>
       </div>
       <div class="card">
         <h4>Canais</h4>
-        <p>${canvas.canais || canvas.channels || 'N/A'}</p>
+        <p>${canvasData.canais}</p>
       </div>
       <div class="card">
         <h4>Relacionamento</h4>
-        <p>${canvas.relacionamento || canvas.customer_relationships || 'N/A'}</p>
+        <p>${canvasData.relacionamento}</p>
       </div>
       <div class="card">
         <h4>Fontes de Receita</h4>
-        <p>${canvas.receitas || canvas.revenue_streams || 'N/A'}</p>
+        <p>${canvasData.receitas}</p>
       </div>
       <div class="card">
         <h4>Recursos Principais</h4>
-        <p>${canvas.recursos || canvas.key_resources || 'N/A'}</p>
+        <p>${canvasData.recursos}</p>
       </div>
       <div class="card">
         <h4>Atividades-Chave</h4>
-        <p>${canvas.atividades || canvas.key_activities || 'N/A'}</p>
+        <p>${canvasData.atividades}</p>
       </div>
       <div class="card">
         <h4>Parcerias</h4>
-        <p>${canvas.parcerias || canvas.key_partnerships || 'N/A'}</p>
+        <p>${canvasData.parcerias}</p>
       </div>
       <div class="card">
         <h4>Estrutura de Custos</h4>
-        <p>${canvas.custos || canvas.cost_structure || 'N/A'}</p>
+        <p>${canvasData.custos}</p>
       </div>
     </div>
 
@@ -428,9 +460,39 @@ export function generatePlanoAcaoHTML(contexto: any): string {
 }
 
 export function generateCadeiaValorHTML(contexto: any): string {
-  const cadeia = contexto.mapeamento?.cadeia_valor || contexto.cadeia_valor || contexto;
-  const processosPrimarios = cadeia.processos_primarios || [];
-  const processosApoio = cadeia.processos_apoio || [];
+  const mapeamento = contexto.mapeamento || {};
+  const cadeia = mapeamento.cadeia_valor || contexto.cadeia_valor || {};
+
+  // Tentar obter processos de múltiplas fontes
+  let processosPrimarios = cadeia.processos_primarios || mapeamento.processos_primarios || [];
+  let processosApoio = cadeia.processos_apoio || mapeamento.processos_apoio || [];
+  let processosGestao = cadeia.processos_gestao || mapeamento.processos_gestao || [];
+
+  // Se não tiver categorização, tentar inferir da lista geral
+  const processosIdentificados = mapeamento.processos_identificados || [];
+  if (processosPrimarios.length === 0 && processosIdentificados.length > 0) {
+    // Palavras-chave para categorizar automaticamente
+    const palavrasPrimarias = ['venda', 'marketing', 'operação', 'produção', 'entrega', 'logística', 'onboarding', 'tesouraria'];
+    const palavrasApoio = ['financeiro', 'ti', 'tecnologia', 'rh', 'pessoas', 'suporte', 'infraestrutura'];
+    const palavrasGestao = ['gestão', 'planejamento', 'estratégia', 'controle', 'administração'];
+
+    processosIdentificados.forEach((p: any) => {
+      const nome = (typeof p === 'string' ? p : p.nome || '').toLowerCase();
+      if (palavrasPrimarias.some(palavra => nome.includes(palavra))) {
+        processosPrimarios.push(p);
+      } else if (palavrasGestao.some(palavra => nome.includes(palavra))) {
+        processosGestao.push(p);
+      } else if (palavrasApoio.some(palavra => nome.includes(palavra))) {
+        processosApoio.push(p);
+      } else {
+        // Por padrão, considerar primário
+        processosPrimarios.push(p);
+      }
+    });
+  }
+
+  const empresa = contexto.empresa || contexto.anamnese?.empresa || mapeamento.empresa || 'Empresa';
+  const proposta_valor = mapeamento.canvas_proposta_valor || mapeamento.proposta_valor || 'criação de valor';
 
   return `
 <!DOCTYPE html>
@@ -438,46 +500,76 @@ export function generateCadeiaValorHTML(contexto: any): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cadeia de Valor - ${contexto.empresa || 'Empresa'}</title>
+  <title>Cadeia de Valor - ${empresa}</title>
   ${BASE_STYLES}
   <style>
     .chain { border: 3px solid ${BRAND_COLORS.primary}; padding: 1.5rem; border-radius: 12px; margin: 1rem 0; }
     .chain-primary { background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); }
     .chain-support { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); }
+    .chain-management { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1>🔄 Cadeia de Valor</h1>
-      <p>Processos que criam e entregam valor</p>
+      <p>Arquitetura de processos da ${empresa}</p>
     </div>
 
+    <div class="section">
+      <h2>Resumo Executivo</h2>
+      <p style="line-height: 1.8; margin-bottom: 1rem;">
+        A cadeia de valor da <strong>${empresa}</strong> foi mapeada para identificar todos os processos que contribuem para <strong>${proposta_valor}</strong>.
+        ${processosPrimarios.length > 0 ? `As principais entregas de valor são realizadas através de <strong>${processosPrimarios.length} processos primários</strong>` : ''}
+        ${processosApoio.length > 0 ? `, suportados por <strong>${processosApoio.length} processos de apoio</strong>` : ''}
+        ${processosGestao.length > 0 ? ` e <strong>${processosGestao.length} processos gerenciais</strong>` : ''}.
+      </p>
+    </div>
+
+    ${processosPrimarios.length > 0 ? `
     <div class="section">
       <h2>Atividades Primárias</h2>
       <p>Processos que geram valor direto ao cliente:</p>
       <div class="chain chain-primary">
         ${processosPrimarios.map((p: any) => `
           <div class="card">
-            <h4>⚙️ ${typeof p === 'string' ? p : p.nome}</h4>
-            ${p.descricao ? `<p>${p.descricao}</p>` : ''}
+            <h4>⚙️ ${typeof p === 'string' ? p : p.nome || p}</h4>
+            ${(typeof p !== 'string' && p.descricao) ? `<p>${p.descricao}</p>` : ''}
           </div>
         `).join('')}
       </div>
     </div>
+    ` : ''}
 
+    ${processosGestao.length > 0 ? `
+    <div class="section">
+      <h2>Atividades de Gestão</h2>
+      <p>Processos que coordenam e controlam as operações:</p>
+      <div class="chain chain-management">
+        ${processosGestao.map((p: any) => `
+          <div class="card">
+            <h4>📊 ${typeof p === 'string' ? p : p.nome || p}</h4>
+            ${(typeof p !== 'string' && p.descricao) ? `<p>${p.descricao}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    ` : ''}
+
+    ${processosApoio.length > 0 ? `
     <div class="section">
       <h2>Atividades de Apoio</h2>
       <p>Processos que suportam as atividades primárias:</p>
       <div class="chain chain-support">
         ${processosApoio.map((p: any) => `
           <div class="card">
-            <h4>🛠️ ${typeof p === 'string' ? p : p.nome}</h4>
-            ${p.descricao ? `<p>${p.descricao}</p>` : ''}
+            <h4>🛠️ ${typeof p === 'string' ? p : p.nome || p}</h4>
+            ${(typeof p !== 'string' && p.descricao) ? `<p>${p.descricao}</p>` : ''}
           </div>
         `).join('')}
       </div>
     </div>
+    ` : ''}
 
     <div class="footer">
       <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
