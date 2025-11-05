@@ -111,19 +111,27 @@ CONTEXTO DO PROJETO:
 AÇÕES RECENTES:
 ${JSON.stringify(context.acoes_lista, null, 2)}
 
-INSTRUÇÕES:
+INSTRUÇÕES CRÍTICAS:
+- NÃO peça confirmações desnecessárias - EXECUTE as ações diretamente quando o comando for claro
+- Quando o usuário diz "mude o progresso para 50%" ou similar, CONFIRME QUE VOCÊ VAI EXECUTAR, não peça confirmação
+- Se o usuário confirmar algo que você sugeriu, EXECUTE imediatamente
 - Seja proativo e identifique intenções implícitas
-- Quando o usuário mencionar ações, entenda o contexto e sugira mudanças
-- Sempre confirme antes de fazer alterações críticas
-- Forneça feedback claro sobre ações realizadas
 - Use linguagem clara, profissional mas amigável
-- Se detectar possíveis problemas ou atrasos, alerte o usuário
+- Informe claramente quando uma ação for executada automaticamente
+
+EXEMPLOS DE COMO RESPONDER:
+❌ ERRADO: "Você gostaria de atualizar? Confirme para eu realizar."
+✅ CORRETO: "Entendido! Estou atualizando o progresso agora." (e executa)
+
+❌ ERRADO: "Confirma essa atualização?"
+✅ CORRETO: "Ok, atualizando a ação para em andamento!" (e executa)
 
 FORMATO DE RESPOSTA:
 - Use markdown para formatação
 - Para listas, use bullet points
 - Para ações específicas, mencione o título da ação
-- Seja conciso mas informativo`;
+- Seja conciso mas informativo
+- Sempre informe quando uma ação automática foi executada`;
 
     const userMessage = body.file_context
       ? `${body.message}\n\n[Arquivos anexados: ${body.file_context}]`
@@ -179,20 +187,81 @@ FORMATO DE RESPOSTA:
     const effectiveUserId = userId || jornada.user_id;
 
     if (acoes && acoes.length > 0) {
-      for (const acao of acoes) {
+      for (let i = 0; i < acoes.length; i++) {
+        const acao = acoes[i];
         const acaoTituloNorm = normalizeText(acao.titulo);
-        const palavrasAcao = acaoTituloNorm.split(' ').filter(p => p.length > 3);
+        const palavrasAcao = acaoTituloNorm.split(' ').filter(p => p.length > 4);
 
-        const acaoMencionada = messageLower.includes(acaoTituloNorm) ||
-                              palavrasAcao.some(palavra => messageLower.includes(palavra)) ||
-                              messageLower.includes('primeira acao') ||
-                              messageLower.includes('primeira ação') ||
-                              messageLower.includes('1');
+        // Melhorar detecção de ação mencionada
+        let acaoMencionada = false;
+
+        // 1. Título completo
+        if (messageLower.includes(acaoTituloNorm)) {
+          acaoMencionada = true;
+        }
+
+        // 2. Múltiplas palavras-chave do título (pelo menos 2)
+        const palavrasEncontradas = palavrasAcao.filter(palavra => messageLower.includes(palavra));
+        if (palavrasEncontradas.length >= 2) {
+          acaoMencionada = true;
+        }
+
+        // 3. Uma palavra-chave muito específica (6+ caracteres)
+        if (palavrasAcao.some(palavra => palavra.length >= 6 && messageLower.includes(palavra))) {
+          acaoMencionada = true;
+        }
+
+        // 4. Referência numérica
+        if (messageLower.includes('primeira acao') || messageLower.includes('primeira ação')) {
+          if (i === 0) acaoMencionada = true;
+        }
+        if (messageLower.match(/\b1\b/) || messageLower.match(/\b1º\b/)) {
+          if (i === 0) acaoMencionada = true;
+        }
+        if (messageLower.match(/\b2\b/) || messageLower.match(/\b2º\b/)) {
+          if (i === 1) acaoMencionada = true;
+        }
+        if (messageLower.match(/\b3\b/) || messageLower.match(/\b3º\b/)) {
+          if (i === 2) acaoMencionada = true;
+        }
 
         if (acaoMencionada) {
           console.log(`[AGENTE-EXECUCAO] Ação mencionada: ${acao.titulo}`);
 
-          if (intentKeywords.concluir.some(k => messageLower.includes(k))) {
+          // Detectar mudança de progresso
+          if (intentKeywords.progresso.some(k => messageLower.includes(k))) {
+            const progressoMatch = body.message.match(/(\d+)\s*%/);
+            if (progressoMatch) {
+              const novoProgresso = parseInt(progressoMatch[1]);
+              if (novoProgresso >= 0 && novoProgresso <= 100) {
+                const { error } = await supabase
+                  .from('kanban_cards')
+                  .update({
+                    progresso: novoProgresso,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', acao.id);
+
+                if (!error) {
+                  autoActions.push(`📊 Progresso da ação "${acao.titulo}" atualizado para ${novoProgresso}%`);
+
+                  if (effectiveUserId) {
+                    await supabase.from('acao_historico').insert({
+                      acao_id: acao.id,
+                      campo_alterado: 'progresso',
+                      valor_anterior: String(acao.progresso || 0),
+                      valor_novo: String(novoProgresso),
+                      alterado_por: effectiveUserId,
+                      origem: 'agente_executor'
+                    });
+                  }
+                } else {
+                  console.error('[AGENTE-EXECUCAO] Erro ao atualizar progresso:', error);
+                }
+              }
+            }
+          }
+          else if (intentKeywords.concluir.some(k => messageLower.includes(k))) {
             const { error } = await supabase
               .from('kanban_cards')
               .update({ status: 'done', progresso: 100, updated_at: new Date().toISOString() })

@@ -112,9 +112,12 @@ export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
         })
         .eq('id', cardId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Erro do Supabase:', error);
+        throw error;
+      }
 
-      await loadCards();
+      console.log('Card atualizado com sucesso no banco');
     } catch (err) {
       console.error('Erro ao mover card:', err);
       setCards(originalCards);
