@@ -26,6 +26,20 @@ Deno.serve(async (req: Request) => {
       throw new Error('OPENAI_API_KEY not configured');
     }
 
+    const authHeader = req.headers.get('Authorization');
+    let userId: string | null = null;
+
+    if (authHeader) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const payload = token.split('.')[1];
+        const decoded = JSON.parse(atob(payload));
+        userId = decoded.sub || null;
+      } catch (e) {
+        console.warn('[AGENTE-EXECUCAO] Could not extract user from token:', e);
+      }
+    }
+
     const supabase = createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: false } });
     const body: RequestBody = await req.json();
 
@@ -142,54 +156,134 @@ FORMATO DE RESPOSTA:
     const assistantResponse = openAIData.choices[0]?.message?.content || 'Desculpe, não consegui processar sua mensagem.';
 
     const intentKeywords = {
-      concluir: ['conclu', 'finaliz', 'termina', 'pronto', 'feito'],
-      iniciar: ['inicia', 'começa', 'começa', 'vou fazer'],
-      bloquear: ['bloque', 'parado', 'impedido', 'travad'],
-      alterar_prazo: ['prazo', 'data', 'posterga', 'antecipa'],
-      progresso: ['progresso', 'andamento', '%', 'porcentagem']
+      concluir: ['conclu', 'finaliz', 'termina', 'pronto', 'feito', 'finalizar', 'completar', 'terminei'],
+      iniciar: ['inicia', 'começa', 'comecar', 'vou fazer', 'começar', 'andamento', 'em andamento'],
+      bloquear: ['bloque', 'parado', 'impedido', 'travad', 'bloqueado', 'obstáculo', 'obstaculo'],
+      desbloquear: ['desbloque', 'libera', 'continua', 'resolver'],
+      alterar_prazo: ['prazo', 'data', 'posterga', 'antecipa', 'adiamento', 'adiar'],
+      progresso: ['progresso', 'andamento', '%', 'porcentagem', 'avanço', 'avanco'],
+      responsavel: ['responsavel', 'responsável', 'encarregado', 'atribuir'],
+      observacao: ['observação', 'observacao', 'nota', 'comentário', 'comentario', 'obs']
     };
 
-    const messageLower = body.message.toLowerCase();
-    let autoActions = [];
+    function normalizeText(text: string): string {
+      return text
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    const messageLower = normalizeText(body.message);
+    let autoActions: string[] = [];
+
+    const effectiveUserId = userId || jornada.user_id;
 
     if (acoes && acoes.length > 0) {
       for (const acao of acoes) {
-        const acaoMencionada = messageLower.includes(acao.titulo.toLowerCase()) ||
-                              messageLower.includes(acao.titulo.split(' ')[0].toLowerCase());
+        const acaoTituloNorm = normalizeText(acao.titulo);
+        const palavrasAcao = acaoTituloNorm.split(' ').filter(p => p.length > 3);
+
+        const acaoMencionada = messageLower.includes(acaoTituloNorm) ||
+                              palavrasAcao.some(palavra => messageLower.includes(palavra)) ||
+                              messageLower.includes('primeira acao') ||
+                              messageLower.includes('primeira ação') ||
+                              messageLower.includes('1');
 
         if (acaoMencionada) {
+          console.log(`[AGENTE-EXECUCAO] Ação mencionada: ${acao.titulo}`);
+
           if (intentKeywords.concluir.some(k => messageLower.includes(k))) {
-            await supabase
+            const { error } = await supabase
               .from('kanban_cards')
               .update({ status: 'done', progresso: 100, updated_at: new Date().toISOString() })
               .eq('id', acao.id);
 
-            await supabase.from('acao_historico').insert({
-              acao_id: acao.id,
-              campo_alterado: 'status',
-              valor_anterior: acao.status,
-              valor_novo: 'done',
-              alterado_por: jornada.user_id,
-              origem: 'agente_executor'
-            });
+            if (!error && effectiveUserId) {
+              await supabase.from('acao_historico').insert({
+                acao_id: acao.id,
+                campo_alterado: 'status',
+                valor_anterior: acao.status,
+                valor_novo: 'done',
+                alterado_por: effectiveUserId,
+                origem: 'agente_executor'
+              });
+            }
 
             autoActions.push(`✅ Ação "${acao.titulo}" marcada como concluída`);
-          } else if (intentKeywords.iniciar.some(k => messageLower.includes(k)) && acao.status === 'todo') {
-            await supabase
+          }
+          else if (intentKeywords.iniciar.some(k => messageLower.includes(k))) {
+            const { error } = await supabase
               .from('kanban_cards')
               .update({ status: 'in_progress', progresso: 25, updated_at: new Date().toISOString() })
               .eq('id', acao.id);
 
-            await supabase.from('acao_historico').insert({
-              acao_id: acao.id,
-              campo_alterado: 'status',
-              valor_anterior: acao.status,
-              valor_novo: 'in_progress',
-              alterado_por: jornada.user_id,
-              origem: 'agente_executor'
-            });
+            if (!error && effectiveUserId) {
+              await supabase.from('acao_historico').insert({
+                acao_id: acao.id,
+                campo_alterado: 'status',
+                valor_anterior: acao.status,
+                valor_novo: 'in_progress',
+                alterado_por: effectiveUserId,
+                origem: 'agente_executor'
+              });
+            }
 
-            autoActions.push(`▶️ Ação "${acao.titulo}" iniciada`);
+            autoActions.push(`▶️ Ação "${acao.titulo}" iniciada (em andamento)`);
+          }
+          else if (intentKeywords.bloquear.some(k => messageLower.includes(k))) {
+            const { error } = await supabase
+              .from('kanban_cards')
+              .update({ status: 'blocked', updated_at: new Date().toISOString() })
+              .eq('id', acao.id);
+
+            if (!error && effectiveUserId) {
+              await supabase.from('acao_historico').insert({
+                acao_id: acao.id,
+                campo_alterado: 'status',
+                valor_anterior: acao.status,
+                valor_novo: 'blocked',
+                alterado_por: effectiveUserId,
+                origem: 'agente_executor'
+              });
+            }
+
+            autoActions.push(`🚫 Ação "${acao.titulo}" bloqueada`);
+          }
+          else if (intentKeywords.desbloquear.some(k => messageLower.includes(k))) {
+            const { error } = await supabase
+              .from('kanban_cards')
+              .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+              .eq('id', acao.id);
+
+            if (!error && effectiveUserId) {
+              await supabase.from('acao_historico').insert({
+                acao_id: acao.id,
+                campo_alterado: 'status',
+                valor_anterior: acao.status,
+                valor_novo: 'in_progress',
+                alterado_por: effectiveUserId,
+                origem: 'agente_executor'
+              });
+            }
+
+            autoActions.push(`✅ Ação "${acao.titulo}" desbloqueada`);
+          }
+          else if (intentKeywords.observacao.some(k => messageLower.includes(k))) {
+            const obsMatch = body.message.match(/observa[çc][aã]o[:\s]+(.+)/i);
+            if (obsMatch) {
+              const observacao = obsMatch[1].trim();
+              const { error } = await supabase
+                .from('kanban_cards')
+                .update({
+                  observacoes: observacao,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', acao.id);
+
+              if (!error) {
+                autoActions.push(`📝 Observação adicionada à ação "${acao.titulo}"`);
+              }
+            }
           }
         }
       }

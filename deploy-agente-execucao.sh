@@ -1,0 +1,30 @@
+#!/bin/bash
+
+echo "======================================"
+echo "Deploy Agente Executor - Correções"
+echo "======================================"
+echo ""
+echo "Este script faz o deploy da edge function agente-execucao com as correções:"
+echo "1. Extração correta do user_id do token JWT"
+echo "2. Detecção melhorada de intenções (normalização de texto)"
+echo "3. Suporte para bloquear/desbloquear ações"
+echo "4. Suporte para adicionar observações"
+echo "5. Tratamento de erros aprimorado"
+echo ""
+echo "Executando deploy..."
+echo ""
+
+npx supabase functions deploy agente-execucao
+
+echo ""
+echo "======================================"
+echo "Deploy concluído!"
+echo "======================================"
+echo ""
+echo "Próximos passos:"
+echo "1. Teste o drag and drop no Kanban - arraste cards entre colunas"
+echo "2. Teste o agente executor com comandos como:"
+echo "   - 'coloque a primeira ação em andamento'"
+echo "   - 'marque como concluída a ação X'"
+echo "   - 'adicione observação: teste na ação Y'"
+echo ""

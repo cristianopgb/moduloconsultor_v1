@@ -40,6 +40,9 @@ export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<KanbanCard | null>(null);
+  const [draggedCard, setDraggedCard] = useState<KanbanCard | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<KanbanCard['status'] | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   const activeId = sessaoId || jornadaId;
   const filterField = sessaoId ? 'sessao_id' : 'jornada_id';
@@ -88,16 +91,67 @@ export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
   }
 
   async function handleMoveCard(cardId: string, newStatus: KanbanCard['status']) {
+    if (updating) return;
+
+    setUpdating(true);
+
+    const originalCards = [...cards];
+
+    setCards(prevCards =>
+      prevCards.map(card =>
+        card.id === cardId ? { ...card, status: newStatus } : card
+      )
+    );
+
     try {
-      await supabase
+      const { error } = await supabase
         .from('kanban_cards')
-        .update({ status: newStatus })
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', cardId);
 
-      loadCards();
+      if (error) throw error;
+
+      await loadCards();
     } catch (err) {
       console.error('Erro ao mover card:', err);
+      setCards(originalCards);
+      alert('Erro ao atualizar o status do card. Tente novamente.');
+    } finally {
+      setUpdating(false);
     }
+  }
+
+  function handleDragStart(card: KanbanCard) {
+    setDraggedCard(card);
+  }
+
+  function handleDragOver(e: React.DragEvent, status: KanbanCard['status']) {
+    e.preventDefault();
+    setDragOverColumn(status);
+  }
+
+  function handleDragLeave() {
+    setDragOverColumn(null);
+  }
+
+  function handleDrop(newStatus: KanbanCard['status']) {
+    if (!draggedCard || draggedCard.status === newStatus) {
+      setDraggedCard(null);
+      setDragOverColumn(null);
+      return;
+    }
+
+    handleMoveCard(draggedCard.id, newStatus);
+    setDraggedCard(null);
+    setDragOverColumn(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedCard(null);
+    setDragOverColumn(null);
   }
 
   function getCardsByStatus(status: KanbanCard['status']) {
@@ -134,9 +188,18 @@ export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
       <div className="flex-1 grid grid-cols-4 gap-3 p-3 overflow-auto">
         {Object.entries(STATUS_CONFIG).map(([status, config]) => {
           const statusCards = getCardsByStatus(status as KanbanCard['status']);
+          const isDragOver = dragOverColumn === status;
 
           return (
-            <div key={status} className="flex flex-col min-h-0">
+            <div
+              key={status}
+              className={`flex flex-col min-h-0 transition-all ${
+                isDragOver ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+              }`}
+              onDragOver={(e) => handleDragOver(e, status as KanbanCard['status'])}
+              onDragLeave={handleDragLeave}
+              onDrop={() => handleDrop(status as KanbanCard['status'])}
+            >
               {/* Column Header */}
               <div className="mb-2 pb-2 border-b border-gray-700">
                 <div className="flex items-center justify-between">
@@ -152,7 +215,16 @@ export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
                 {statusCards.map(card => (
                   <div
                     key={card.id}
-                    className={`${config.color} border rounded-lg p-2 cursor-pointer hover:shadow-md transition-shadow`}
+                    draggable={!updating && card.status !== 'done'}
+                    onDragStart={() => handleDragStart(card)}
+                    onDragEnd={handleDragEnd}
+                    className={`${config.color} border rounded-lg p-2 transition-all ${
+                      draggedCard?.id === card.id
+                        ? 'opacity-50 cursor-grabbing'
+                        : card.status !== 'done'
+                        ? 'cursor-grab hover:shadow-md'
+                        : 'cursor-pointer hover:shadow-md'
+                    }`}
                     onClick={() => setSelectedCard(card)}
                   >
                     {/* Card Header */}
