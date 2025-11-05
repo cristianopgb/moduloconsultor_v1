@@ -1,9 +1,11 @@
 export type EtapaJornada = 'anamnese' | 'mapeamento' | 'priorizacao' | 'execucao';
 export type EtapaArea = 'aguardando' | 'as_is' | 'analise' | 'plano' | 'execucao' | 'concluida';
 export type StatusAcao = 'a_fazer' | 'em_andamento' | 'bloqueado' | 'concluido';
+export type StatusKanban = 'todo' | 'in_progress' | 'blocked' | 'done';
 export type StatusAprovacao = 'rascunho' | 'aguardando_aprovacao' | 'aprovado' | 'rejeitado';
 export type TipoEntregavel = 'anamnese' | 'mapa_geral' | 'mapa_area' | 'bpmn' | 'diagnostico' | 'plano_acao';
 export type Prioridade = 'alta' | 'media' | 'baixa';
+export type OrigemHistorico = 'manual' | 'agente_executor';
 
 export interface JornadaConsultor {
   id: string;
@@ -230,4 +232,81 @@ export interface AreaMapeada {
 export interface AreaPriorizadaCompleta extends AreaPriorizada {
   processos_principais?: string[];
   pode_executar_paralelo?: boolean;
+}
+
+export interface KanbanCard {
+  id: string;
+  jornada_id: string;
+  sessao_id?: string;
+  area_id?: string;
+  titulo: string;
+  descricao: string;
+  responsavel: string;
+  responsavel_id?: string;
+  prazo: string;
+  status: StatusKanban;
+  ordem: number;
+  dados_5w2h: {
+    o_que?: string;
+    por_que?: string;
+    quem?: string;
+    quando?: string;
+    onde?: string;
+    como?: string;
+    quanto?: string;
+  };
+  observacoes?: string;
+  tags?: string[];
+  prioridade: Prioridade;
+  data_conclusao?: string;
+  progresso: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AcaoAnexo {
+  id: string;
+  acao_id: string;
+  nome_arquivo: string;
+  storage_path: string;
+  tipo_mime: string;
+  tamanho_bytes: number;
+  descricao?: string;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface ProjectFile {
+  id: string;
+  jornada_id: string;
+  nome_arquivo: string;
+  storage_path: string;
+  tipo_mime: string;
+  tamanho_bytes: number;
+  contexto?: string;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface AcaoHistorico {
+  id: string;
+  acao_id: string;
+  campo_alterado: string;
+  valor_anterior?: string;
+  valor_novo?: string;
+  alterado_por: string;
+  origem: OrigemHistorico;
+  created_at: string;
+}
+
+export interface ProjectKPIs {
+  total_acoes: number;
+  acoes_concluidas: number;
+  acoes_pendentes: number;
+  acoes_em_andamento: number;
+  acoes_bloqueadas: number;
+  acoes_por_responsavel: Record<string, number>;
+  acoes_por_processo: Record<string, number>;
+  taxa_conclusao: number;
+  acoes_atrasadas: number;
 }

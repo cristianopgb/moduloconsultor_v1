@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Clipboard, FileText, Kanban } from 'lucide-react'
 import { JornadaTimeline } from './Timeline/JornadaTimeline'
 import { PainelEntregaveis } from './Entregaveis/PainelEntregaveis'
-import { KanbanExecucao } from './Kanban/KanbanExecucao'
+import { KanbanMiniDashboard } from './Kanban/KanbanMiniDashboard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import type { JornadaConsultor } from '../../types/consultor'
@@ -368,7 +368,7 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
         ) : activeTab === 'entregaveis' ? (
           <PainelEntregaveis jornadaId={jornada?.id} onRefresh={() => void loadJornada(false)} />
         ) : jornada?.id ? (
-          <KanbanExecucao jornadaId={jornada.id} />
+          <KanbanMiniDashboard jornadaId={jornada.id} />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-400 p-4 text-center">
             <p className="text-sm">Nenhuma jornada ativa</p>

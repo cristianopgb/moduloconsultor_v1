@@ -18,6 +18,7 @@ import { AlertsPage } from './components/Alerts/AlertsPage'
 import { BackupPage } from './components/Backup/BackupPage'
 import { AIIntegrationsPage } from './components/AI/AIIntegrationsPage'
 import { ProjectsPage } from './components/Projects/ProjectsPage'
+import { ProjectManagementPage } from './components/Projects/ProjectManagementPage'
 import { MainLayout } from './components/Layout/MainLayout'
 import { DatasetsPage } from './components/Datasets/DatasetsPage'
 import { LearningPage } from './components/Admin/LearningPage'
@@ -134,15 +135,24 @@ function AppContent() {
           } 
         />
         
-        <Route 
-          path="/projects" 
+        <Route
+          path="/projects"
           element={
             <ProtectedRoute>
               <ProtectedPage>
                 <ProjectsPage />
               </ProtectedPage>
             </ProtectedRoute>
-          } 
+          }
+        />
+
+        <Route
+          path="/projetos/:jornadaId"
+          element={
+            <ProtectedRoute>
+              <ProjectManagementPage />
+            </ProtectedRoute>
+          }
         />
         
         <Route 
