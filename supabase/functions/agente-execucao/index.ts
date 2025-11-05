@@ -220,6 +220,10 @@ FORMATO DE RESPOSTA:
     const messageLower = normalizeText(body.message);
     let autoActions = [];
     const effectiveUserId = userId || jornada.user_id;
+
+    console.log('[AGENTE-EXECUCAO] userId extraído do token:', userId);
+    console.log('[AGENTE-EXECUCAO] jornada.user_id:', jornada.user_id);
+    console.log('[AGENTE-EXECUCAO] effectiveUserId final:', effectiveUserId);
     if (acoes && acoes.length > 0) {
       for(let i = 0; i < acoes.length; i++){
         const acao = acoes[i];
@@ -314,8 +318,9 @@ FORMATO DE RESPOSTA:
 
             if (!error) {
               autoActions.push(`✅ Ação "${acao.titulo}" marcada como concluída`);
+
               if (effectiveUserId) {
-                await supabase.from('acao_historico').insert({
+                const { error: histError } = await supabase.from('acao_historico').insert({
                   acao_id: acao.id,
                   campo_alterado: 'status',
                   valor_anterior: acao.status,
@@ -323,6 +328,7 @@ FORMATO DE RESPOSTA:
                   alterado_por: effectiveUserId,
                   origem: 'agente_executor'
                 });
+                if (histError) console.error('[AGENTE-EXECUCAO] Erro ao inserir histórico:', histError);
               }
             } else {
               console.error('[AGENTE-EXECUCAO] Erro ao concluir:', error);
@@ -342,8 +348,10 @@ FORMATO DE RESPOSTA:
 
             if (!error) {
               autoActions.push(`▶️ Ação "${acao.titulo}" iniciada (em andamento)`);
+
               if (effectiveUserId) {
-                await supabase.from('acao_historico').insert({
+                console.log('[AGENTE-EXECUCAO] Inserindo histórico com userId:', effectiveUserId);
+                const { error: histError } = await supabase.from('acao_historico').insert({
                   acao_id: acao.id,
                   campo_alterado: 'status',
                   valor_anterior: acao.status,
@@ -351,6 +359,12 @@ FORMATO DE RESPOSTA:
                   alterado_por: effectiveUserId,
                   origem: 'agente_executor'
                 });
+
+                if (histError) {
+                  console.error('[AGENTE-EXECUCAO] Erro ao inserir histórico (não crítico):', histError);
+                }
+              } else {
+                console.warn('[AGENTE-EXECUCAO] Não há effectiveUserId, pulando histórico');
               }
             } else {
               console.error('[AGENTE-EXECUCAO] Erro ao iniciar:', error);
@@ -369,8 +383,9 @@ FORMATO DE RESPOSTA:
 
             if (!error) {
               autoActions.push(`🚫 Ação "${acao.titulo}" bloqueada`);
+
               if (effectiveUserId) {
-                await supabase.from('acao_historico').insert({
+                const { error: histError } = await supabase.from('acao_historico').insert({
                   acao_id: acao.id,
                   campo_alterado: 'status',
                   valor_anterior: acao.status,
@@ -378,6 +393,7 @@ FORMATO DE RESPOSTA:
                   alterado_por: effectiveUserId,
                   origem: 'agente_executor'
                 });
+                if (histError) console.error('[AGENTE-EXECUCAO] Erro ao inserir histórico:', histError);
               }
             } else {
               console.error('[AGENTE-EXECUCAO] Erro ao bloquear:', error);
@@ -396,8 +412,9 @@ FORMATO DE RESPOSTA:
 
             if (!error) {
               autoActions.push(`✅ Ação "${acao.titulo}" desbloqueada`);
+
               if (effectiveUserId) {
-                await supabase.from('acao_historico').insert({
+                const { error: histError } = await supabase.from('acao_historico').insert({
                   acao_id: acao.id,
                   campo_alterado: 'status',
                   valor_anterior: acao.status,
@@ -405,6 +422,7 @@ FORMATO DE RESPOSTA:
                   alterado_por: effectiveUserId,
                   origem: 'agente_executor'
                 });
+                if (histError) console.error('[AGENTE-EXECUCAO] Erro ao inserir histórico:', histError);
               }
             } else {
               console.error('[AGENTE-EXECUCAO] Erro ao desbloquear:', error);
