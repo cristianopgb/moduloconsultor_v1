@@ -255,18 +255,33 @@ FORMATO DE RESPOSTA:
         }
         if (acaoMencionada) {
           console.log(`[AGENTE-EXECUCAO] Ação mencionada: ${acao.titulo}`);
+          console.log(`[AGENTE-EXECUCAO] Mensagem: "${body.message}"`);
+          console.log(`[AGENTE-EXECUCAO] Mensagem normalizada: "${messageLower}"`);
+
           // Detectar mudança de progresso
-          if (intentKeywords.progresso.some((k)=>messageLower.includes(k))) {
+          const temKeywordProgresso = intentKeywords.progresso.some((k)=>messageLower.includes(k));
+          console.log(`[AGENTE-EXECUCAO] Tem keyword progresso? ${temKeywordProgresso}`);
+
+          if (temKeywordProgresso) {
             const progressoMatch = body.message.match(/(\d+)\s*%/);
+            console.log(`[AGENTE-EXECUCAO] Match de progresso:`, progressoMatch);
+
             if (progressoMatch) {
               const novoProgresso = parseInt(progressoMatch[1]);
+              console.log(`[AGENTE-EXECUCAO] Tentando atualizar progresso para: ${novoProgresso}%`);
+
               if (novoProgresso >= 0 && novoProgresso <= 100) {
-                const { error } = await supabase.from('kanban_cards').update({
+                const { error, data } = await supabase.from('kanban_cards').update({
                   progresso: novoProgresso,
                   updated_at: new Date().toISOString()
-                }).eq('id', acao.id);
+                }).eq('id', acao.id).select();
+
+                console.log(`[AGENTE-EXECUCAO] Update result:`, { error, data });
+
                 if (!error) {
                   autoActions.push(`📊 Progresso da ação "${acao.titulo}" atualizado para ${novoProgresso}%`);
+                  console.log(`[AGENTE-EXECUCAO] Progresso atualizado com sucesso!`);
+
                   if (effectiveUserId) {
                     await supabase.from('acao_historico').insert({
                       acao_id: acao.id,
@@ -279,85 +294,145 @@ FORMATO DE RESPOSTA:
                   }
                 } else {
                   console.error('[AGENTE-EXECUCAO] Erro ao atualizar progresso:', error);
+                  autoActions.push(`❌ Erro ao atualizar progresso: ${error.message}`);
                 }
               }
+            } else {
+              console.log(`[AGENTE-EXECUCAO] Não encontrou padrão de porcentagem na mensagem`);
             }
-          } else if (intentKeywords.concluir.some((k)=>messageLower.includes(k))) {
-            const { error } = await supabase.from('kanban_cards').update({
+          }
+
+          if (intentKeywords.concluir.some((k)=>messageLower.includes(k))) {
+            console.log(`[AGENTE-EXECUCAO] Detectou intenção de concluir`);
+            const { error, data } = await supabase.from('kanban_cards').update({
               status: 'done',
               progresso: 100,
               updated_at: new Date().toISOString()
-            }).eq('id', acao.id);
-            if (!error && effectiveUserId) {
-              await supabase.from('acao_historico').insert({
-                acao_id: acao.id,
-                campo_alterado: 'status',
-                valor_anterior: acao.status,
-                valor_novo: 'done',
-                alterado_por: effectiveUserId,
-                origem: 'agente_executor'
-              });
+            }).eq('id', acao.id).select();
+
+            console.log(`[AGENTE-EXECUCAO] Update concluir result:`, { error, data });
+
+            if (!error) {
+              autoActions.push(`✅ Ação "${acao.titulo}" marcada como concluída`);
+              if (effectiveUserId) {
+                await supabase.from('acao_historico').insert({
+                  acao_id: acao.id,
+                  campo_alterado: 'status',
+                  valor_anterior: acao.status,
+                  valor_novo: 'done',
+                  alterado_por: effectiveUserId,
+                  origem: 'agente_executor'
+                });
+              }
+            } else {
+              console.error('[AGENTE-EXECUCAO] Erro ao concluir:', error);
+              autoActions.push(`❌ Erro ao concluir: ${error.message}`);
             }
-            autoActions.push(`✅ Ação "${acao.titulo}" marcada como concluída`);
-          } else if (intentKeywords.iniciar.some((k)=>messageLower.includes(k))) {
-            const { error } = await supabase.from('kanban_cards').update({
+          }
+
+          if (intentKeywords.iniciar.some((k)=>messageLower.includes(k))) {
+            console.log(`[AGENTE-EXECUCAO] Detectou intenção de iniciar`);
+            const { error, data } = await supabase.from('kanban_cards').update({
               status: 'in_progress',
               progresso: 25,
               updated_at: new Date().toISOString()
-            }).eq('id', acao.id);
-            if (!error && effectiveUserId) {
-              await supabase.from('acao_historico').insert({
-                acao_id: acao.id,
-                campo_alterado: 'status',
-                valor_anterior: acao.status,
-                valor_novo: 'in_progress',
-                alterado_por: effectiveUserId,
-                origem: 'agente_executor'
-              });
+            }).eq('id', acao.id).select();
+
+            console.log(`[AGENTE-EXECUCAO] Update iniciar result:`, { error, data });
+
+            if (!error) {
+              autoActions.push(`▶️ Ação "${acao.titulo}" iniciada (em andamento)`);
+              if (effectiveUserId) {
+                await supabase.from('acao_historico').insert({
+                  acao_id: acao.id,
+                  campo_alterado: 'status',
+                  valor_anterior: acao.status,
+                  valor_novo: 'in_progress',
+                  alterado_por: effectiveUserId,
+                  origem: 'agente_executor'
+                });
+              }
+            } else {
+              console.error('[AGENTE-EXECUCAO] Erro ao iniciar:', error);
+              autoActions.push(`❌ Erro ao iniciar: ${error.message}`);
             }
-            autoActions.push(`▶️ Ação "${acao.titulo}" iniciada (em andamento)`);
-          } else if (intentKeywords.bloquear.some((k)=>messageLower.includes(k))) {
-            const { error } = await supabase.from('kanban_cards').update({
+          }
+
+          if (intentKeywords.bloquear.some((k)=>messageLower.includes(k))) {
+            console.log(`[AGENTE-EXECUCAO] Detectou intenção de bloquear`);
+            const { error, data } = await supabase.from('kanban_cards').update({
               status: 'blocked',
               updated_at: new Date().toISOString()
-            }).eq('id', acao.id);
-            if (!error && effectiveUserId) {
-              await supabase.from('acao_historico').insert({
-                acao_id: acao.id,
-                campo_alterado: 'status',
-                valor_anterior: acao.status,
-                valor_novo: 'blocked',
-                alterado_por: effectiveUserId,
-                origem: 'agente_executor'
-              });
+            }).eq('id', acao.id).select();
+
+            console.log(`[AGENTE-EXECUCAO] Update bloquear result:`, { error, data });
+
+            if (!error) {
+              autoActions.push(`🚫 Ação "${acao.titulo}" bloqueada`);
+              if (effectiveUserId) {
+                await supabase.from('acao_historico').insert({
+                  acao_id: acao.id,
+                  campo_alterado: 'status',
+                  valor_anterior: acao.status,
+                  valor_novo: 'blocked',
+                  alterado_por: effectiveUserId,
+                  origem: 'agente_executor'
+                });
+              }
+            } else {
+              console.error('[AGENTE-EXECUCAO] Erro ao bloquear:', error);
+              autoActions.push(`❌ Erro ao bloquear: ${error.message}`);
             }
-            autoActions.push(`🚫 Ação "${acao.titulo}" bloqueada`);
-          } else if (intentKeywords.desbloquear.some((k)=>messageLower.includes(k))) {
-            const { error } = await supabase.from('kanban_cards').update({
+          }
+
+          if (intentKeywords.desbloquear.some((k)=>messageLower.includes(k))) {
+            console.log(`[AGENTE-EXECUCAO] Detectou intenção de desbloquear`);
+            const { error, data } = await supabase.from('kanban_cards').update({
               status: 'in_progress',
               updated_at: new Date().toISOString()
-            }).eq('id', acao.id);
-            if (!error && effectiveUserId) {
-              await supabase.from('acao_historico').insert({
-                acao_id: acao.id,
-                campo_alterado: 'status',
-                valor_anterior: acao.status,
-                valor_novo: 'in_progress',
-                alterado_por: effectiveUserId,
-                origem: 'agente_executor'
-              });
+            }).eq('id', acao.id).select();
+
+            console.log(`[AGENTE-EXECUCAO] Update desbloquear result:`, { error, data });
+
+            if (!error) {
+              autoActions.push(`✅ Ação "${acao.titulo}" desbloqueada`);
+              if (effectiveUserId) {
+                await supabase.from('acao_historico').insert({
+                  acao_id: acao.id,
+                  campo_alterado: 'status',
+                  valor_anterior: acao.status,
+                  valor_novo: 'in_progress',
+                  alterado_por: effectiveUserId,
+                  origem: 'agente_executor'
+                });
+              }
+            } else {
+              console.error('[AGENTE-EXECUCAO] Erro ao desbloquear:', error);
+              autoActions.push(`❌ Erro ao desbloquear: ${error.message}`);
             }
-            autoActions.push(`✅ Ação "${acao.titulo}" desbloqueada`);
-          } else if (intentKeywords.observacao.some((k)=>messageLower.includes(k))) {
+          }
+
+          if (intentKeywords.observacao.some((k)=>messageLower.includes(k))) {
+            console.log(`[AGENTE-EXECUCAO] Detectou intenção de adicionar observação`);
             const obsMatch = body.message.match(/observa[çc][aã]o[:\s]+(.+)/i);
+            console.log(`[AGENTE-EXECUCAO] Match observação:`, obsMatch);
+
             if (obsMatch) {
               const observacao = obsMatch[1].trim();
-              const { error } = await supabase.from('kanban_cards').update({
+              console.log(`[AGENTE-EXECUCAO] Observação extraída:`, observacao);
+
+              const { error, data } = await supabase.from('kanban_cards').update({
                 observacoes: observacao,
                 updated_at: new Date().toISOString()
-              }).eq('id', acao.id);
+              }).eq('id', acao.id).select();
+
+              console.log(`[AGENTE-EXECUCAO] Update observação result:`, { error, data });
+
               if (!error) {
                 autoActions.push(`📝 Observação adicionada à ação "${acao.titulo}"`);
+              } else {
+                console.error('[AGENTE-EXECUCAO] Erro ao adicionar observação:', error);
+                autoActions.push(`❌ Erro ao adicionar observação: ${error.message}`);
               }
             }
           }
