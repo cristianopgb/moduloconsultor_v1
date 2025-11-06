@@ -767,6 +767,30 @@ export function generateIshikawaHTML(contexto: any): string {
   const ishikawa = contexto.ishikawa || contexto;
   const categorias = ishikawa.categorias_6m || {};
 
+  // Função para sanitizar texto (remover HTML tags)
+  function sanitizeText(text: string): string {
+    if (!text) return '';
+    return String(text)
+      .replace(/<[^>]*>/g, '')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .trim();
+  }
+
+  // Sanitizar categorias
+  const categoriasSanitizadas: any = {};
+  Object.keys(categorias).forEach(key => {
+    const valores = categorias[key];
+    if (Array.isArray(valores)) {
+      categoriasSanitizadas[key] = valores.map(v => sanitizeText(String(v)));
+    } else {
+      categoriasSanitizadas[key] = [];
+    }
+  });
+
   return `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -786,7 +810,7 @@ export function generateIshikawaHTML(contexto: any): string {
     <div class="section">
       <h2>Problema Analisado</h2>
       <div class="card" style="background: #fee2e2; border-color: #ef4444;">
-        <h3>⚠️ ${ishikawa.dor || ishikawa.problema || 'Problema não especificado'}</h3>
+        <h3>⚠️ ${sanitizeText(ishikawa.dor || ishikawa.problema || 'Problema não especificado')}</h3>
       </div>
     </div>
 
@@ -794,37 +818,37 @@ export function generateIshikawaHTML(contexto: any): string {
       <div class="card">
         <h4>📦 Máquina</h4>
         <ul>
-          ${(categorias.maquina || []).map((c: string) => `<li>${c}</li>`).join('')}
+          ${(categoriasSanitizadas.maquina || []).map((c: string) => `<li>${c}</li>`).join('')}
         </ul>
       </div>
       <div class="card">
         <h4>📝 Método</h4>
         <ul>
-          ${(categorias.metodo || []).map((c: string) => `<li>${c}</li>`).join('')}
+          ${(categoriasSanitizadas.metodo || []).map((c: string) => `<li>${c}</li>`).join('')}
         </ul>
       </div>
       <div class="card">
         <h4>🧱 Material</h4>
         <ul>
-          ${(categorias.material || []).map((c: string) => `<li>${c}</li>`).join('')}
+          ${(categoriasSanitizadas.material || []).map((c: string) => `<li>${c}</li>`).join('')}
         </ul>
       </div>
       <div class="card">
         <h4>👥 Mão de Obra</h4>
         <ul>
-          ${(categorias.mao_obra || []).map((c: string) => `<li>${c}</li>`).join('')}
+          ${(categoriasSanitizadas.mao_obra || []).map((c: string) => `<li>${c}</li>`).join('')}
         </ul>
       </div>
       <div class="card">
         <h4>🌳 Meio Ambiente</h4>
         <ul>
-          ${(categorias.meio_ambiente || []).map((c: string) => `<li>${c}</li>`).join('')}
+          ${(categoriasSanitizadas.meio_ambiente || []).map((c: string) => `<li>${c}</li>`).join('')}
         </ul>
       </div>
       <div class="card">
         <h4>📊 Medição</h4>
         <ul>
-          ${(categorias.medicao || []).map((c: string) => `<li>${c}</li>`).join('')}
+          ${(categoriasSanitizadas.medicao || []).map((c: string) => `<li>${c}</li>`).join('')}
         </ul>
       </div>
     </div>
@@ -832,7 +856,7 @@ export function generateIshikawaHTML(contexto: any): string {
     <div class="section">
       <h2>Causa Raiz Identificada</h2>
       <div class="card" style="background: #dcfce7; border-color: #10b981;">
-        <h3>🎯 ${ishikawa.causa_raiz || 'Não identificada'}</h3>
+        <h3>🎯 ${sanitizeText(ishikawa.causa_raiz || 'Não identificada')}</h3>
       </div>
     </div>
 
@@ -1382,6 +1406,8 @@ export function getTemplateForType(tipo: string, contexto: any): string {
     'value_chain': generateCadeiaValorHTML,
     'cadeia_valor': generateCadeiaValorHTML,
     'ishikawa': generateIshikawaHTML,
+    'analise_causa_raiz': generateIshikawaHTML,
+    'causa_raiz': generateIshikawaHTML,
     '5whys': generate5WhysHTML,
     '5_porques': generate5WhysHTML,
     'sipoc': generateSIPOCHTML,

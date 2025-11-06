@@ -428,7 +428,10 @@ Deno.serve(async (req: Request) => {
         canvasCompleto,
         processosPrimarios: processosPrimarios.length,
         processosApoio: processosApoio.length,
-        processosGestao: processosGestao.length
+        processosGestao: processosGestao.length,
+        primarios_sample: processosPrimarios.slice(0, 2),
+        apoio_sample: processosApoio.slice(0, 2),
+        gestao_sample: processosGestao.slice(0, 2)
       });
 
       const hasTransition = actions.some(a => a.type === 'transicao_estado');
@@ -749,14 +752,30 @@ Deno.serve(async (req: Request) => {
             data_geracao: new Date().toLocaleDateString('pt-BR')
           };
 
-          // Padronizar campo expectativa (unificar expectativa_sucesso → expectativa)
+          // Padronizar campo expectativa (unificar expectativa_sucesso ↔ expectativa em ambas direções)
           if (contextoFinal.anamnese) {
+            // Se tem expectativa_sucesso mas não tem expectativa
             if (contextoFinal.anamnese.expectativa_sucesso && !contextoFinal.anamnese.expectativa) {
               contextoFinal.anamnese.expectativa = contextoFinal.anamnese.expectativa_sucesso;
             }
+            // Se tem expectativa mas não tem expectativa_sucesso
+            if (contextoFinal.anamnese.expectativa && !contextoFinal.anamnese.expectativa_sucesso) {
+              contextoFinal.anamnese.expectativa_sucesso = contextoFinal.anamnese.expectativa;
+            }
+            // Garantir no nível raiz também
             if (!contextoFinal.expectativa && contextoFinal.anamnese.expectativa) {
               contextoFinal.expectativa = contextoFinal.anamnese.expectativa;
             }
+            if (!contextoFinal.expectativa_sucesso && contextoFinal.anamnese.expectativa_sucesso) {
+              contextoFinal.expectativa_sucesso = contextoFinal.anamnese.expectativa_sucesso;
+            }
+          }
+          // Se estiver no nível raiz mas não no anamnese
+          if (contextoFinal.expectativa_sucesso && !contextoFinal.expectativa) {
+            contextoFinal.expectativa = contextoFinal.expectativa_sucesso;
+          }
+          if (contextoFinal.expectativa && !contextoFinal.expectativa_sucesso) {
+            contextoFinal.expectativa_sucesso = contextoFinal.expectativa;
           }
 
           const htmlContent = getTemplateForType(tipoEntregavel, contextoFinal);
