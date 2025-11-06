@@ -334,11 +334,55 @@ export function generateCanvasHTML(contexto: any): string {
 export function generateMatrizPriorizacaoHTML(contexto: any): string {
   const priorizacao = contexto.priorizacao || {};
   // Tentar múltiplas fontes para os processos
-  const processos = contexto.processos ||
-                    priorizacao.processos ||
-                    priorizacao.processos_priorizados ||
-                    contexto.matriz_gut ||
-                    [];
+  let processos = contexto.processos ||
+                  priorizacao.processos ||
+                  priorizacao.processos_priorizados ||
+                  contexto.matriz_gut ||
+                  [];
+
+  // INFERIR GUT quando faltar (heurística básica)
+  processos = processos.map((p: any, index: number) => {
+    if (typeof p === 'string') {
+      // Se é string, converter para objeto com GUT inferido
+      const g = 5 - Math.floor(index / 3); // Gravidade decrescente
+      const u = 5 - Math.floor(index / 2); // Urgência decrescente
+      const t = 4; // Tendência padrão
+      return {
+        nome: p,
+        processo: p,
+        gravidade: Math.max(1, Math.min(5, g)),
+        urgencia: Math.max(1, Math.min(5, u)),
+        tendencia: t,
+        score: Math.max(1, Math.min(5, g)) * Math.max(1, Math.min(5, u)) * t,
+        prioridade: index < 3 ? 'Alta' : index < 6 ? 'Média' : 'Baixa'
+      };
+    }
+
+    // Se já é objeto mas falta GUT, inferir
+    if (!p.gravidade || !p.urgencia || !p.tendencia) {
+      const g = p.gravidade || (5 - Math.floor(index / 3));
+      const u = p.urgencia || (5 - Math.floor(index / 2));
+      const t = p.tendencia || 4;
+      return {
+        ...p,
+        gravidade: Math.max(1, Math.min(5, g)),
+        urgencia: Math.max(1, Math.min(5, u)),
+        tendencia: Math.max(1, Math.min(5, t)),
+        score: p.score || (Math.max(1, Math.min(5, g)) * Math.max(1, Math.min(5, u)) * Math.max(1, Math.min(5, t))),
+        prioridade: p.prioridade || (index < 3 ? 'Alta' : index < 6 ? 'Média' : 'Baixa')
+      };
+    }
+
+    // Se já tem tudo, garantir score e prioridade
+    return {
+      ...p,
+      score: p.score || (p.gravidade * p.urgencia * p.tendencia),
+      prioridade: p.prioridade || (index < 3 ? 'Alta' : index < 6 ? 'Média' : 'Baixa')
+    };
+  });
+
+  // Ordenar por score (maior primeiro)
+  processos.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
 
   return `
 <!DOCTYPE html>
@@ -408,7 +452,38 @@ export function generateMatrizPriorizacaoHTML(contexto: any): string {
 export function generatePlanoAcaoHTML(contexto: any): string {
   const plano = contexto.plano_acao || contexto.execucao || {};
   // Aceitar acoes direto no contexto ou dentro de plano
-  const acoes = contexto.acoes || plano.acoes || [];
+  let acoes = contexto.acoes || plano.acoes || [];
+
+  // GERAR MÍNIMO VIÁVEL se não tiver ações (não afeta Kanban)
+  if (acoes.length === 0) {
+    const escopo = contexto.escopo || {};
+    const processosEscopo = contexto.processos_escopo || escopo.processos_escopo || [];
+    const diagnostico = contexto.diagnostico || {};
+    const recomendacoes = diagnostico.recomendacoes || contexto.recomendacoes || [];
+
+    // Gerar ações básicas a partir do escopo ou diagnóstico
+    if (processosEscopo.length > 0) {
+      acoes = processosEscopo.slice(0, 3).map((p: any) => ({
+        what: `Reestruturar processo: ${typeof p === 'string' ? p : p.nome}`,
+        why: `Processo identificado como crítico no escopo`,
+        who: 'Gestor da área',
+        when: '+30 dias',
+        where: 'Área responsável',
+        how: 'Mapear AS-IS, identificar gargalos, implementar melhorias',
+        how_much: 'A definir após análise detalhada'
+      }));
+    } else if (recomendacoes.length > 0) {
+      acoes = recomendacoes.slice(0, 3).map((r: any) => ({
+        what: typeof r === 'string' ? r : r.recomendacao || r.descricao,
+        why: typeof r === 'object' && r.impacto ? r.impacto : 'Recomendação do diagnóstico',
+        who: 'A definir',
+        when: '+15 dias',
+        where: 'Organização',
+        how: 'A definir com equipe',
+        how_much: 'A estimar'
+      }));
+    }
+  }
 
   return `
 <!DOCTYPE html>
@@ -532,10 +607,10 @@ export function generateCadeiaValorHTML(contexto: any): string {
       </p>
     </div>
 
-    ${processosPrimarios.length > 0 ? `
     <div class="section">
       <h2>Atividades Primárias</h2>
       <p>Processos que geram valor direto ao cliente:</p>
+      ${processosPrimarios.length > 0 ? `
       <div class="chain chain-primary">
         ${processosPrimarios.map((p: any) => `
           <div class="card">
@@ -544,13 +619,13 @@ export function generateCadeiaValorHTML(contexto: any): string {
           </div>
         `).join('')}
       </div>
+      ` : '<p style="color: #6b7280; font-style: italic;">Nenhum processo primário identificado ainda.</p>'}
     </div>
-    ` : ''}
 
-    ${processosGestao.length > 0 ? `
     <div class="section">
       <h2>Atividades de Gestão</h2>
       <p>Processos que coordenam e controlam as operações:</p>
+      ${processosGestao.length > 0 ? `
       <div class="chain chain-management">
         ${processosGestao.map((p: any) => `
           <div class="card">
@@ -559,13 +634,13 @@ export function generateCadeiaValorHTML(contexto: any): string {
           </div>
         `).join('')}
       </div>
+      ` : '<p style="color: #6b7280; font-style: italic;">Nenhum processo gerencial identificado ainda.</p>'}
     </div>
-    ` : ''}
 
-    ${processosApoio.length > 0 ? `
     <div class="section">
       <h2>Atividades de Apoio</h2>
       <p>Processos que suportam as atividades primárias:</p>
+      ${processosApoio.length > 0 ? `
       <div class="chain chain-support">
         ${processosApoio.map((p: any) => `
           <div class="card">
@@ -574,8 +649,8 @@ export function generateCadeiaValorHTML(contexto: any): string {
           </div>
         `).join('')}
       </div>
+      ` : '<p style="color: #6b7280; font-style: italic;">Nenhum processo de apoio identificado ainda.</p>'}
     </div>
-    ` : ''}
 
     <div class="footer">
       <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
@@ -905,9 +980,28 @@ export function generateSIPOCHTML(contexto: any): string {
 
 function generateEscopoHTML(contexto: any): string {
   const escopo = contexto.escopo || {};
-  const processosEscopo = contexto.processos_escopo || escopo.processos_escopo || [];
+  let processosEscopo = contexto.processos_escopo || escopo.processos_escopo || [];
   const justificativa = contexto.justificativa || escopo.justificativa || '';
   const empresa = contexto.empresa || contexto.anamnese?.empresa || 'Empresa';
+
+  // Se não tiver processos no escopo, usar TOP N da matriz
+  if (processosEscopo.length === 0) {
+    const priorizacao = contexto.priorizacao || {};
+    const processosPriorizados = contexto.processos ||
+                                 priorizacao.processos ||
+                                 priorizacao.processos_priorizados ||
+                                 contexto.matriz_gut ||
+                                 [];
+
+    // Pegar os top 5 processos priorizados
+    processosEscopo = processosPriorizados
+      .slice(0, 5)
+      .map((p: any, i: number) => ({
+        nome: typeof p === 'string' ? p : (p.nome || p.processo),
+        prioridade: i < 3 ? 'Alta' : 'Média',
+        justificativa: 'Processo crítico identificado na priorização'
+      }));
+  }
 
   return `
 <!DOCTYPE html>

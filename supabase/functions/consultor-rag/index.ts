@@ -666,11 +666,25 @@ Deno.serve(async (req: Request) => {
         console.log('[CONSULTOR] Context keys for template:', Object.keys(contextoCompleto));
 
         try {
-          const htmlContent = getTemplateForType(tipoEntregavel, {
+          // CRÍTICO: empresa é EMPRESA, setor é SETOR (não usar setor como fallback de empresa)
+          const contextoFinal = {
             ...contextoCompleto,
-            empresa: sessao.setor || contextoCompleto.empresa || contextoCompleto.anamnese?.empresa || 'Empresa',
+            empresa: contextoCompleto.empresa || contextoCompleto.anamnese?.empresa || 'Empresa',
+            setor: sessao.setor || contextoCompleto.setor || contextoCompleto.anamnese?.segmento,
             data_geracao: new Date().toLocaleDateString('pt-BR')
-          });
+          };
+
+          // Padronizar campo expectativa (unificar expectativa_sucesso → expectativa)
+          if (contextoFinal.anamnese) {
+            if (contextoFinal.anamnese.expectativa_sucesso && !contextoFinal.anamnese.expectativa) {
+              contextoFinal.anamnese.expectativa = contextoFinal.anamnese.expectativa_sucesso;
+            }
+            if (!contextoFinal.expectativa && contextoFinal.anamnese.expectativa) {
+              contextoFinal.expectativa = contextoFinal.anamnese.expectativa;
+            }
+          }
+
+          const htmlContent = getTemplateForType(tipoEntregavel, contextoFinal);
 
           const { data: entregavel } = await supabase
             .from('entregaveis_consultor')
