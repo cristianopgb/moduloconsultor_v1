@@ -16,6 +16,13 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { getSystemPrompt } from './consultor-prompts.ts';
 import { getTemplateForType } from '../_shared/deliverable-templates.ts';
+import {
+  searchRelevantHints,
+  formatHintsForPrompt,
+  logHintUsage,
+  determineABGroup,
+  type HintSearchContext
+} from './hints-engine.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -142,7 +149,7 @@ Deno.serve(async (req: Request) => {
     const messages = historico || [];
     console.log('[CONSULTOR] Loaded', messages.length, 'previous messages');
 
-    // 4. Buscar knowledge base relevante e adapters de setor
+    // 4. Buscar knowledge base relevante, adapters de setor e hints
     let kbContext = '';
 
     // 4.1. Buscar adapter de setor
@@ -161,7 +168,74 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 4.2. Buscar exemplos de ferramentas na knowledge base para a fase atual
+    // 4.2. Buscar hints semânticos relevantes (NOVO)
+    let hintsUsed: Array<{ id: string, score: number }> = [];
+    const grupoAB = determineABGroup();
+    console.log('[CONSULTOR] A/B Group:', grupoAB.group, 'max hints:', grupoAB.maxHints);
+
+    try {
+      // Montar contexto de busca
+      const hintContext: HintSearchContext = {
+        segmento: sessao.setor || contexto.segmento || contexto.anamnese?.segmento,
+        dor_principal: contexto.dor_principal || contexto.anamnese?.dor_principal,
+        achados: [],
+        expressoes_usuario: []
+      };
+
+      // Adicionar achados do mapeamento se disponíveis
+      if (contexto.canvas_proposta_valor) {
+        hintContext.achados?.push(contexto.canvas_proposta_valor);
+      }
+      if (contexto.processos_identificados) {
+        hintContext.achados?.push(...(contexto.processos_identificados.slice(0, 3) || []));
+      }
+
+      // Adicionar últimas mensagens do usuário como expressões
+      const ultimasMensagens = messages
+        .filter(m => m.role === 'user')
+        .slice(-3)
+        .map(m => m.content);
+      hintContext.expressoes_usuario = ultimasMensagens;
+
+      // Buscar hints (respeitando grupo A/B)
+      const hints = await searchRelevantHints(
+        supabase,
+        body.sessao_id,
+        hintContext,
+        grupoAB.maxHints
+      );
+
+      if (hints && hints.length > 0) {
+        console.log('[CONSULTOR] Found', hints.length, 'relevant hints');
+
+        // Formatar para prompt
+        const hintsBlock = formatHintsForPrompt(hints);
+        kbContext += hintsBlock;
+
+        // Guardar IDs e scores para telemetria
+        hintsUsed = hints.map(h => ({ id: h.id, score: h.score }));
+
+        // Log inicial de uso
+        for (const hint of hints) {
+          await logHintUsage(
+            supabase,
+            body.sessao_id,
+            hint.id,
+            faseAtual,
+            hintContext,
+            hint.score,
+            grupoAB.group
+          );
+        }
+      } else {
+        console.log('[CONSULTOR] No relevant hints found');
+      }
+    } catch (hintsError) {
+      console.warn('[CONSULTOR] Error fetching hints (non-fatal):', hintsError);
+      // Continua sem hints
+    }
+
+    // 4.3. Buscar exemplos de ferramentas na knowledge base para a fase atual
     const ferramentasPorFase: Record<string, string[]> = {
       'mapeamento': ['canvas', 'cadeia de valor', 'value chain'],
       'investigacao': ['ishikawa', '5 porques', 'causa raiz'],

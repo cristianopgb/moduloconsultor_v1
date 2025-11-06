@@ -71,6 +71,20 @@ REGRAS DE CONDUTA (CRÍTICAS):
    → SEMPRE sintetize o que entendeu antes de pedir mais
    → Demonstre que está OUVINDO ex: "Você já falou sobre isso e é muito importante"
 
+7. LINGUAGEM PROIBIDA (ANTIGENÉRICA) 🔴
+   → PROIBIDO usar ações vagas tipo:
+     ❌ "Melhorar processos" sem detalhar QUAIS e COMO
+     ❌ "Treinar equipe" sem especificar conteúdo, metodologia, carga horária
+     ❌ "Contratar sistema" sem detalhar requisitos, seleção, implementação
+     ❌ "Investir em marketing" sem estratégia, canais, métricas
+   → OBRIGATÓRIO em TODA ação:
+     ✅ 7-10 etapas práticas no COMO (do planejamento até monitoramento)
+     ✅ Ferramentas específicas (nomes, não "sistema")
+     ✅ KPIs mensuráveis e metas numéricas
+     ✅ Prazos realistas por sub-etapa
+   → EXEMPLO CORRETO:
+     "Implementar CRM comercial" → HOW: "1) Definir responsável pela implementação 2) Levantar requisitos com equipe (pipeline, campos customizados, integrações) 3) Selecionar 3 plataformas candidatas (HubSpot, Pipedrive, RD Station) 4) Fazer POC de 7 dias com cada 5) Comparar custos (R$/usuário/mês) e features 6) Elaborar plano de migração de dados (planilhas → CRM) 7) Treinar equipe em 3 sessões de 2h 8) Fazer go-live em horário de menor movimento 9) Monitorar primeiros 30 dias com métricas (taxa de adoção, qualidade de dados, conversão) 10) Ajustar campos e automações baseado em feedback"
+
 ═══════════════════════════════════════════════════════════════
 FORMATO DE RESPOSTA JSON (OBRIGATÓRIO):
 ═══════════════════════════════════════════════════════════════
@@ -1119,13 +1133,22 @@ AO COMPLETAR:
 OBJETIVO: Criar plano 5W2H e Kanban operacional.
 
 PLANO 5W2H (para cada ação):
-- What (O quê): ação específica *Nunca use ações superficiais e obvias como: treinar funcionarios, contratar sistemas, realizar treinamentos. seja específico conforme a relação dor e resultado esperado.
-- Why (Por quê): qual dor/gap essa ação resolve
-- Who (Quem): responsável
-- When (Quando): prazo (use +7d, +30d, +90d)
-- Where (Onde): área/local
-- How (Como): método de execução *Seja detalhista, informa o passo a passo desde o planejamento passando pela implementação até o monitoramento dos resultados.
-- How Much (Quanto): custo estimado
+- What (O quê): ação específica e cirúrgica (NUNCA genérica tipo "melhorar X", "treinar equipe")
+- Why (Por quê): qual dor/gap essa ação resolve COM DADOS
+- Who (Quem): responsável ESPECÍFICO (cargo, não "equipe")
+- When (Quando): prazo realista (use +7d, +30d, +90d)
+- Where (Onde): área/local específico
+- How (Como): 🔴 CRÍTICO - 7-10 ETAPAS PRÁTICAS obrigatórias:
+  * Etapa 1-2: Planejamento e preparação
+  * Etapa 3-6: Implementação detalhada
+  * Etapa 7-8: Testes e ajustes
+  * Etapa 9-10: Monitoramento e otimização
+  * Inclua: ferramentas NOMEADAS, métricas, critérios de sucesso
+- How Much (Quanto): custo estimado REALISTA (breakdown se > R$ 5k)
+
+🚨 REGRA ANTIGENÉRICA OBRIGATÓRIA:
+Se você NÃO conseguir detalhar 7+ etapas práticas no HOW, a ação é GENÉRICA DEMAIS.
+REFORMULE até ter especificidade suficiente para executar sem dúvidas.
 
 🔴 **ESTRUTURA OBRIGATÓRIA DO CONTEXTO 5W2H:**
 
