@@ -333,7 +333,12 @@ export function generateCanvasHTML(contexto: any): string {
 
 export function generateMatrizPriorizacaoHTML(contexto: any): string {
   const priorizacao = contexto.priorizacao || {};
-  const processos = priorizacao.processos || priorizacao.processos_priorizados || [];
+  // Tentar múltiplas fontes para os processos
+  const processos = contexto.processos ||
+                    priorizacao.processos ||
+                    priorizacao.processos_priorizados ||
+                    contexto.matriz_gut ||
+                    [];
 
   return `
 <!DOCTYPE html>
@@ -402,7 +407,8 @@ export function generateMatrizPriorizacaoHTML(contexto: any): string {
 
 export function generatePlanoAcaoHTML(contexto: any): string {
   const plano = contexto.plano_acao || contexto.execucao || {};
-  const acoes = plano.acoes || [];
+  // Aceitar acoes direto no contexto ou dentro de plano
+  const acoes = contexto.acoes || plano.acoes || [];
 
   return `
 <!DOCTYPE html>
@@ -437,13 +443,13 @@ export function generatePlanoAcaoHTML(contexto: any): string {
         <tbody>
           ${acoes.map((acao: any) => `
             <tr>
-              <td><strong>${acao.o_que || acao.nome || 'N/A'}</strong></td>
-              <td>${acao.por_que || acao.justificativa || 'N/A'}</td>
-              <td>${acao.quem || acao.responsavel || 'A definir'}</td>
-              <td>${acao.quando || acao.prazo || 'A definir'}</td>
-              <td>${acao.onde || acao.area || 'N/A'}</td>
-              <td>${acao.como || 'A definir método'}</td>
-              <td>${acao.quanto_custa || 'A estimar'}</td>
+              <td><strong>${acao.what || acao.o_que || acao.nome || 'N/A'}</strong></td>
+              <td>${acao.why || acao.por_que || acao.justificativa || 'N/A'}</td>
+              <td>${acao.who || acao.quem || acao.responsavel || 'A definir'}</td>
+              <td>${acao.when || acao.quando || acao.prazo || 'A definir'}</td>
+              <td>${acao.where || acao.onde || acao.area || 'N/A'}</td>
+              <td>${acao.how || acao.como || 'A definir método'}</td>
+              <td>${acao.how_much || acao.quanto_custa || acao.quanto || 'A estimar'}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -750,6 +756,79 @@ export function generate5WhysHTML(contexto: any): string {
 `;
 }
 
+export function generateBPMNHTML(contexto: any): string {
+  const bpmn = contexto.bpmn || contexto;
+  const bpmnXML = bpmn.xml || bpmn.bpmn_xml || '';
+  const processoNome = bpmn.processo_nome || bpmn.nome || 'Processo';
+
+  // Se não tiver XML, gerar um BPMN simples
+  const defaultXML = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1" name="Início">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:task id="Task_1" name="${processoNome}">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="EndEvent_1" name="Fim">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_1" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="EndEvent_1" />
+  </bpmn:process>
+</bpmn:definitions>`;
+
+  const finalXML = bpmnXML || defaultXML;
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BPMN - ${processoNome}</title>
+  ${BASE_STYLES}
+  <script src="https://unpkg.com/bpmn-js@17/dist/bpmn-navigated-viewer.production.min.js"></script>
+  <style>
+    #canvas { height: 600px; border: 2px solid ${BRAND_COLORS.border}; border-radius: 8px; background: white; }
+    .bpmn-icon { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔄 BPMN - ${processoNome}</h1>
+      <p>Modelagem de processo em BPMN 2.0</p>
+    </div>
+
+    <div class="section">
+      <h2>Diagrama do Processo</h2>
+      <div id="canvas"></div>
+    </div>
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+
+  <script>
+    const bpmnXML = \`${finalXML.replace(/`/g, '\\`')}\`;
+    const viewer = new BpmnJS({ container: '#canvas' });
+
+    viewer.importXML(bpmnXML).then(() => {
+      viewer.get('canvas').zoom('fit-viewport');
+    }).catch(err => {
+      console.error('Error rendering BPMN:', err);
+      document.getElementById('canvas').innerHTML = '<p style="padding: 2rem; text-align: center; color: #ef4444;">Erro ao renderizar diagrama BPMN. Verifique o XML fornecido.</p>';
+    });
+  </script>
+</body>
+</html>
+`;
+}
+
 export function generateSIPOCHTML(contexto: any): string {
   const sipoc = contexto.sipoc || contexto;
 
@@ -814,6 +893,64 @@ export function generateSIPOCHTML(contexto: any): string {
         <p>${sipoc.metricas}</p>
       </div>
     ` : ''}
+
+    <div class="footer">
+      <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+function generateEscopoHTML(contexto: any): string {
+  const escopo = contexto.escopo || {};
+  const processosEscopo = contexto.processos_escopo || escopo.processos_escopo || [];
+  const justificativa = contexto.justificativa || escopo.justificativa || '';
+  const empresa = contexto.empresa || contexto.anamnese?.empresa || 'Empresa';
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escopo do Projeto - ${empresa}</title>
+  ${BASE_STYLES}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎯 Escopo do Projeto</h1>
+      <p>Definição dos processos que serão trabalhados</p>
+    </div>
+
+    <div class="section">
+      <h2>Processos no Escopo</h2>
+      ${processosEscopo.length > 0 ? `
+        <div class="grid">
+          ${processosEscopo.map((p: any, i: number) => `
+            <div class="card">
+              <h4>${i + 1}. ${typeof p === 'string' ? p : p.nome || p.processo}</h4>
+              ${typeof p === 'object' && p.justificativa ? `<p><strong>Justificativa:</strong> ${p.justificativa}</p>` : ''}
+              ${typeof p === 'object' && p.prioridade ? `<p><strong>Prioridade:</strong> ${p.prioridade}</p>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      ` : '<p>Nenhum processo definido no escopo.</p>'}
+    </div>
+
+    ${justificativa ? `
+    <div class="section">
+      <h2>Justificativa do Escopo</h2>
+      <p style="line-height: 1.8;">${justificativa}</p>
+    </div>
+    ` : ''}
+
+    <div class="section">
+      <h2>Fora do Escopo</h2>
+      <p>Todos os demais processos identificados que não estão listados acima estão fora do escopo inicial do projeto e poderão ser abordados em fases futuras.</p>
+    </div>
 
     <div class="footer">
       <p>Gerado automaticamente por PROCEDA Consultor IA • ${new Date().toLocaleDateString('pt-BR')}</p>
@@ -909,9 +1046,12 @@ export function getTemplateForType(tipo: string, contexto: any): string {
     '5whys': generate5WhysHTML,
     '5_porques': generate5WhysHTML,
     'sipoc': generateSIPOCHTML,
-    'bpmn_as_is': generateSIPOCHTML,
+    'bpmn': generateBPMNHTML,
+    'bpmn_as_is': generateBPMNHTML,
+    'bpmn_to_be': generateBPMNHTML,
     'matriz_priorizacao': generateMatrizPriorizacaoHTML,
-    'escopo': generateMatrizPriorizacaoHTML,
+    'escopo': generateEscopoHTML,
+    'escopo_projeto': generateEscopoHTML,
     '5w2h': generatePlanoAcaoHTML,
     'plano_acao': generatePlanoAcaoHTML,
     'diagnostico_executivo': generateDiagnosticoExecutivoHTML,
