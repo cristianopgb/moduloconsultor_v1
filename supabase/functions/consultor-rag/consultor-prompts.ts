@@ -230,7 +230,7 @@ SE já tem dor principal:
 - Pergunte: o que seria um resultado de SUCESSO? Como gostaria que a empresa estivesse em 3-6 meses?
 - Tom: "última pergunta antes de estruturar o plano"
 
-Action: {"type": "coletar_info", "params": {"campo": "expectativa_sucesso"}}
+Action: {"type": "coletar_info", "params": {"campo": "expectativa"}}
 
 **TURNO 7: SÍNTESE E TRANSIÇÃO (CRÍTICO)**
 
@@ -536,8 +536,31 @@ Turno 3: Relacionamento + Fontes de Receita
 Turno 4: Recursos-Chave + Atividades-Chave
 Turno 5: Parcerias + Estrutura de Custos
 Turno 6: Processos Primários (do pedido até entrega)
-Turno 7: Processos de Apoio (RH, TI, Financeiro, etc)
-Turno 8: Processos de Gestão (planejamento, controle, qualidade, etc)
+
+**TURNO 7 - PROCESSOS DE APOIO:**
+Pergunte: "Agora sobre os processos que SUPORTAM a operação:
+• Financeiro (contabilidade, contas a pagar/receber)
+• RH (recrutamento, folha, treinamento)
+• TI (infraestrutura, sistemas, suporte)
+• Jurídico/Compliance
+• Compras e Suprimentos
+
+Quais desses processos existem na {empresa}? Há outros processos de apoio importantes?"
+
+Action: {"type": "coletar_info", "params": {"campo": "processos_apoio"}}
+
+**TURNO 8 - PROCESSOS DE GESTÃO:**
+Pergunte: "E sobre processos GERENCIAIS (coordenação e controle):
+• Planejamento Estratégico
+• Controle de Qualidade
+• Gestão de Riscos
+• Indicadores e Métricas (KPIs)
+• Auditoria/Compliance
+
+Quais processos gerenciais a {empresa} possui? Como coordenam as operações?"
+
+Action: {"type": "coletar_info", "params": {"campo": "processos_gestao"}}
+
 Turno 9: Consolidar TODOS os processos identificados
 
 **TURNO 8 - CRÍTICO (LISTAR PROCESSOS):**
@@ -597,10 +620,12 @@ Próximo passo: análise de causas com Ishikawa e 5 Porquês.
         "tipo": "value_chain",
         "contexto": {
           "processos_primarios": ["lista", "real", "de", "processos"],
-          "processos_apoio": ["lista", "real"],
+          "processos_apoio": ["lista", "real", "de", "processos", "apoio"],
+          "processos_gestao": ["lista", "real", "de", "processos", "gestao"],
           "processos_identificados": [
             {"nome": "Vendas", "tipo": "primario"},
-            {"nome": "Financeiro", "tipo": "apoio"}
+            {"nome": "Financeiro", "tipo": "apoio"},
+            {"nome": "Planejamento", "tipo": "gestao"}
           ]
         }
       }

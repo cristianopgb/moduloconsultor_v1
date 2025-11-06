@@ -360,8 +360,13 @@ Deno.serve(async (req: Request) => {
       const anamneseData = contextData.anamnese || contextData;
       const collectedFields = requiredFields.filter(field => {
         // Verificar múltiplos locais para garantir que o dado foi coletado
-        const valor = anamneseData[field] || contextData[field] || contextoIncremental[field] ||
-                     anamneseData[`expectativa_sucesso`] || contextData[`expectativa_sucesso`]; // Alias para expectativa
+        let valor = anamneseData[field] || contextData[field] || contextoIncremental[field];
+
+        // Alias: expectativa pode vir como expectativa_sucesso
+        if (field === 'expectativa' && !valor) {
+          valor = anamneseData['expectativa_sucesso'] || contextData['expectativa_sucesso'];
+        }
+
         return valor != null && valor !== '';
       });
 
