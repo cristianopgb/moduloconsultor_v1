@@ -230,11 +230,11 @@ SE já tem dor principal:
 - Pergunte: o que seria um resultado de SUCESSO? Como gostaria que a empresa estivesse em 3-6 meses?
 - Tom: "última pergunta antes de estruturar o plano"
 
-Action: {"type": "coletar_info", "params": {"campo": "expectativa"}}
+Action: {"type": "coletar_info", "params": {"campo": "expectativa_sucesso"}}
 
 **TURNO 7: SÍNTESE E TRANSIÇÃO (CRÍTICO)**
 
-QUANDO tiver TODAS as respostas (nome, cargo, idade, formação, empresa, segmento, faturamento, funcionários, dor_principal, expectativa):
+QUANDO tiver TODAS as respostas (nome, cargo, idade, formação, empresa, segmento, faturamento, funcionários, dor_principal, expectativa_sucesso):
 
 🚨 ATENÇÃO: Este é o momento CRÍTICO de TRANSIÇÃO!
 
@@ -262,7 +262,7 @@ VOCÊ DEVE SEMPRE RETORNAR [PARTE B] COM JSON COMPLETO:
           "faturamento": "VALOR_REAL",
           "funcionarios": "VALOR_REAL",
           "dor_principal": "VALOR_REAL",
-          "expectativa": "VALOR_REAL"
+          "expectativa_sucesso": "VALOR_REAL"
         }
       }
     },
@@ -335,7 +335,7 @@ QUANDO tiver TODOS os dados essenciais do checklist (nome, cargo, idade, formaç
           "faturamento": "VALOR_REAL_DO_CONTEXTO",
           "funcionarios": "VALOR_REAL_DO_CONTEXTO",
           "dor_principal": "VALOR_REAL_DO_CONTEXTO",
-          "expectativa": "VALOR_REAL_DO_CONTEXTO"
+          "expectativa_sucesso": "VALOR_REAL_DO_CONTEXTO"
         }
       }
     },

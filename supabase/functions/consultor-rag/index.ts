@@ -356,15 +356,15 @@ Deno.serve(async (req: Request) => {
 
     // Detector 1: ANAMNESE COMPLETA
     if (faseAtual === 'anamnese') {
-      const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa'];
+      const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa_sucesso'];
       const anamneseData = contextData.anamnese || contextData;
       const collectedFields = requiredFields.filter(field => {
         // Verificar múltiplos locais para garantir que o dado foi coletado
         let valor = anamneseData[field] || contextData[field] || contextoIncremental[field];
 
-        // Alias: expectativa pode vir como expectativa_sucesso
-        if (field === 'expectativa' && !valor) {
-          valor = anamneseData['expectativa_sucesso'] || contextData['expectativa_sucesso'];
+        // Alias: expectativa_sucesso pode vir como expectativa
+        if (field === 'expectativa_sucesso' && !valor) {
+          valor = anamneseData['expectativa'] || contextData['expectativa'] || contextoIncremental['expectativa'];
         }
 
         return valor != null && valor !== '';
@@ -393,7 +393,7 @@ Deno.serve(async (req: Request) => {
           faturamento: anamneseData.faturamento || contextData.faturamento,
           funcionarios: anamneseData.funcionarios || contextData.funcionarios,
           dor_principal: anamneseData.dor_principal || contextData.dor_principal || contextoIncremental.dor_principal,
-          expectativa: anamneseData.expectativa || contextData.expectativa || contextoIncremental.expectativa
+          expectativa_sucesso: anamneseData.expectativa_sucesso || contextData.expectativa_sucesso || contextoIncremental.expectativa_sucesso || anamneseData.expectativa || contextData.expectativa || contextoIncremental.expectativa
         };
 
         actions.push(
@@ -413,7 +413,82 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Detector 2: PRIORIZAÇÃO COMPLETA (Matriz GUT + Escopo)
+    // Detector 2: MAPEAMENTO COMPLETO (Canvas + Cadeia de Valor)
+    if (faseAtual === 'mapeamento') {
+      const canvasFields = ['canvas_proposta_valor', 'canvas_segmentos_cliente', 'canvas_canais', 'canvas_relacionamento', 'canvas_receitas', 'canvas_recursos', 'canvas_atividades', 'canvas_parcerias', 'canvas_custos'];
+      const canvasCompleto = canvasFields.every(field => contextData[field] || contextoIncremental[field]);
+
+      const processosPrimarios = contextData.processos_primarios || contextoIncremental.processos_primarios || [];
+      const processosApoio = contextData.processos_apoio || contextoIncremental.processos_apoio || [];
+      const processosGestao = contextData.processos_gestao || contextoIncremental.processos_gestao || [];
+
+      const cadeiaCompleta = processosPrimarios.length > 0 && processosApoio.length > 0 && processosGestao.length > 0;
+
+      console.log('[CONSULTOR] Mapeamento completion check:', {
+        canvasCompleto,
+        processosPrimarios: processosPrimarios.length,
+        processosApoio: processosApoio.length,
+        processosGestao: processosGestao.length
+      });
+
+      const hasTransition = actions.some(a => a.type === 'transicao_estado');
+      const hasCanvasEntregavel = actions.some(a => a.type === 'gerar_entregavel' && a.params?.tipo === 'canvas');
+      const hasCadeiaEntregavel = actions.some(a => a.type === 'gerar_entregavel' && a.params?.tipo === 'cadeia_valor');
+
+      if (canvasCompleto && cadeiaCompleta && !hasTransition) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: Mapeamento completo, gerando entregáveis');
+
+        // Gerar Canvas
+        if (!hasCanvasEntregavel) {
+          const canvasData: any = {};
+          canvasFields.forEach(field => {
+            const key = field.replace('canvas_', '');
+            canvasData[key] = contextData[field] || contextoIncremental[field];
+          });
+
+          actions.push({
+            type: 'gerar_entregavel',
+            params: {
+              tipo: 'canvas',
+              contexto: {
+                canvas: canvasData,
+                empresa: contextData.empresa || contextData.anamnese?.empresa
+              }
+            }
+          });
+        }
+
+        // Gerar Cadeia de Valor
+        if (!hasCadeiaEntregavel) {
+          actions.push({
+            type: 'gerar_entregavel',
+            params: {
+              tipo: 'cadeia_valor',
+              contexto: {
+                mapeamento: {
+                  processos_primarios: processosPrimarios,
+                  processos_apoio: processosApoio,
+                  processos_gestao: processosGestao,
+                  canvas_proposta_valor: contextData.canvas_proposta_valor || contextoIncremental.canvas_proposta_valor,
+                  empresa: contextData.empresa || contextData.anamnese?.empresa
+                }
+              }
+            }
+          });
+        }
+
+        // Transição para investigação
+        actions.push({
+          type: 'transicao_estado',
+          params: { to: 'investigacao' }
+        });
+
+        contextoIncremental.mapeamento_completo = true;
+        progressoAtualizado = 45;
+      }
+    }
+
+    // Detector 3: PRIORIZAÇÃO COMPLETA (Matriz GUT + Escopo)
     let escopoDefinidoAgora = false;
     if (faseAtual === 'priorizacao') {
       const processos = contextData.processos_identificados || contextData.priorizacao?.processos || [];

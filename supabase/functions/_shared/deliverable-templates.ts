@@ -209,7 +209,7 @@ export function generateAnamneseHTML(contexto: any): string {
         <strong>Desafio Principal:</strong> ${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}
       </p>
       <p style="line-height: 1.8;">
-        <strong>Objetivo de Sucesso:</strong> ${anamnese.expectativa || anamnese.expectativa_sucesso || anamnese.expectativas || 'Não especificado'}
+        <strong>Objetivo de Sucesso:</strong> ${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}
       </p>
     </div>
 
@@ -219,7 +219,7 @@ export function generateAnamneseHTML(contexto: any): string {
       <p>${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}</p>
 
       <h3>Expectativa de Sucesso</h3>
-      <p>${anamnese.expectativa || anamnese.expectativa_sucesso || anamnese.expectativas || 'Não especificado'}</p>
+      <p>${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}</p>
     </div>
 
     <div class="footer">
@@ -338,51 +338,75 @@ export function generateMatrizPriorizacaoHTML(contexto: any): string {
                   priorizacao.processos ||
                   priorizacao.processos_priorizados ||
                   contexto.matriz_gut ||
+                  contexto.processos_identificados ||
                   [];
 
-  // INFERIR GUT quando faltar (heurística básica)
+  // INFERIR GUT quando faltar (heurística robusta baseada em contexto)
   processos = processos.map((p: any, index: number) => {
+    let nome = '';
     if (typeof p === 'string') {
-      // Se é string, converter para objeto com GUT inferido
-      const g = 5 - Math.floor(index / 3); // Gravidade decrescente
-      const u = 5 - Math.floor(index / 2); // Urgência decrescente
-      const t = 4; // Tendência padrão
-      return {
-        nome: p,
-        processo: p,
-        gravidade: Math.max(1, Math.min(5, g)),
-        urgencia: Math.max(1, Math.min(5, u)),
-        tendencia: t,
-        score: Math.max(1, Math.min(5, g)) * Math.max(1, Math.min(5, u)) * t,
-        prioridade: index < 3 ? 'Alta' : index < 6 ? 'Média' : 'Baixa'
-      };
+      nome = p;
+    } else {
+      nome = p.nome || p.processo || `Processo ${index + 1}`;
     }
 
-    // Se já é objeto mas falta GUT, inferir
-    if (!p.gravidade || !p.urgencia || !p.tendencia) {
-      const g = p.gravidade || (5 - Math.floor(index / 3));
-      const u = p.urgencia || (5 - Math.floor(index / 2));
-      const t = p.tendencia || 4;
-      return {
-        ...p,
-        gravidade: Math.max(1, Math.min(5, g)),
-        urgencia: Math.max(1, Math.min(5, u)),
-        tendencia: Math.max(1, Math.min(5, t)),
-        score: p.score || (Math.max(1, Math.min(5, g)) * Math.max(1, Math.min(5, u)) * Math.max(1, Math.min(5, t))),
-        prioridade: p.prioridade || (index < 3 ? 'Alta' : index < 6 ? 'Média' : 'Baixa')
-      };
+    // Heurística de inferência baseada em palavras-chave
+    const nomeLower = nome.toLowerCase();
+
+    // Gravidade: baseada em impacto potencial
+    let g = 3; // padrão médio
+    if (nomeLower.includes('financeiro') || nomeLower.includes('vendas') || nomeLower.includes('receita') || nomeLower.includes('lucro')) {
+      g = 5; // crítico
+    } else if (nomeLower.includes('operacion') || nomeLower.includes('produção') || nomeLower.includes('entrega')) {
+      g = 4; // alto
+    } else if (nomeLower.includes('apoio') || nomeLower.includes('suporte') || nomeLower.includes('rh')) {
+      g = 3; // médio
+    } else if (index < 3) {
+      g = 5 - Math.floor(index / 2); // Primeiros processos são mais graves
     }
 
-    // Se já tem tudo, garantir score e prioridade
+    // Urgência: baseada em contexto e posição
+    let u = 3; // padrão médio
+    if (nomeLower.includes('urgente') || nomeLower.includes('crítico') || nomeLower.includes('crise')) {
+      u = 5;
+    } else if (index < 5) {
+      u = 5 - Math.floor(index / 2.5); // Urgência decrescente
+    } else {
+      u = 2 + Math.floor(Math.random() * 2); // 2 ou 3 para processos menos urgentes
+    }
+
+    // Tendência: baseada em tipo de problema
+    let t = 4; // padrão (tende a piorar)
+    if (nomeLower.includes('gestão') || nomeLower.includes('controle') || nomeLower.includes('planejamento')) {
+      t = 5; // tende a piorar muito se não resolvido
+    } else if (nomeLower.includes('apoio') || nomeLower.includes('suporte')) {
+      t = 3; // estável
+    }
+
+    // Se já tem valores, usar (validar range 1-5)
+    if (typeof p === 'object') {
+      g = p.gravidade ? Math.max(1, Math.min(5, p.gravidade)) : g;
+      u = p.urgencia ? Math.max(1, Math.min(5, p.urgencia)) : u;
+      t = p.tendencia ? Math.max(1, Math.min(5, p.tendencia)) : t;
+    }
+
+    const score = g * u * t;
+    const prioridade = score >= 75 ? 'Alta' : score >= 40 ? 'Média' : 'Baixa';
+
     return {
-      ...p,
-      score: p.score || (p.gravidade * p.urgencia * p.tendencia),
-      prioridade: p.prioridade || (index < 3 ? 'Alta' : index < 6 ? 'Média' : 'Baixa')
+      nome,
+      processo: nome,
+      gravidade: g,
+      urgencia: u,
+      tendencia: t,
+      score,
+      prioridade,
+      ...(typeof p === 'object' ? { justificativa: p.justificativa, descricao: p.descricao } : {})
     };
   });
 
   // Ordenar por score (maior primeiro)
-  processos.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+  processos.sort((a: any, b: any) => b.score - a.score);
 
   return `
 <!DOCTYPE html>
@@ -454,34 +478,112 @@ export function generatePlanoAcaoHTML(contexto: any): string {
   // Aceitar acoes direto no contexto ou dentro de plano
   let acoes = contexto.acoes || plano.acoes || [];
 
-  // GERAR MÍNIMO VIÁVEL se não tiver ações (não afeta Kanban)
+  // GERAR AÇÕES VIÁVEIS E DETALHADAS se não tiver (FALLBACK ROBUSTO)
   if (acoes.length === 0) {
     const escopo = contexto.escopo || {};
     const processosEscopo = contexto.processos_escopo || escopo.processos_escopo || [];
     const diagnostico = contexto.diagnostico || {};
     const recomendacoes = diagnostico.recomendacoes || contexto.recomendacoes || [];
+    const priorizacao = contexto.priorizacao || {};
+    const processosPriorizados = priorizacao.processos || contexto.processos || [];
 
-    // Gerar ações básicas a partir do escopo ou diagnóstico
+    // Estratégia 1: Criar ações detalhadas baseadas no escopo
     if (processosEscopo.length > 0) {
-      acoes = processosEscopo.slice(0, 3).map((p: any) => ({
-        what: `Reestruturar processo: ${typeof p === 'string' ? p : p.nome}`,
-        why: `Processo identificado como crítico no escopo`,
-        who: 'Gestor da área',
-        when: '+30 dias',
-        where: 'Área responsável',
-        how: 'Mapear AS-IS, identificar gargalos, implementar melhorias',
-        how_much: 'A definir após análise detalhada'
+      acoes = processosEscopo.slice(0, 5).map((p: any, index: number) => {
+        const nomeProcesso = typeof p === 'string' ? p : p.nome;
+        const tipoAcao = index % 3;
+
+        if (tipoAcao === 0) {
+          return {
+            what: `Mapear e documentar processo ${nomeProcesso} em detalhe (AS-IS)`,
+            why: `Criar baseline visual e identificar gargalos, redundâncias e oportunidades de automação no processo atual`,
+            who: `Gestor responsável pelo ${nomeProcesso} + Analista de Processos`,
+            when: `Prazo: ${15 + index * 5} dias úteis`,
+            where: `Área de ${nomeProcesso}`,
+            how: `Realizar entrevistas com executores, observar fluxo real, desenhar BPMN AS-IS, validar com equipe, documentar indicadores atuais`,
+            how_much: `Investimento: 40-60h de trabalho interno (custo de oportunidade estimado em R$ 3.000-5.000)`
+          };
+        } else if (tipoAcao === 1) {
+          return {
+            what: `Redesenhar processo ${nomeProcesso} otimizado (TO-BE)`,
+            why: `Eliminar desperdícios, padronizar atividades e melhorar indicadores de performance identificados na análise`,
+            who: `Gestor responsável pelo ${nomeProcesso} + Equipe operacional`,
+            when: `Prazo: ${20 + index * 5} dias úteis (após mapeamento AS-IS)`,
+            where: `Área de ${nomeProcesso}`,
+            how: `Analisar AS-IS, aplicar técnicas Lean, desenhar TO-BE, simular cenários, validar viabilidade, documentar novo fluxo`,
+            how_much: `Investimento: 30-50h de trabalho interno + eventual consultoria externa (R$ 4.000-8.000)`
+          };
+        } else {
+          return {
+            what: `Implementar melhorias no processo ${nomeProcesso} e treinar equipe`,
+            why: `Garantir que mudanças sejam adotadas, equipe capacitada e resultados sustentáveis`,
+            who: `Gestor da área + RH (treinamento) + TI (sistemas)`,
+            when: `Prazo: ${25 + index * 5} dias úteis (após aprovação TO-BE)`,
+            where: `Área de ${nomeProcesso}`,
+            how: `Realizar treinamento hands-on, ajustar sistemas/ferramentas, acompanhar execução por 2 semanas, coletar feedback, ajustar conforme necessário`,
+            how_much: `Investimento: 50-80h internas + possível aquisição de ferramentas (R$ 5.000-15.000)`
+          };
+        }
+      });
+    }
+    // Estratégia 2: Baseado em recomendações
+    else if (recomendacoes.length > 0) {
+      acoes = recomendacoes.slice(0, 5).map((r: any, index: number) => ({
+        what: typeof r === 'string' ? r : r.recomendacao || r.descricao || `Implementar melhoria ${index + 1}`,
+        why: typeof r === 'object' && r.impacto ? r.impacto : `Ação corretiva identificada no diagnóstico para melhorar performance operacional`,
+        who: `Gestor responsável pela área + Equipe multidisciplinar`,
+        when: `Prazo: ${15 + index * 10} dias úteis`,
+        where: `Área impactada pela recomendação`,
+        how: `Planejar implementação, alocar recursos, executar mudanças, monitorar resultados, ajustar conforme feedback`,
+        how_much: `Investimento a ser detalhado: estimativa inicial R$ ${3000 + index * 2000} - R$ ${5000 + index * 3000}`
       }));
-    } else if (recomendacoes.length > 0) {
-      acoes = recomendacoes.slice(0, 3).map((r: any) => ({
-        what: typeof r === 'string' ? r : r.recomendacao || r.descricao,
-        why: typeof r === 'object' && r.impacto ? r.impacto : 'Recomendação do diagnóstico',
-        who: 'A definir',
-        when: '+15 dias',
-        where: 'Organização',
-        how: 'A definir com equipe',
-        how_much: 'A estimar'
-      }));
+    }
+    // Estratégia 3: Baseado em processos priorizados
+    else if (processosPriorizados.length > 0) {
+      acoes = processosPriorizados.slice(0, 5).map((p: any, index: number) => {
+        const nomeProcesso = typeof p === 'string' ? p : (p.nome || p.processo);
+        return {
+          what: `Avaliar e otimizar processo ${nomeProcesso}`,
+          why: `Processo identificado como prioritário na matriz GUT com alto impacto nos resultados`,
+          who: `Líder do processo + Consultor interno`,
+          when: `Prazo: ${20 + index * 7} dias úteis`,
+          where: `Departamento responsável pelo ${nomeProcesso}`,
+          how: `Diagnóstico detalhado, identificação de quick wins, implementação de melhorias incrementais, medição de resultados`,
+          how_much: `Investimento: R$ ${5000 + index * 2000} (horas internas + ferramentas)`
+        };
+      });
+    }
+    // Estratégia 4: Ações genéricas porém acionáveis (último recurso)
+    else {
+      acoes = [
+        {
+          what: `Mapear e documentar processos críticos da organização`,
+          why: `Criar visibilidade sobre como o trabalho realmente acontece e identificar oportunidades de melhoria`,
+          who: `Gerente de Operações + Time de Processos`,
+          when: `Prazo: 30 dias úteis`,
+          where: `Áreas operacionais principais`,
+          how: `Selecionar 3-5 processos críticos, entrevistar executores, desenhar fluxogramas, documentar em ferramenta de BPM, validar com stakeholders`,
+          how_much: `Investimento: 100h internas + ferramenta BPM (R$ 8.000-12.000)`
+        },
+        {
+          what: `Implementar sistema de indicadores (KPIs) por processo`,
+          why: `Medir para gerenciar: sem indicadores não há como avaliar performance e tomar decisões baseadas em dados`,
+          who: `Controller + Gestores de Área`,
+          when: `Prazo: 45 dias úteis`,
+          where: `Todas as áreas operacionais`,
+          how: `Definir KPIs críticos por processo, criar dashboards em BI, treinar equipe na leitura, estabelecer rotina de análise semanal`,
+          how_much: `Investimento: BI tool (R$ 500/mês) + 80h setup interno (R$ 6.000-10.000)`
+        },
+        {
+          what: `Capacitar líderes em gestão por processos e melhoria contínua`,
+          why: `Criar cultura de excelência operacional e autonomia para resolução de problemas na base`,
+          who: `RH + Consultoria especializada`,
+          when: `Prazo: 60 dias úteis (programa contínuo)`,
+          where: `Sala de treinamento / Online`,
+          how: `Programa de 40h (Lean, Six Sigma, BPM), workshops práticos aplicados aos processos reais, certificação interna`,
+          how_much: `Investimento: R$ 15.000-25.000 (consultoria + material)`
+        }
+      ];
     }
   }
 
@@ -833,29 +935,133 @@ export function generate5WhysHTML(contexto: any): string {
 
 export function generateBPMNHTML(contexto: any): string {
   const bpmn = contexto.bpmn || contexto;
-  const bpmnXML = bpmn.xml || bpmn.bpmn_xml || '';
+  let bpmnXML = bpmn.xml || bpmn.bpmn_xml || '';
   const processoNome = bpmn.processo_nome || bpmn.nome || 'Processo';
+  const sipoc = bpmn.sipoc || contexto.sipoc || {};
 
-  // Se não tiver XML, gerar um BPMN simples
-  const defaultXML = `<?xml version="1.0" encoding="UTF-8"?>
+  // Função auxiliar para escapar XML
+  function escapeXml(unsafe: string): string {
+    return unsafe
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  // Se não tiver XML, gerar um BPMN detalhado baseado em SIPOC (se disponível)
+  if (!bpmnXML || bpmnXML.trim().length < 50) {
+    const steps = sipoc.process_steps || sipoc.process || [];
+
+    if (steps.length > 0) {
+      // Gerar BPMN com múltiplas tarefas baseadas nos passos do SIPOC
+      let tasksXml = '';
+      let flowsXml = '';
+      let diagramXml = '';
+      let xPos = 180;
+      const yPos = 80;
+
+      steps.forEach((step: string, index: number) => {
+        const taskId = `Task_${index + 1}`;
+        const flowIdIn = index === 0 ? 'Flow_Start' : `Flow_${index}`;
+        const flowIdOut = `Flow_${index + 1}`;
+        const prevId = index === 0 ? 'StartEvent_1' : `Task_${index}`;
+        const nextId = index === steps.length - 1 ? 'EndEvent_1' : `Task_${index + 2}`;
+
+        const stepName = escapeXml(typeof step === 'string' ? step : step.toString());
+
+        tasksXml += `
+    <bpmn:task id="${taskId}" name="${stepName}">
+      <bpmn:incoming>${flowIdIn}</bpmn:incoming>
+      <bpmn:outgoing>${flowIdOut}</bpmn:outgoing>
+    </bpmn:task>`;
+
+        flowsXml += `
+    <bpmn:sequenceFlow id="${flowIdOut}" sourceRef="${taskId}" targetRef="${nextId}" />`;
+
+        diagramXml += `
+      <bpmndi:BPMNShape id="${taskId}_di" bpmnElement="${taskId}">
+        <dc:Bounds x="${xPos}" y="${yPos}" width="100" height="80" />
+      </bpmndi:BPMNShape>`;
+
+        xPos += 150;
+      });
+
+      bpmnXML = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_1" name="Início">
+      <bpmn:outgoing>Flow_Start</bpmn:outgoing>
+    </bpmn:startEvent>${tasksXml}
+    <bpmn:endEvent id="EndEvent_1" name="Fim">
+      <bpmn:incoming>Flow_${steps.length}</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_Start" sourceRef="StartEvent_1" targetRef="Task_1" />${flowsXml}
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="152" y="82" width="36" height="36" />
+      </bpmndi:BPMNShape>${diagramXml}
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="${xPos}" y="82" width="36" height="36" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+    } else {
+      // Fallback: BPMN básico com 3 etapas genéricas
+      const nomeEscapado = escapeXml(processoNome);
+      bpmnXML = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="Process_1" isExecutable="false">
     <bpmn:startEvent id="StartEvent_1" name="Início">
       <bpmn:outgoing>Flow_1</bpmn:outgoing>
     </bpmn:startEvent>
-    <bpmn:task id="Task_1" name="${processoNome}">
+    <bpmn:task id="Task_1" name="Receber Demanda (${nomeEscapado})">
       <bpmn:incoming>Flow_1</bpmn:incoming>
       <bpmn:outgoing>Flow_2</bpmn:outgoing>
     </bpmn:task>
-    <bpmn:endEvent id="EndEvent_1" name="Fim">
+    <bpmn:task id="Task_2" name="Executar ${nomeEscapado}">
       <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="Task_3" name="Entregar Resultado">
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+      <bpmn:outgoing>Flow_4</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="EndEvent_1" name="Fim">
+      <bpmn:incoming>Flow_4</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_1" />
-    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="EndEvent_1" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="Task_2" />
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_2" targetRef="Task_3" />
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Task_3" targetRef="EndEvent_1" />
   </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="152" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1">
+        <dc:Bounds x="240" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_2_di" bpmnElement="Task_2">
+        <dc:Bounds x="390" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_3_di" bpmnElement="Task_3">
+        <dc:Bounds x="540" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="692" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
+    }
+  }
 
-  const finalXML = bpmnXML || defaultXML;
+  const finalXML = bpmnXML;
 
   return `
 <!DOCTYPE html>
@@ -981,26 +1187,43 @@ export function generateSIPOCHTML(contexto: any): string {
 function generateEscopoHTML(contexto: any): string {
   const escopo = contexto.escopo || {};
   let processosEscopo = contexto.processos_escopo || escopo.processos_escopo || [];
-  const justificativa = contexto.justificativa || escopo.justificativa || '';
+  let justificativa = contexto.justificativa || escopo.justificativa || '';
   const empresa = contexto.empresa || contexto.anamnese?.empresa || 'Empresa';
 
-  // Se não tiver processos no escopo, usar TOP N da matriz
+  // FALLBACK ROBUSTO: Se não tiver processos no escopo, usar múltiplas fontes
   if (processosEscopo.length === 0) {
+    // Tentar da matriz de priorização
     const priorizacao = contexto.priorizacao || {};
-    const processosPriorizados = contexto.processos ||
+    let processosPriorizados = contexto.processos ||
                                  priorizacao.processos ||
                                  priorizacao.processos_priorizados ||
                                  contexto.matriz_gut ||
                                  [];
 
+    // Se ainda não tem, tentar da cadeia de valor
+    if (processosPriorizados.length === 0) {
+      const mapeamento = contexto.mapeamento || {};
+      const processosPrimarios = mapeamento.processos_primarios || contexto.processos_primarios || [];
+      const processosGestao = mapeamento.processos_gestao || contexto.processos_gestao || [];
+
+      processosPriorizados = [...processosPrimarios, ...processosGestao].slice(0, 5);
+    }
+
     // Pegar os top 5 processos priorizados
-    processosEscopo = processosPriorizados
-      .slice(0, 5)
-      .map((p: any, i: number) => ({
-        nome: typeof p === 'string' ? p : (p.nome || p.processo),
-        prioridade: i < 3 ? 'Alta' : 'Média',
-        justificativa: 'Processo crítico identificado na priorização'
-      }));
+    if (processosPriorizados.length > 0) {
+      processosEscopo = processosPriorizados
+        .slice(0, 5)
+        .map((p: any, i: number) => {
+          const nome = typeof p === 'string' ? p : (p.nome || p.processo);
+          return {
+            nome,
+            prioridade: i < 3 ? 'Alta' : 'Média',
+            justificativa: `Processo selecionado para otimização baseado em ${i < 2 ? 'impacto crítico' : 'relevância estratégica'} identificado na análise`
+          };
+        });
+
+      justificativa = justificativa || `Com base na análise de priorização, foram selecionados ${processosEscopo.length} processos críticos que apresentam maior impacto nos resultados da empresa. Este escopo inicial foca nas áreas de maior urgência e potencial de retorno, permitindo resultados rápidos e tangíveis.`;
+    }
   }
 
   return `
@@ -1061,6 +1284,28 @@ function generateDiagnosticoExecutivoHTML(contexto: any): string {
   const principais_dores = diagnostico.principais_dores || contexto.principais_dores || [];
   const recomendacoes = diagnostico.recomendacoes || contexto.recomendacoes || [];
 
+  // Função para sanitizar texto (remover HTML tags, manter apenas texto)
+  function sanitizeText(text: string): string {
+    if (!text) return '';
+    return String(text)
+      .replace(/<[^>]*>/g, '') // Remove HTML tags
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .trim();
+  }
+
+  // Função para extrair texto limpo de objetos complexos
+  function extractCleanText(obj: any): string {
+    if (typeof obj === 'string') return sanitizeText(obj);
+    if (typeof obj === 'object') {
+      return sanitizeText(obj.descricao || obj.texto || obj.nome || obj.conteudo || JSON.stringify(obj));
+    }
+    return String(obj);
+  }
+
   return `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -1082,8 +1327,8 @@ function generateDiagnosticoExecutivoHTML(contexto: any): string {
       <h2>🎯 Processos Críticos Mapeados</h2>
       ${processosCriticos.map((p: any, i: number) => `
         <div class="card">
-          <h4>${i + 1}. ${typeof p === 'string' ? p : p.nome || p.processo}</h4>
-          <p>${typeof p === 'object' ? p.descricao || p.problema || '' : ''}</p>
+          <h4>${i + 1}. ${extractCleanText(typeof p === 'string' ? p : p.nome || p.processo)}</h4>
+          <p>${typeof p === 'object' ? extractCleanText(p.descricao || p.problema || '') : ''}</p>
         </div>
       `).join('')}
     </div>
@@ -1094,7 +1339,7 @@ function generateDiagnosticoExecutivoHTML(contexto: any): string {
       <h2>⚠️ Principais Dores Identificadas</h2>
       <ul>
         ${principais_dores.map((d: any) => `
-          <li><strong>${typeof d === 'string' ? d : d.dor || d.descricao}</strong></li>
+          <li><strong>${extractCleanText(d)}</strong></li>
         `).join('')}
       </ul>
     </div>
@@ -1106,8 +1351,8 @@ function generateDiagnosticoExecutivoHTML(contexto: any): string {
       ${recomendacoes.map((r: any, i: number) => `
         <div class="card">
           <h4>Recomendação ${i + 1}</h4>
-          <p>${typeof r === 'string' ? r : r.recomendacao || r.descricao}</p>
-          ${r.impacto ? `<p><strong>Impacto:</strong> ${r.impacto}</p>` : ''}
+          <p>${extractCleanText(r)}</p>
+          ${typeof r === 'object' && r.impacto ? `<p><strong>Impacto:</strong> ${extractCleanText(r.impacto)}</p>` : ''}
         </div>
       `).join('')}
     </div>
@@ -1115,7 +1360,7 @@ function generateDiagnosticoExecutivoHTML(contexto: any): string {
 
     <div class="section">
       <h2>📊 Resumo Geral</h2>
-      <p>${diagnostico.resumo || 'Diagnóstico consolidado com base na anamnese, mapeamento de processos e investigação de causas raiz.'}</p>
+      <p>${sanitizeText(diagnostico.resumo || 'Diagnóstico consolidado com base na anamnese, mapeamento de processos e investigação de causas raiz.')}</p>
     </div>
 
     <div class="footer">
