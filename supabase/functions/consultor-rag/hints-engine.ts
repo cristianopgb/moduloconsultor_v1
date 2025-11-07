@@ -99,29 +99,54 @@ function detectDominios(context: HintSearchContext): string[] {
 
   const dominios: string[] = [];
 
-  if (text.includes('vend') || text.includes('comercial') || text.includes('client')) {
+  // VENDAS: conversão, pipeline, fechamento
+  if (text.match(/vend|comercial|client|prospect|pipeline|conversion|fechamento|proposta|negociac|funil|lead|oportunidade|ticket|receita|faturamento|comissao/i)) {
     dominios.push('vendas');
   }
-  if (text.includes('marketing') || text.includes('divulga') || text.includes('propaganda') || text.includes('ads')) {
+
+  // MARKETING: atração, branding, conteúdo, tráfego
+  if (text.match(/marketing|divulga|propaganda|ads|anuncio|trafego|seo|conteudo|rede social|branding|marca|campanha|midia|inbound|outbound|publico|audiencia|engajamento/i)) {
     dominios.push('marketing');
   }
-  if (text.includes('operac') || text.includes('process') || text.includes('produc')) {
+
+  // OPERAÇÕES: processos, produção, eficiência
+  if (text.match(/operac|process|produc|eficienc|otimiz|fluxo|procedimento|rotina|desperdicio|gargalo|capacidade|throughput|lead time|setup|manufatura/i)) {
     dominios.push('operacoes');
   }
-  if (text.includes('financ') || text.includes('custo') || text.includes('margem') || text.includes('lucro') || text.includes('caixa')) {
+
+  // FINANCEIRO: custos, margens, caixa, faturamento
+  if (text.match(/financ|custo|margem|lucro|caixa|fluxo de caixa|rentabilidade|faturamento|inadimplenc|cobranca|pagamento|orcamento|investimento|capital de giro|ebitda|dre/i)) {
     dominios.push('financeiro');
   }
-  if (text.includes('pessoa') || text.includes('equipe') || text.includes('funcionario') || text.includes('colaborador') || text.includes('rh')) {
+
+  // RH / PESSOAS: equipe, rotatividade, capacitação
+  if (text.match(/pessoa|equipe|funcionario|colaborador|rh|recursos humanos|contrata|demiss|rotatividade|turn ?over|engajamento|motivacao|treinamento|capacitacao|talento|clima|cultura/i)) {
     dominios.push('rh');
   }
-  if (text.includes('estoque') || text.includes('logistic') || text.includes('entrega') || text.includes('armazem')) {
+
+  // LOGÍSTICA: estoque, entrega, armazenagem
+  if (text.match(/estoque|logistic|entrega|armazem|supply|distribuic|transporte|inventario|ruptura|giro de estoque|picking|packing|last mile|expedicao/i)) {
     dominios.push('logistica');
   }
-  if (text.includes('qualidade') || text.includes('defeito') || text.includes('refugo') || text.includes('retrabalho')) {
+
+  // QUALIDADE: defeitos, não-conformidades, retrabalho
+  if (text.match(/qualidade|defeito|refugo|retrabalho|nao.conformidade|reclamac|devoluc|garantia|inspecao|auditoria|certificacao|iso|controle de qualidade|cep|six sigma/i)) {
     dominios.push('qualidade');
   }
-  if (text.includes('sistema') || text.includes('tecnologia') || text.includes('ti') || text.includes('software')) {
+
+  // TI / TECNOLOGIA: sistemas, integração, automação
+  if (text.match(/sistema|tecnologia|ti|software|integrac|automac|digital|erp|crm|api|banco de dados|infraestrutura|cloud|seguranca|cyber|aplicativo|plataforma/i)) {
     dominios.push('ti');
+  }
+
+  // GESTÃO: indicadores, governança, estratégia (NOVO)
+  if (text.match(/gestao|governanca|estrateg|indicador|kpi|meta|planejamento|controle gerencial|bsc|dashboard|diretriz|politica|compliance|auditoria interna/i)) {
+    dominios.push('gestao');
+  }
+
+  // JURÍDICO / COMPLIANCE (NOVO)
+  if (text.match(/juridico|legal|compliance|regulatorio|contrato|clausula|acordo|processo judicial|trabalhista|lgpd|gdpr|privacidade|licenca|alvara/i)) {
+    dominios.push('juridico');
   }
 
   return [...new Set(dominios)]; // Remove duplicatas
@@ -292,7 +317,8 @@ export async function logHintUsage(
   fase: string,
   context: HintSearchContext,
   score: number,
-  grupoAB: string = 'control'
+  grupoAB: string = 'control',
+  qualityMetrics?: { acao_density?: number, how_depth_avg?: number, kpis_count?: number, reissue_count?: number }
 ) {
   try {
     await supabase.from('proceda_hints_telemetry').insert({
@@ -306,10 +332,15 @@ export async function logHintUsage(
         achados_count: (context.achados || []).length
       },
       score_busca: score,
-      grupo_ab: grupoAB
+      grupo_ab: grupoAB,
+      // Métricas de qualidade (opcionais)
+      acao_density: qualityMetrics?.acao_density,
+      how_depth_avg: qualityMetrics?.how_depth_avg,
+      kpis_count: qualityMetrics?.kpis_count,
+      reissue_count: qualityMetrics?.reissue_count || 0
     });
 
-    console.log('[HINTS] Logged hint usage:', hintId);
+    console.log('[HINTS] Logged hint usage:', hintId, qualityMetrics ? 'with quality metrics' : '');
   } catch (error) {
     console.warn('[HINTS] Error logging telemetry (non-fatal):', error);
   }

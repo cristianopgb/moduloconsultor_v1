@@ -23,6 +23,12 @@ import {
   determineABGroup,
   type HintSearchContext
 } from './hints-engine.ts';
+import {
+  validateActionQuality,
+  generateReissuePrompt,
+  extractTelemetryMetrics,
+  type Action
+} from './quality-validator.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -425,6 +431,102 @@ Deno.serve(async (req: Request) => {
 
     console.log('[CONSULTOR] Parsed actions:', actions.length);
 
+    // 10.5. VALIDAÇÃO DE QUALIDADE E REISSUE AUTOMÁTICO (FASE EXECUÇÃO)
+    let reissueCount = 0;
+    let qualityMetrics = null;
+
+    if (faseAtual === 'execucao' && actions.length > 0 && actions[0].tipo === '5w2h' && actions[0].contexto?.acoes) {
+      const acoes: Action[] = actions[0].contexto.acoes;
+      console.log('[CONSULTOR] Validando qualidade de', acoes.length, 'ações...');
+
+      const validation = validateActionQuality(acoes);
+      qualityMetrics = extractTelemetryMetrics(validation);
+
+      console.log('[CONSULTOR] Validation result:', {
+        isValid: validation.isValid,
+        errors: validation.errors.length,
+        warnings: validation.warnings.length,
+        metrics: validation.metrics
+      });
+
+      // Se validação falhar, fazer reissue automático (máximo 2 tentativas)
+      const MAX_REISSUES = 2;
+
+      while (!validation.isValid && reissueCount < MAX_REISSUES) {
+        reissueCount++;
+        console.log(`[CONSULTOR] ⚠️ Qualidade insuficiente. Reissue #${reissueCount}...`);
+
+        // Gerar prompt de correção
+        const reissuePrompt = generateReissuePrompt(validation);
+
+        // Adicionar mensagem de reissue ao histórico
+        llmMessages.push({
+          role: 'assistant',
+          content: fullResponse
+        });
+        llmMessages.push({
+          role: 'user',
+          content: reissuePrompt
+        });
+
+        console.log('[CONSULTOR] Sending reissue prompt...');
+
+        // Fazer nova chamada à LLM
+        const reissueResponse = await fetch(llmConfig.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${llmConfig.apiKey}` },
+          body: JSON.stringify({
+            model: llmConfig.model,
+            messages: llmMessages,
+            temperature: 0.4,
+            max_tokens: 4000
+          })
+        });
+
+        if (!reissueResponse.ok) {
+          console.error('[CONSULTOR] Reissue failed:', await reissueResponse.text());
+          break;
+        }
+
+        const reissueData = await reissueResponse.json();
+        fullResponse = reissueData.choices[0].message.content.trim();
+
+        // Re-parse
+        try {
+          parsedResponse = JSON.parse(fullResponse);
+          if (parsedResponse.actions && parsedResponse.actions[0]?.contexto?.acoes) {
+            actions = parsedResponse.actions;
+            const novasAcoes: Action[] = actions[0].contexto.acoes;
+
+            // Re-validar
+            const newValidation = validateActionQuality(novasAcoes);
+            qualityMetrics = extractTelemetryMetrics(newValidation);
+
+            console.log(`[CONSULTOR] Reissue #${reissueCount} validation:`, {
+              isValid: newValidation.isValid,
+              errors: newValidation.errors.length,
+              metrics: newValidation.metrics
+            });
+
+            if (newValidation.isValid) {
+              console.log('[CONSULTOR] ✅ Reissue successful! Quality improved.');
+              break;
+            }
+
+            // Atualizar validation para próxima iteração
+            Object.assign(validation, newValidation);
+          }
+        } catch (e) {
+          console.error('[CONSULTOR] Reissue parse failed:', e);
+          break;
+        }
+      }
+
+      if (!validation.isValid) {
+        console.warn('[CONSULTOR] ⚠️ Max reissues reached. Proceeding with current quality.');
+      }
+    }
+
     // 11. DETECTORES AUTOMÁTICOS DE COMPLETUDE POR FASE
     const contextData = { ...contexto, ...contextoIncremental };
 
@@ -749,6 +851,34 @@ Deno.serve(async (req: Request) => {
       role: 'assistant',
       content: responseText
     });
+
+    // 12.5. ATUALIZAR TELEMETRIA COM MÉTRICAS DE QUALIDADE
+    if (qualityMetrics && hintsUsed.length > 0) {
+      console.log('[CONSULTOR] Updating hints telemetry with quality metrics...');
+
+      for (const hint of hintsUsed) {
+        try {
+          // Atualizar registro existente com métricas
+          await supabase
+            .from('proceda_hints_telemetry')
+            .update({
+              usado_em_acao: true,
+              acao_density: qualityMetrics.acao_density,
+              how_depth_avg: qualityMetrics.how_depth_avg,
+              kpis_count: qualityMetrics.kpis_count,
+              reissue_count: reissueCount
+            })
+            .eq('hint_id', hint.id)
+            .eq('sessao_id', body.sessao_id)
+            .order('created_at', { ascending: false })
+            .limit(1);
+        } catch (telemetryError) {
+          console.warn('[CONSULTOR] Error updating telemetry (non-fatal):', telemetryError);
+        }
+      }
+
+      console.log('[CONSULTOR] Telemetry updated with metrics:', qualityMetrics);
+    }
 
     // 13. ATUALIZAR TIMELINE
     console.log('[CONSULTOR] Registrando na timeline...');

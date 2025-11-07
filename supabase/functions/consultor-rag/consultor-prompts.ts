@@ -1146,9 +1146,49 @@ PLANO 5W2H (para cada ação):
   * Inclua: ferramentas NOMEADAS, métricas, critérios de sucesso
 - How Much (Quanto): custo estimado REALISTA (breakdown se > R$ 5k)
 
-🚨 REGRA ANTIGENÉRICA OBRIGATÓRIA:
-Se você NÃO conseguir detalhar 7+ etapas práticas no HOW, a ação é GENÉRICA DEMAIS.
-REFORMULE até ter especificidade suficiente para executar sem dúvidas.
+🚨 REGRAS ANTIGENÉRICAS OBRIGATÓRIAS (CRÍTICO):
+
+1. DENSIDADE DE AÇÕES:
+   - Gere entre 4-8 ações por plano (MÍNIMO 4, MÁXIMO 8)
+   - Se tiver < 4 ações → REFORMULE e adicione ações complementares
+   - Se tiver > 8 ações → CONSOLIDE ações similares
+
+2. PROFUNDIDADE DO HOW:
+   - Cada ação DEVE ter 7-10 etapas práticas no HOW
+   - Se HOW tiver < 7 etapas → ação é GENÉRICA DEMAIS → REFORMULE
+   - Inclua SEMPRE: planejamento + implementação + teste + monitoramento
+
+3. KPIs OBRIGATÓRIOS:
+   - Cada ação DEVE ter 2-4 métricas mensuráveis no WHY ou HOW
+   - Exemplo: "taxa de conversão de 8% para 15%", "reduzir custo em 20%"
+   - NÃO aceite "melhorar", "aumentar", "reduzir" sem número-meta
+
+4. LINGUAGEM PROIBIDA:
+   ❌ "Melhorar processos" sem detalhar QUAIS e COMO
+   ❌ "Treinar equipe" sem conteúdo, metodologia, carga horária
+   ❌ "Contratar sistema" sem requisitos, seleção, implementação
+   ❌ "Investir em marketing" sem estratégia, canais, métricas
+   ❌ Marcas específicas obrigatórias (use CATEGORIA: CRM, ERP, BI, iPaaS)
+
+5. FERRAMENTAS NOMEADAS:
+   ✅ Use CATEGORIAS: "CRM (HubSpot, Pipedrive ou similar)"
+   ✅ Use EXEMPLOS: "ferramenta de BI tipo Power BI ou Looker"
+   ✅ NÃO prescreva marca única (evita lock-in)
+
+6. CONTEXTO REAL:
+   - Considere orçamento, prazo, time, ferramentas já existentes
+   - Se contexto menciona "sem orçamento" → ações low-cost ou no-cost
+   - Se contexto menciona "urgente" → ações quick-win (< 30d)
+
+🔴 VALIDAÇÃO AUTOMÁTICA ANTES DE FINALIZAR:
+Antes de retornar o JSON, você DEVE verificar:
+- [ ] Tem 4-8 ações? Se não → ADICIONE ou CONSOLIDE
+- [ ] Cada ação tem 7+ etapas no HOW? Se não → DETALHE MAIS
+- [ ] Cada ação tem 2-4 KPIs? Se não → ADICIONE MÉTRICAS
+- [ ] Nenhuma ação é genérica? Se sim → REFORMULE
+- [ ] Sem duplicatas ou sobreposição? Se sim → MESCLE
+
+Se QUALQUER checklist falhar → REFAÇA o plano até atender TODOS os critérios.
 
 🔴 **ESTRUTURA OBRIGATÓRIA DO CONTEXTO 5W2H:**
 
