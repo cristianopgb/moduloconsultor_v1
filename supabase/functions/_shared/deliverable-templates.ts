@@ -208,8 +208,11 @@ export function generateAnamneseHTML(contexto: any): string {
       <p style="line-height: 1.8; margin-bottom: 1rem;">
         <strong>Desafio Principal:</strong> ${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}
       </p>
+      <p style="line-height: 1.8; margin-bottom: 1rem;">
+        <strong>Objetivo de Sucesso:</strong> ${anamnese.objetivo_sucesso || 'Não especificado'}
+      </p>
       <p style="line-height: 1.8;">
-        <strong>Objetivo de Sucesso:</strong> ${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}
+        <strong>Expectativa de Sucesso:</strong> ${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}
       </p>
     </div>
 
@@ -217,6 +220,9 @@ export function generateAnamneseHTML(contexto: any): string {
       <h2>Contexto e Motivação</h2>
       <h3>Principal Dor/Desafio</h3>
       <p>${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}</p>
+
+      <h3>Objetivo de Sucesso</h3>
+      <p>${anamnese.objetivo_sucesso || 'Não especificado'}</p>
 
       <h3>Expectativa de Sucesso</h3>
       <p>${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}</p>
@@ -236,17 +242,17 @@ export function generateCanvasHTML(contexto: any): string {
   const mapeamento = contexto.mapeamento || {};
   const canvas = mapeamento.canvas || contexto.canvas || {};
 
-  // Extrair dados de canvas_ prefixado (formato atual do LLM)
+  // Extrair dados de canvas_ prefixado (formato atual do LLM) + buscar no nível raiz
   const canvasData = {
-    proposta_valor: canvas.proposta_valor || mapeamento.canvas_proposta_valor || canvas.value_proposition || 'Não especificado',
-    segmentos_cliente: canvas.segmentos_cliente || mapeamento.canvas_segmentos_cliente || canvas.customer_segments || 'N/A',
-    canais: canvas.canais || mapeamento.canvas_canais || canvas.channels || 'N/A',
-    relacionamento: canvas.relacionamento || mapeamento.canvas_relacionamento || canvas.customer_relationships || 'N/A',
-    receitas: canvas.receitas || mapeamento.canvas_receitas || canvas.revenue_streams || 'N/A',
-    recursos: canvas.recursos || mapeamento.canvas_recursos || canvas.key_resources || 'N/A',
-    atividades: canvas.atividades || mapeamento.canvas_atividades || canvas.key_activities || 'N/A',
-    parcerias: canvas.parcerias || mapeamento.canvas_parcerias || canvas.key_partnerships || 'N/A',
-    custos: canvas.custos || mapeamento.canvas_custos || canvas.cost_structure || 'N/A'
+    proposta_valor: canvas.proposta_valor || mapeamento.canvas_proposta_valor || contexto.canvas_proposta_valor || canvas.value_proposition || 'Não especificado',
+    segmentos_cliente: canvas.segmentos_cliente || mapeamento.canvas_segmentos_cliente || contexto.canvas_segmentos_cliente || canvas.customer_segments || 'Não especificado',
+    canais: canvas.canais || mapeamento.canvas_canais || contexto.canvas_canais || canvas.channels || 'Não especificado',
+    relacionamento: canvas.relacionamento || mapeamento.canvas_relacionamento || contexto.canvas_relacionamento || canvas.customer_relationships || 'Não especificado',
+    receitas: canvas.receitas || mapeamento.canvas_receitas || contexto.canvas_receitas || canvas.revenue_streams || 'Não especificado',
+    recursos: canvas.recursos || mapeamento.canvas_recursos || contexto.canvas_recursos || canvas.key_resources || 'Não especificado',
+    atividades: canvas.atividades || mapeamento.canvas_atividades || contexto.canvas_atividades || canvas.key_activities || 'Não especificado',
+    parcerias: canvas.parcerias || mapeamento.canvas_parcerias || contexto.canvas_parcerias || canvas.key_partnerships || 'Não especificado',
+    custos: canvas.custos || mapeamento.canvas_custos || contexto.canvas_custos || canvas.cost_structure || 'Não especificado'
   };
 
   const empresa = contexto.empresa || contexto.anamnese?.empresa || mapeamento.empresa || 'Empresa';
@@ -646,10 +652,10 @@ export function generateCadeiaValorHTML(contexto: any): string {
   const mapeamento = contexto.mapeamento || {};
   const cadeia = mapeamento.cadeia_valor || contexto.cadeia_valor || {};
 
-  // Tentar obter processos de múltiplas fontes
-  let processosPrimarios = cadeia.processos_primarios || mapeamento.processos_primarios || [];
-  let processosApoio = cadeia.processos_apoio || mapeamento.processos_apoio || [];
-  let processosGestao = cadeia.processos_gestao || mapeamento.processos_gestao || [];
+  // Tentar obter processos de múltiplas fontes (incluindo nível raiz do contexto)
+  let processosPrimarios = cadeia.processos_primarios || mapeamento.processos_primarios || contexto.processos_primarios || [];
+  let processosApoio = cadeia.processos_apoio || mapeamento.processos_apoio || contexto.processos_apoio || [];
+  let processosGestao = cadeia.processos_gestao || mapeamento.processos_gestao || contexto.processos_gestao || [];
 
   // Se não tiver categorização, tentar inferir da lista geral
   const processosIdentificados = mapeamento.processos_identificados || [];

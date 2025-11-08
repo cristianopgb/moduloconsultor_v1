@@ -986,6 +986,34 @@ Deno.serve(async (req: Request) => {
 
         console.log('[CONSULTOR] Generating deliverable:', tipoEntregavel);
 
+        // VALIDAÇÃO CRÍTICA: BPMN requer SIPOC com passos do processo
+        if (tipoEntregavel === 'bpmn' || tipoEntregavel === 'bpmn_as_is' || tipoEntregavel === 'bpmn_to_be') {
+          const sipocData = contextoEspecifico.sipoc || contextData.sipoc || contexto.sipoc;
+          const processSteps = sipocData?.process_steps || sipocData?.process || [];
+
+          if (!processSteps || processSteps.length < 3) {
+            console.error('[CONSULTOR] ❌ BPMN validation failed: Missing SIPOC process steps');
+            console.error('[CONSULTOR] SIPOC data:', JSON.stringify(sipocData, null, 2));
+            console.error('[CONSULTOR] Skipping BPMN generation - LLM must provide sipoc.process_steps array');
+            continue; // Pular este action e não gerar BPMN inválido
+          }
+          console.log('[CONSULTOR] ✅ BPMN validation passed:', processSteps.length, 'steps found');
+        }
+
+        // VALIDAÇÃO: Canvas requer pelo menos 7 dos 9 campos preenchidos
+        if (tipoEntregavel === 'canvas' || tipoEntregavel === 'canvas_model') {
+          const canvasFields = ['canvas_proposta_valor', 'canvas_segmentos_cliente', 'canvas_canais', 'canvas_relacionamento', 'canvas_receitas', 'canvas_recursos', 'canvas_atividades', 'canvas_custos'];
+          const filledFields = canvasFields.filter(field => {
+            const value = contextoEspecifico[field] || contextData[field] || contexto[field] || contextoEspecifico.mapeamento?.[field] || contextData.mapeamento?.[field];
+            return value && value !== 'N/A' && value !== 'Não especificado' && String(value).trim().length > 0;
+          });
+
+          console.log('[CONSULTOR] Canvas validation:', filledFields.length, '/', canvasFields.length, 'fields filled');
+          if (filledFields.length < 7) {
+            console.warn('[CONSULTOR] ⚠️ Canvas has only', filledFields.length, 'fields filled. Missing:', canvasFields.filter(f => !filledFields.includes(f)));
+          }
+        }
+
         // CRÍTICO: Mesclar contexto completo (todo contexto acumulado + contexto específico do action)
         const contextoCompleto = {
           ...contexto,  // Contexto base da sessão
@@ -1005,6 +1033,11 @@ Deno.serve(async (req: Request) => {
         };
 
         console.log('[CONSULTOR] Context keys for template:', Object.keys(contextoCompleto));
+        console.log('[CONSULTOR] DEBUG - Anamnese fields:', {
+          objetivo_sucesso: contextoCompleto.anamnese?.objetivo_sucesso,
+          expectativa_sucesso: contextoCompleto.anamnese?.expectativa_sucesso,
+          dor_principal: contextoCompleto.anamnese?.dor_principal
+        });
 
         try {
           // CRÍTICO: empresa é EMPRESA, setor é SETOR (não usar setor como fallback de empresa)
