@@ -291,9 +291,37 @@ export async function searchRelevantHints(
 }
 
 /**
- * Formata hints para injeção no prompt (máximo 5 linhas)
+ * Determina se hints têm confiança suficiente para serem mostrados
+ * Threshold: score >= 50 (de 0-100)
  */
-export function formatHintsForPrompt(hints: HintResult[]): string {
+export function shouldDisplayHints(hints: HintResult[]): { display: boolean, confidence: 'high' | 'medium' | 'low', needsConfirmation: boolean } {
+  if (!hints || hints.length === 0) {
+    return { display: false, confidence: 'low', needsConfirmation: false };
+  }
+
+  const avgScore = hints.reduce((sum, h) => sum + h.score, 0) / hints.length;
+  const topScore = hints[0]?.score || 0;
+
+  // High confidence: avg >= 70 ou top >= 80
+  if (avgScore >= 70 || topScore >= 80) {
+    return { display: true, confidence: 'high', needsConfirmation: false };
+  }
+
+  // Medium confidence: avg >= 50
+  if (avgScore >= 50) {
+    return { display: true, confidence: 'medium', needsConfirmation: true };
+  }
+
+  // Low confidence: descartamos
+  return { display: false, confidence: 'low', needsConfirmation: false };
+}
+
+/**
+ * Formata hints para injeção no prompt (máximo 5 linhas)
+ * @param hints - Hints relevantes
+ * @param confidence - Nível de confiança (opcional)
+ */
+export function formatHintsForPrompt(hints: HintResult[], confidence?: 'high' | 'medium' | 'low'): string {
   if (!hints || hints.length === 0) {
     return '';
   }
@@ -303,6 +331,11 @@ export function formatHintsForPrompt(hints: HintResult[]): string {
     const recs = hint.recommendations.split('|').slice(0, 2).map(r => r.trim());
     return `  • ${hint.title}: ${recs.join('; ')}`;
   }).join('\n');
+
+  // Se confidence é medium, adicionar instrução para confirmar
+  if (confidence === 'medium') {
+    return `\n\nSUGESTÕES RELEVANTES (Base de Situações - Confiança Média):\n${formatted}\n\n**IMPORTANTE**: Essas sugestões foram identificadas com confiança média. ANTES de detalhar, faça UMA pergunta rápida ao usuário para confirmar se essas áreas fazem sentido. Exemplo: "Identifiquei possíveis oportunidades em [área X] e [área Y]. Isso faz sentido para você?"\nApós confirmação, detalhe o COMO com 7-10 etapas práticas.\n`;
+  }
 
   return `\n\nSUGESTÕES RELEVANTES (Base de Situações):\n${formatted}\n\n**IMPORTANTE**: Use essas sugestões como bússola para O QUÊ propor. Você deve detalhar o COMO com 7-10 etapas práticas.\n`;
 }

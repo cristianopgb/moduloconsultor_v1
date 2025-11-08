@@ -21,6 +21,7 @@ import {
   formatHintsForPrompt,
   logHintUsage,
   determineABGroup,
+  shouldDisplayHints,
   type HintSearchContext
 } from './hints-engine.ts';
 import {
@@ -180,10 +181,10 @@ Deno.serve(async (req: Request) => {
     console.log('[CONSULTOR] A/B Group:', grupoAB.group, 'max hints:', grupoAB.maxHints);
 
     try {
-      // Montar contexto de busca
+      // Montar contexto de busca COMPLETO (FIX: extrair de múltiplos locais)
       const hintContext: HintSearchContext = {
-        segmento: sessao.setor || contexto.segmento || contexto.anamnese?.segmento,
-        dor_principal: contexto.dor_principal || contexto.anamnese?.dor_principal,
+        segmento: sessao.setor || contexto.segmento || contexto.anamnese?.segmento || contexto.mapeamento?.segmento,
+        dor_principal: contexto.dor_principal || contexto.anamnese?.dor_principal || contexto.mapeamento?.dor_principal,
         achados: [],
         expressoes_usuario: []
       };
@@ -195,6 +196,14 @@ Deno.serve(async (req: Request) => {
       if (contexto.processos_identificados) {
         hintContext.achados?.push(...(contexto.processos_identificados.slice(0, 3) || []));
       }
+      // Adicionar processos primários da cadeia de valor
+      if (contexto.processos_primarios && Array.isArray(contexto.processos_primarios)) {
+        hintContext.achados?.push(...contexto.processos_primarios.slice(0, 3).map((p: any) => p.nome || p));
+      }
+      // Adicionar processos do escopo (priorizados)
+      if (contexto.escopo_definido && Array.isArray(contexto.escopo_definido)) {
+        hintContext.achados?.push(...contexto.escopo_definido.slice(0, 3));
+      }
 
       // Adicionar últimas mensagens do usuário como expressões
       const ultimasMensagens = messages
@@ -202,6 +211,14 @@ Deno.serve(async (req: Request) => {
         .slice(-3)
         .map(m => m.content);
       hintContext.expressoes_usuario = ultimasMensagens;
+
+      // AUDIT LOG: Log do contexto de busca
+      console.log('[HINTS-AUDIT] Search context:', {
+        segmento: hintContext.segmento,
+        dor_principal: hintContext.dor_principal?.substring(0, 50),
+        achados_count: hintContext.achados?.length || 0,
+        expressoes_count: hintContext.expressoes_usuario?.length || 0
+      });
 
       // Buscar hints (respeitando grupo A/B)
       const hints = await searchRelevantHints(
@@ -214,27 +231,54 @@ Deno.serve(async (req: Request) => {
       if (hints && hints.length > 0) {
         console.log('[CONSULTOR] Found', hints.length, 'relevant hints');
 
-        // Formatar para prompt
-        const hintsBlock = formatHintsForPrompt(hints);
-        kbContext += hintsBlock;
+        // AUDIT LOG: Hints encontrados
+        console.log('[HINTS-AUDIT] Hints found:', hints.map(h => ({
+          id: h.id,
+          title: h.title,
+          score: h.score,
+          segmentos: h.segmentos,
+          dominios: h.dominios
+        })));
 
-        // Guardar IDs e scores para telemetria
-        hintsUsed = hints.map(h => ({ id: h.id, score: h.score }));
+        // FIX: Verificar confiança antes de mostrar
+        const confidenceCheck = shouldDisplayHints(hints);
+        console.log('[HINTS-AUDIT] Confidence check:', confidenceCheck);
 
-        // Log inicial de uso
-        for (const hint of hints) {
-          await logHintUsage(
-            supabase,
-            body.sessao_id,
-            hint.id,
-            faseAtual,
-            hintContext,
-            hint.score,
-            grupoAB.group
-          );
+        if (confidenceCheck.display) {
+          // Formatar para prompt com confiança
+          const hintsBlock = formatHintsForPrompt(hints, confidenceCheck.confidence);
+          kbContext += hintsBlock;
+
+          // Guardar IDs e scores para telemetria
+          hintsUsed = hints.map(h => ({ id: h.id, score: h.score }));
+
+          // AUDIT LOG: Hints sendo injetados no prompt
+          console.log('[HINTS-AUDIT] Injecting', hints.length, 'hints into LLM prompt with confidence:', confidenceCheck.confidence);
+
+          // Log inicial de uso (usado_em_acao = false por padrão)
+          for (const hint of hints) {
+            await logHintUsage(
+              supabase,
+              body.sessao_id,
+              hint.id,
+              faseAtual,
+              hintContext,
+              hint.score,
+              grupoAB.group
+            );
+          }
+        } else {
+          // AUDIT LOG: Hints descartados por baixa confiança
+          console.log('[HINTS-AUDIT] Hints discarded due to low confidence (avg score < 50)');
         }
       } else {
         console.log('[CONSULTOR] No relevant hints found');
+        // AUDIT LOG: Nenhum hint encontrado
+        console.log('[HINTS-AUDIT] No hints found for context:', {
+          has_segmento: !!hintContext.segmento,
+          has_dor: !!hintContext.dor_principal,
+          achados_count: hintContext.achados?.length || 0
+        });
       }
     } catch (hintsError) {
       console.warn('[CONSULTOR] Error fetching hints (non-fatal):', hintsError);
@@ -857,10 +901,13 @@ Deno.serve(async (req: Request) => {
     if (qualityMetrics && hintsUsed.length > 0) {
       console.log('[CONSULTOR] Updating hints telemetry with quality metrics...');
 
+      // AUDIT LOG: Métricas de qualidade detectadas
+      console.log('[HINTS-AUDIT] Quality metrics detected:', qualityMetrics);
+
       for (const hint of hintsUsed) {
         try {
-          // Atualizar registro existente com métricas
-          await supabase
+          // Atualizar registro existente com métricas (FIX: usado_em_acao = true)
+          const { data: updated, error: updateError } = await supabase
             .from('proceda_hints_telemetry')
             .update({
               usado_em_acao: true,
@@ -872,13 +919,24 @@ Deno.serve(async (req: Request) => {
             .eq('hint_id', hint.id)
             .eq('sessao_id', body.sessao_id)
             .order('created_at', { ascending: false })
-            .limit(1);
+            .limit(1)
+            .select();
+
+          if (updateError) {
+            console.warn('[HINTS-AUDIT] Telemetry update error:', updateError);
+          } else {
+            // AUDIT LOG: Telemetria atualizada com sucesso
+            console.log('[HINTS-AUDIT] Telemetry updated for hint:', hint.id, 'usado_em_acao = true');
+          }
         } catch (telemetryError) {
           console.warn('[CONSULTOR] Error updating telemetry (non-fatal):', telemetryError);
         }
       }
 
       console.log('[CONSULTOR] Telemetry updated with metrics:', qualityMetrics);
+    } else if (hintsUsed.length > 0 && !qualityMetrics) {
+      // AUDIT LOG: Hints usados mas sem métricas (não é fase de execução)
+      console.log('[HINTS-AUDIT] Hints used but no quality metrics (phase:', faseAtual, ')');
     }
 
     // 13. ATUALIZAR TIMELINE
