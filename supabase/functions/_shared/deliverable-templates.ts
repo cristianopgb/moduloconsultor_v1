@@ -736,7 +736,7 @@ export function generateCadeiaValorHTML(contexto: any): string {
           </div>
         `).join('')}
       </div>
-      ` : '<p style="color: #6b7280; font-style: italic;">Nenhum processo gerencial identificado ainda.</p>'}
+      ` : `<p style="color: #ef4444; font-weight: 600; padding: 1rem; background: #fee2e2; border-radius: 8px;">⚠️ Nenhum processo de gestão foi mapeado. Processos gerenciais são fundamentais para coordenar e controlar as operações da empresa.</p>`}
     </div>
 
     <div class="section">
@@ -1034,54 +1034,45 @@ export function generateBPMNHTML(contexto: any): string {
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
     } else {
-      // Fallback: BPMN básico com 3 etapas genéricas
-      const nomeEscapado = escapeXml(processoNome);
-      bpmnXML = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:startEvent id="StartEvent_1" name="Início">
-      <bpmn:outgoing>Flow_1</bpmn:outgoing>
-    </bpmn:startEvent>
-    <bpmn:task id="Task_1" name="Receber Demanda (${nomeEscapado})">
-      <bpmn:incoming>Flow_1</bpmn:incoming>
-      <bpmn:outgoing>Flow_2</bpmn:outgoing>
-    </bpmn:task>
-    <bpmn:task id="Task_2" name="Executar ${nomeEscapado}">
-      <bpmn:incoming>Flow_2</bpmn:incoming>
-      <bpmn:outgoing>Flow_3</bpmn:outgoing>
-    </bpmn:task>
-    <bpmn:task id="Task_3" name="Entregar Resultado">
-      <bpmn:incoming>Flow_3</bpmn:incoming>
-      <bpmn:outgoing>Flow_4</bpmn:outgoing>
-    </bpmn:task>
-    <bpmn:endEvent id="EndEvent_1" name="Fim">
-      <bpmn:incoming>Flow_4</bpmn:incoming>
-    </bpmn:endEvent>
-    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_1" />
-    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_1" targetRef="Task_2" />
-    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_2" targetRef="Task_3" />
-    <bpmn:sequenceFlow id="Flow_4" sourceRef="Task_3" targetRef="EndEvent_1" />
-  </bpmn:process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
-        <dc:Bounds x="152" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1">
-        <dc:Bounds x="240" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_2_di" bpmnElement="Task_2">
-        <dc:Bounds x="390" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_3_di" bpmnElement="Task_3">
-        <dc:Bounds x="540" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
-        <dc:Bounds x="692" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`;
+      // NÃO gerar BPMN mockup - exigir que o LLM forneça passos reais do SIPOC
+      console.error('[BPMN] Tentativa de gerar BPMN sem dados reais de processo. SIPOC vazio.');
+
+      // Retornar HTML de erro claro
+      return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>BPMN - Dados Insuficientes</title>
+  ${BASE_STYLES}
+</head>
+<body>
+  <div class="container">
+    <div class="header" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);">
+      <h1>⚠️ Erro: Dados Insuficientes para BPMN</h1>
+      <p>Não é possível gerar um diagrama BPMN realista</p>
+    </div>
+    <div class="section">
+      <h2>🚨 Problema Detectado</h2>
+      <p style="color: #dc2626; font-weight: 600; padding: 1rem; background: #fee2e2; border-radius: 8px;">
+        O sistema tentou gerar um diagrama BPMN, mas não foram fornecidos os <strong>passos detalhados do processo</strong> (SIPOC).
+      </p>
+      <p style="margin-top: 1rem;">
+        Um diagrama BPMN deve representar <strong>exatamente</strong> os passos reais do processo mapeado na conversa com o usuário.
+        Gerar um mockup genérico não agrega valor e pode confundir o cliente.
+      </p>
+      <h3 style="margin-top: 2rem; color: #2563eb;">🛠️ Como Resolver</h3>
+      <ol style="line-height: 2; margin-left: 2rem;">
+        <li>Volte à fase de <strong>Mapeamento de Processos</strong></li>
+        <li>Colete os <strong>passos detalhados</strong> do processo (entrada → atividades → saída)</li>
+        <li>Gere o SIPOC completo com cada etapa do fluxo</li>
+        <li>Então gere o BPMN baseado nos dados reais coletados</li>
+      </ol>
+    </div>
+  </div>
+</body>
+</html>
+`;
     }
   }
 

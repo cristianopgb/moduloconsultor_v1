@@ -120,6 +120,20 @@ export function DynamicFormAnamnese({
           obrigatorio: true
         },
         {
+          id: 'objetivo_sucesso',
+          tipo: 'textarea',
+          label: 'Qual seria o cenário ideal de sucesso para sua empresa?',
+          placeholder: 'Ex: Ter processos claros, equipe alinhada, faturamento previsível, crescimento sustentável...',
+          obrigatorio: true
+        },
+        {
+          id: 'expectativa_sucesso',
+          tipo: 'textarea',
+          label: 'O que você espera alcançar com esta consultoria?',
+          placeholder: 'Ex: Dobrar faturamento, reduzir desperdícios, organizar operação, melhorar gestão...',
+          obrigatorio: true
+        },
+        {
           id: 'metas_curto_prazo',
           tipo: 'textarea',
           label: 'Metas para os próximos 3 meses',

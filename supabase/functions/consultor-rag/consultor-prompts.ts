@@ -114,7 +114,9 @@ VOCÊ ESTÁ CONFIGURADO COM JSON MODE. TODA SUA RESPOSTA DEVE SER UM ÚNICO OBJE
 4. "contexto_incremental" contém dados extraídos da mensagem do usuário
 5. "progresso" é um número de 0 a 100
 6. Actions válidos: coletar_info, gerar_entregavel, transicao_estado, update_kanban
-7. NUNCA use placeholders "{...}" - SEMPRE preencha valores reais completos
+7. 🚫 NUNCA use placeholders genéricos: "N/A", "a definir", "exemplo", "{...}", "pendente"
+8. ✅ SEMPRE preencha valores reais completos extraídos da conversa
+9. ❌ Se faltar informação, NÃO gere entregável - continue perguntando até ter dados concretos
 
 **EXEMPLO DE TRANSIÇÃO (fase anamnese completa):**
 

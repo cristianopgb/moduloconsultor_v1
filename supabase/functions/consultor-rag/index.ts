@@ -532,7 +532,7 @@ Deno.serve(async (req: Request) => {
 
     // Detector 1: ANAMNESE COMPLETA
     if (faseAtual === 'anamnese') {
-      const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'expectativa_sucesso'];
+      const requiredFields = ['nome', 'cargo', 'idade', 'formacao', 'empresa', 'segmento', 'faturamento', 'funcionarios', 'dor_principal', 'objetivo_sucesso', 'expectativa_sucesso'];
       const anamneseData = contextData.anamnese || contextData;
       const collectedFields = requiredFields.filter(field => {
         // Verificar múltiplos locais para garantir que o dado foi coletado
@@ -555,9 +555,9 @@ Deno.serve(async (req: Request) => {
       const hasTransition = actions.some(a => a.type === 'transicao_estado');
       const hasEntregavel = actions.some(a => a.type === 'gerar_entregavel' && a.params?.tipo === 'anamnese_empresarial');
 
-      // CRITICAL: Must have ALL 10 fields
-      if (collectedFields.length === 10 && !hasTransition && !hasEntregavel) {
-        console.log('[CONSULTOR] AUTO-DETECTOR: Anamnese completa (10/10), forçando transição');
+      // CRITICAL: Must have ALL 11 fields
+      if (collectedFields.length === 11 && !hasTransition && !hasEntregavel) {
+        console.log('[CONSULTOR] AUTO-DETECTOR: Anamnese completa (11/11), forçando transição');
 
         const anamneseCompleta = {
           nome: anamneseData.nome || contextData.nome,
@@ -569,6 +569,7 @@ Deno.serve(async (req: Request) => {
           faturamento: anamneseData.faturamento || contextData.faturamento,
           funcionarios: anamneseData.funcionarios || contextData.funcionarios,
           dor_principal: anamneseData.dor_principal || contextData.dor_principal || contextoIncremental.dor_principal,
+          objetivo_sucesso: anamneseData.objetivo_sucesso || contextData.objetivo_sucesso || contextoIncremental.objetivo_sucesso,
           expectativa_sucesso: anamneseData.expectativa_sucesso || contextData.expectativa_sucesso || contextoIncremental.expectativa_sucesso || anamneseData.expectativa || contextData.expectativa || contextoIncremental.expectativa
         };
 
@@ -1078,7 +1079,22 @@ Deno.serve(async (req: Request) => {
                 continue;
               }
 
-              console.log('[CONSULTOR] Creating card:', card.title);
+              console.log('[CONSULTOR] Processing card:', card.title);
+
+              // VERIFICAÇÃO DE DUPLICATA: Verificar se já existe um card com o mesmo título nesta sessão
+              const { data: existingCards } = await supabase
+                .from('kanban_cards')
+                .select('id, titulo')
+                .eq('sessao_id', body.sessao_id)
+                .eq('titulo', card.title)
+                .limit(1);
+
+              if (existingCards && existingCards.length > 0) {
+                console.warn('[CONSULTOR] ⚠️ Card already exists, skipping:', card.title);
+                continue;
+              }
+
+              console.log('[CONSULTOR] Creating new card:', card.title);
 
               // Criar ação em acoes_plano
               const { data: acao, error: acaoError } = await supabase
