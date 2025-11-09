@@ -208,9 +208,6 @@ export function generateAnamneseHTML(contexto: any): string {
       <p style="line-height: 1.8; margin-bottom: 1rem;">
         <strong>Desafio Principal:</strong> ${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}
       </p>
-      <p style="line-height: 1.8; margin-bottom: 1rem;">
-        <strong>Objetivo de Sucesso:</strong> ${anamnese.objetivo_sucesso || 'Não especificado'}
-      </p>
       <p style="line-height: 1.8;">
         <strong>Expectativa de Sucesso:</strong> ${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}
       </p>
@@ -220,9 +217,6 @@ export function generateAnamneseHTML(contexto: any): string {
       <h2>Contexto e Motivação</h2>
       <h3>Principal Dor/Desafio</h3>
       <p>${anamnese.dor_principal || anamnese.desafios_principais || 'Não especificado'}</p>
-
-      <h3>Objetivo de Sucesso</h3>
-      <p>${anamnese.objetivo_sucesso || 'Não especificado'}</p>
 
       <h3>Expectativa de Sucesso</h3>
       <p>${anamnese.expectativa_sucesso || anamnese.expectativa || anamnese.expectativas || 'Não especificado'}</p>
