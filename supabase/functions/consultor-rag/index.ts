@@ -1027,15 +1027,29 @@ Deno.serve(async (req: Request) => {
           anamnese: {
             ...(contexto.anamnese || {}),
             ...(contextData.anamnese || {}),
-            ...(contextoEspecifico.anamnese || {})
+            ...(contextoEspecifico.anamnese || {}),
+            // CRÍTICO: Se LLM enviar campos direto (sem wrapper anamnese), incluir também
+            ...(tipoEntregavel === 'anamnese_empresarial' ? {
+              nome: contextoEspecifico.nome || contextoEspecifico.anamnese?.nome,
+              cargo: contextoEspecifico.cargo || contextoEspecifico.anamnese?.cargo,
+              idade: contextoEspecifico.idade || contextoEspecifico.anamnese?.idade,
+              formacao: contextoEspecifico.formacao || contextoEspecifico.anamnese?.formacao,
+              empresa: contextoEspecifico.empresa || contextoEspecifico.anamnese?.empresa,
+              segmento: contextoEspecifico.segmento || contextoEspecifico.anamnese?.segmento,
+              faturamento: contextoEspecifico.faturamento || contextoEspecifico.anamnese?.faturamento,
+              funcionarios: contextoEspecifico.funcionarios || contextoEspecifico.anamnese?.funcionarios,
+              dor_principal: contextoEspecifico.dor_principal || contextoEspecifico.anamnese?.dor_principal,
+              expectativa_sucesso: contextoEspecifico.expectativa_sucesso || contextoEspecifico.expectativa || contextoEspecifico.anamnese?.expectativa_sucesso || contextoEspecifico.anamnese?.expectativa
+            } : {})
           }
         };
 
         console.log('[CONSULTOR] Context keys for template:', Object.keys(contextoCompleto));
         console.log('[CONSULTOR] DEBUG - Anamnese fields:', {
-          objetivo_sucesso: contextoCompleto.anamnese?.objetivo_sucesso,
           expectativa_sucesso: contextoCompleto.anamnese?.expectativa_sucesso,
-          dor_principal: contextoCompleto.anamnese?.dor_principal
+          dor_principal: contextoCompleto.anamnese?.dor_principal,
+          from_contextoEspecifico: contextoEspecifico.expectativa_sucesso,
+          from_wrapper: contextoEspecifico.anamnese?.expectativa_sucesso
         });
 
         try {
