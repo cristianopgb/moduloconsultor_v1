@@ -1,6 +1,6 @@
 Abaixo está o Plano de Correção Agora (em 7 passos) com blocos de código completos ou trechos “find & replace” para você colar na Bolt e nas Functions do Supabase.
 
-1) Chat – envia dados de formulário como submissão “oficial”
+1) Chat – envia dados de formulário como submissão “oficial” teste
 
 Hoje o ChatPage.tsx abre o FormularioModal e até manda o JSON, mas não marca que é uma submissão de formulário e o back não trata diferente. Corrige assim:
 
