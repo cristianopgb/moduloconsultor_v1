@@ -2176,6 +2176,7 @@ function ChatPage() {
         />
       )}
     </div>
+    </div>
   )
 }
 
