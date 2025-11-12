@@ -105,81 +105,125 @@ export function GeniusChat({
   }
 
   async function sendGeniusTask() {
-    if (!input.trim() || attachedFiles.length === 0 || loading) return;
+    if (!input.trim() || loading) return;
 
     setLoading(true);
     setError('');
 
     try {
-      // Validar arquivos
-      const filesToValidate: FileToValidate[] = attachedFiles.map(f => ({
-        name: f.name,
-        size: f.size,
-        type: f.type
-      }));
+      // Se há arquivos anexados, validar e enviar como tarefa Genius
+      if (attachedFiles.length > 0) {
+        // Validar arquivos
+        const filesToValidate: FileToValidate[] = attachedFiles.map(f => ({
+          name: f.name,
+          size: f.size,
+          type: f.type
+        }));
 
-      const validation = validateGeniusFiles(filesToValidate);
-      if (!validation.valid) {
-        setError(validation.errors.join(' '));
-        setLoading(false);
-        return;
+        const validation = validateGeniusFiles(filesToValidate);
+        if (!validation.valid) {
+          setError(validation.errors.join(' '));
+          setLoading(false);
+          return;
+        }
+
+        // Preparar arquivos (converter para base64)
+        const preparedFiles = await prepareFilesForUpload(attachedFiles);
+
+        // Criar mensagem do usuário
+        const userMessage: Message = {
+          id: `temp-user-${Date.now()}`,
+          conversation_id: conversationId,
+          role: 'user',
+          content: input,
+          message_type: 'genius_task',
+          created_at: new Date().toISOString()
+        };
+
+        onMessagesUpdate([...messages, userMessage]);
+
+        // Inserir no banco
+        await supabase.from('messages').insert({
+          conversation_id: conversationId,
+          role: 'user',
+          content: input,
+          message_type: 'genius_task'
+        });
+
+        // Chamar Edge Function para criar tarefa
+        const response = await GeniusApiService.createTask({
+          prompt: input,
+          files: preparedFiles,
+          conversationId
+        });
+
+        if (!response.success) {
+          throw new Error(response.error || 'Falha ao criar tarefa');
+        }
+
+        // Criar mensagem de status
+        const statusMessage: Message = {
+          id: `temp-status-${Date.now()}`,
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: 'Processando sua solicitação no Manus...',
+          message_type: 'genius_task',
+          external_task_id: response.task_id,
+          trace_id: response.trace_id,
+          genius_status: 'pending',
+          created_at: new Date().toISOString()
+        };
+
+        onMessagesUpdate([...messages, userMessage, statusMessage]);
+
+        // Limpar input e arquivos
+        setInput('');
+        onClearFiles();
+
+        // Refresh messages para pegar a versão do banco
+        setTimeout(refreshMessages, 1000);
+      } else {
+        // Sem arquivos anexados - mensagem de chat normal
+        const userMessage: Message = {
+          id: `temp-user-${Date.now()}`,
+          conversation_id: conversationId,
+          role: 'user',
+          content: input,
+          message_type: 'text',
+          created_at: new Date().toISOString()
+        };
+
+        onMessagesUpdate([...messages, userMessage]);
+
+        // Inserir no banco
+        await supabase.from('messages').insert({
+          conversation_id: conversationId,
+          role: 'user',
+          content: input,
+          message_type: 'text'
+        });
+
+        // Resposta simples do assistente
+        const assistantMessage: Message = {
+          id: `temp-assistant-${Date.now()}`,
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: 'Para processar documentos e arquivos complexos, por favor anexe os arquivos usando o botão "Adicionar Arquivos" acima. O Genius pode analisar PDFs, planilhas, imagens e mais!',
+          message_type: 'text',
+          created_at: new Date().toISOString()
+        };
+
+        onMessagesUpdate([...messages, userMessage, assistantMessage]);
+
+        await supabase.from('messages').insert({
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: assistantMessage.content,
+          message_type: 'text'
+        });
+
+        setInput('');
       }
-
-      // Preparar arquivos (converter para base64)
-      const preparedFiles = await prepareFilesForUpload(attachedFiles);
-
-      // Criar mensagem do usuário
-      const userMessage: Message = {
-        id: `temp-user-${Date.now()}`,
-        conversation_id: conversationId,
-        role: 'user',
-        content: input,
-        message_type: 'genius_task',
-        created_at: new Date().toISOString()
-      };
-
-      onMessagesUpdate([...messages, userMessage]);
-
-      // Inserir no banco
-      await supabase.from('messages').insert({
-        conversation_id: conversationId,
-        role: 'user',
-        content: input,
-        message_type: 'genius_task'
-      });
-
-      // Chamar Edge Function para criar tarefa
-      const response = await GeniusApiService.createTask({
-        prompt: input,
-        files: preparedFiles,
-        conversationId
-      });
-
-      if (!response.success) {
-        throw new Error(response.error || 'Falha ao criar tarefa');
-      }
-
-      // Criar mensagem de status
-      const statusMessage: Message = {
-        id: `temp-status-${Date.now()}`,
-        conversation_id: conversationId,
-        role: 'assistant',
-        content: 'Processando sua solicitação no Manus...',
-        message_type: 'genius_task',
-        external_task_id: response.task_id,
-        trace_id: response.trace_id,
-        genius_status: 'pending',
-        created_at: new Date().toISOString()
-      };
-
-      onMessagesUpdate([...messages, userMessage, statusMessage]);
-
-      // Limpar input e arquivos
-      setInput('');
-      onClearFiles();
-
-      // Refresh messages para pegar a versão do banco
-      setTimeout(refreshMessages, 1000);
 
     } catch (err: any) {
       console.error('[Genius] Error sending task:', err);
@@ -364,11 +408,11 @@ export function GeniusChat({
         </div>
       )}
 
-      {/* Aviso de arquivos necessários */}
+      {/* Dica sobre arquivos (não obrigatório) */}
       {attachedFiles.length === 0 && (
         <div className="mx-4 mb-2 p-3 bg-purple-900/30 border border-purple-700/50 rounded-lg">
           <p className="text-sm text-purple-200">
-            Anexe pelo menos 1 arquivo para enviar ao Genius (máx. 5 arquivos, 25MB cada)
+            💡 Dica: Anexe arquivos (PDF, Excel, imagens, etc.) para análises avançadas com o Genius! Você também pode conversar normalmente sem arquivos.
           </p>
         </div>
       )}
@@ -403,14 +447,14 @@ export function GeniusChat({
                   sendGeniusTask();
                 }
               }}
-              placeholder="Descreva o que você quer que o Genius faça com os arquivos..."
-              disabled={loading || attachedFiles.length === 0}
+              placeholder={attachedFiles.length > 0 ? "Descreva o que você quer que o Genius faça com os arquivos..." : "Digite sua mensagem ou anexe arquivos para análise..."}
+              disabled={loading}
               className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
           <button
             onClick={sendGeniusTask}
-            disabled={!input.trim() || loading || attachedFiles.length === 0}
+            disabled={!input.trim() || loading}
             className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center gap-2 font-medium"
           >
             {loading ? (

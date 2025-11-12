@@ -1678,7 +1678,7 @@ function ChatPage() {
 
           {/* Genius Mode - Render dedicated component */}
           {chatMode === 'genius' && current && user ? (
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <>
               {/* File upload button */}
               <div className="border-b border-gray-700 p-4">
                 <label className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg cursor-pointer transition">
@@ -1710,9 +1710,9 @@ function ChatPage() {
                 attachedFiles={geniusFiles}
                 onClearFiles={() => setGeniusFiles([])}
               />
-            </div>
+            </>
           ) : (
-            <div className="flex-1 flex flex-col min-w-0">
+            <>
             <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3 chat-messages">
               {!current ? (
                 <div className="h-full flex items-center justify-center text-center text-gray-300">
@@ -1854,6 +1854,7 @@ function ChatPage() {
                 )}
               </>
             )}
+            </div>
 
             {(pending > 0 || generating || loading || messages.length > 3) && (
             <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50">
@@ -1992,9 +1993,9 @@ function ChatPage() {
               {readyReason && <div className="sr-only">ready-reason:{readyReason}</div>}
             </div>
           )}
-          </div>
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
         {/* Direita: Templates ou Consultor */}
         {chatMode === 'consultor' ? (
@@ -2175,7 +2176,6 @@ function ChatPage() {
           }}
         />
       )}
-    </div>
     </div>
   )
 }

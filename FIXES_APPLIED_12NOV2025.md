@@ -1,8 +1,12 @@
-# Fixes Applied - November 12, 2025
+# Correções Aplicadas - 12/11/2025 (Atualizado)
 
-## Summary of Regression Issues Fixed
+## Novos Problemas Resolvidos - Módulo Genius
 
-All five regression issues reported by the user have been systematically addressed:
+### Problemas Identificados pelo Usuário:
+
+1. ✅ Genius travando o chat exigindo anexar arquivo obrigatoriamente
+2. ⚠️ Genius falhando com erro 400/401 na API Manus
+3. ✅ ChatPage quebrou o layout - sidebar jogado para baixo
 
 ---
 
