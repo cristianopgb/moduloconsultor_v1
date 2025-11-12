@@ -22,6 +22,7 @@ import { AnalysisStateIndicator, type AnalysisState } from './AnalysisStateIndic
 import { ContextQuestionsPanel } from './ContextQuestionsPanel'
 import { AnalysisSuggestionsCard, generateSuggestions } from './AnalysisSuggestionsCard'
 import { LateralConsultor } from '../Consultor/LateralConsultor'
+import { GeniusChat } from './GeniusChat'
 
 import AttachmentTrigger from '../References/AttachmentTrigger'
 import type { CreatedRef } from '../References/ReferenceUploader'
@@ -273,6 +274,9 @@ function ChatPage() {
 
   // Validação de Escopo - Botão de validação quando aguardando_validacao_escopo = true
   const [showValidateScopeButton, setShowValidateScopeButton] = useState(false)
+
+  // Genius mode - arquivos para envio
+  const [geniusFiles, setGeniusFiles] = useState<File[]>([])
 
   // Note: gamificacao_conversa table removed - gamification now at jornada level only
   // Keeping stub for backward compatibility during transition
@@ -1672,17 +1676,54 @@ function ChatPage() {
             )}
           </div>
 
-          <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3 chat-messages">
-            {!current ? (
-              <div className="h-full flex items-center justify-center text-center text-gray-300">
-                <div>
-                  <MessageSquare className="w-16 h-16 mx-auto mb-3 text-gray-500" />
-                  <div className="text-xl mb-1">Bem-vindo ao Chat IA</div>
-                  <div className="text-gray-400 mb-4">Crie uma nova conversa para começar.</div>
-                  <button onClick={createConversation} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Nova Conversa</button>
-                </div>
+          {/* Genius Mode - Render dedicated component */}
+          {chatMode === 'genius' && current && user ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* File upload button */}
+              <div className="border-b border-gray-700 p-4">
+                <label className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg cursor-pointer transition">
+                  <Plus className="w-5 h-5" />
+                  <span>Adicionar Arquivos (máx. 5)</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.docx,.pptx"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      setGeniusFiles(prev => [...prev, ...files].slice(0, 5));
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                  />
+                </label>
+                {geniusFiles.length > 0 && (
+                  <span className="ml-3 text-sm text-gray-400">
+                    {geniusFiles.length} arquivo(s) selecionado(s)
+                  </span>
+                )}
               </div>
-            ) : messages.length === 0 && !loading ? (
+              <GeniusChat
+                conversationId={current.id}
+                userId={user.id}
+                messages={messages}
+                onMessagesUpdate={setMessages}
+                attachedFiles={geniusFiles}
+                onClearFiles={() => setGeniusFiles([])}
+              />
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col min-w-0">
+            <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3 chat-messages">
+              {!current ? (
+                <div className="h-full flex items-center justify-center text-center text-gray-300">
+                  <div>
+                    <MessageSquare className="w-16 h-16 mx-auto mb-3 text-gray-500" />
+                    <div className="text-xl mb-1">Bem-vindo ao Chat IA</div>
+                    <div className="text-gray-400 mb-4">Crie uma nova conversa para começar.</div>
+                    <button onClick={createConversation} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Nova Conversa</button>
+                  </div>
+                </div>
+              ) : messages.length === 0 && !loading ? (
               chatMode === 'consultor' ? (
                 <div className="h-full flex items-center justify-center text-center">
                   <div className="max-w-2xl mx-auto p-8">
@@ -1813,9 +1854,8 @@ function ChatPage() {
                 )}
               </>
             )}
-          </div>
 
-          {(pending > 0 || generating || loading || messages.length > 3) && (
+            {(pending > 0 || generating || loading || messages.length > 3) && (
             <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50">
               <button
                 onClick={scrollToBottom}
@@ -1952,12 +1992,14 @@ function ChatPage() {
               {readyReason && <div className="sr-only">ready-reason:{readyReason}</div>}
             </div>
           )}
-        </div>
+          </div>
+          </div>
+        )}
 
         {/* Direita: Templates ou Consultor */}
         {chatMode === 'consultor' ? (
           current && <LateralConsultor conversationId={current.id} />
-        ) : (
+        ) : chatMode === 'genius' ? null : (
           <div className="w-80 border-l border-gray-800 flex flex-col">
             <TemplateSelectorPanel
               templates={templates}

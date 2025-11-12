@@ -1,5 +1,5 @@
 import React from 'react'
-import { BarChart3, Presentation, Briefcase } from 'lucide-react'
+import { BarChart3, Presentation, Briefcase, Wand2 } from 'lucide-react'
 import type { ChatMode } from '../../lib/supabase'
 
 interface ChatModeToggleProps {
@@ -57,6 +57,22 @@ export function ChatModeToggle({ currentMode, onModeChange, disabled = false }: 
       >
         <Briefcase className="w-4 h-4" />
         <span>Consultor</span>
+      </button>
+
+      <button
+        onClick={() => onModeChange('genius')}
+        disabled={disabled}
+        className={`
+          flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
+          ${currentMode === 'genius'
+            ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+          }
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        `}
+      >
+        <Wand2 className="w-4 h-4" />
+        <span>Genius</span>
       </button>
     </div>
   )
