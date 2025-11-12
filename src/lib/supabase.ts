@@ -102,7 +102,7 @@ export interface AIAgent {
   updated_at: string
 }
 
-export type ChatMode = 'analytics' | 'presentation' | 'consultor'
+export type ChatMode = 'analytics' | 'presentation' | 'consultor' | 'genius'
 
 export interface Conversation {
   id: string
@@ -114,7 +114,7 @@ export interface Conversation {
   updated_at: string
 }
 
-export type MessageType = 'text' | 'analysis_result' | 'presentation'
+export type MessageType = 'text' | 'analysis_result' | 'presentation' | 'genius_task' | 'genius_result' | 'genius_error'
 
 export interface Message {
   id: string
@@ -124,5 +124,69 @@ export interface Message {
   message_type: MessageType
   analysis_id?: string
   template_used_id?: string
+  external_task_id?: string
+  genius_status?: string
+  genius_attachments?: GeniusAttachment[]
+  genius_credit_usage?: number
+  trace_id?: string
   created_at: string
 }
+
+export interface GeniusAttachment {
+  file_name: string
+  url: string
+  size_bytes: number
+  mime_type: string
+  expires_at?: string
+}
+
+export type GeniusStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type GeniusStopReason = 'finish' | 'ask' | 'timeout'
+
+export interface GeniusTask {
+  id: string
+  conversation_id: string
+  user_id: string
+  task_id: string
+  trace_id: string
+  prompt: string
+  status: GeniusStatus
+  stop_reason?: GeniusStopReason
+  attachments?: GeniusAttachment[]
+  task_url?: string
+  credit_usage: number
+  error_message?: string
+  latency_ms?: number
+  file_count: number
+  total_size_bytes: number
+  created_at: string
+  updated_at: string
+}
+
+export const GENIUS_CONFIG = {
+  MAX_FILES: 5,
+  MAX_FILE_SIZE_MB: 25,
+  MAX_TOTAL_SIZE_MB: 100,
+  ALLOWED_MIME_TYPES: [
+    'application/pdf',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'text/plain',
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  ],
+  BLOCKED_EXTENSIONS: ['.exe', '.dll', '.sh', '.bat', '.cmd', '.ps1', '.zip', '.rar', '.7z', '.tar', '.gz'],
+  BLOCKED_MIME_TYPES: [
+    'application/x-msdownload',
+    'application/x-executable',
+    'application/x-sh',
+    'application/zip',
+    'application/x-rar-compressed',
+    'application/vnd.ms-excel.sheet.macroEnabled.12',
+    'application/vnd.ms-word.document.macroEnabled.12'
+  ]
+} as const
