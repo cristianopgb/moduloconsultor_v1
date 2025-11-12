@@ -1299,26 +1299,43 @@ function generateDiagnosticoExecutivoHTML(contexto: any): string {
   const principais_dores = diagnostico.principais_dores || contexto.principais_dores || [];
   const recomendacoes = diagnostico.recomendacoes || contexto.recomendacoes || [];
 
-  // Função para sanitizar texto (remover HTML tags, manter apenas texto)
+  // Função para sanitizar texto (remover HTML tags e entities, manter apenas texto)
   function sanitizeText(text: string): string {
     if (!text) return '';
-    return String(text)
-      .replace(/<[^>]*>/g, '') // Remove HTML tags
+    let cleaned = String(text);
+
+    // Primeiro: decodificar HTML entities para evitar double-encoding
+    cleaned = cleaned
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+
+    // Segundo: remover todas as tags HTML
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+
+    // Terceiro: remover múltiplos espaços e quebras de linha
+    cleaned = cleaned
+      .replace(/\s+/g, ' ')
       .trim();
+
+    return cleaned;
   }
 
   // Função para extrair texto limpo de objetos complexos
   function extractCleanText(obj: any): string {
+    if (!obj) return '';
     if (typeof obj === 'string') return sanitizeText(obj);
-    if (typeof obj === 'object') {
-      return sanitizeText(obj.descricao || obj.texto || obj.nome || obj.conteudo || JSON.stringify(obj));
+    if (Array.isArray(obj)) {
+      return obj.map(item => extractCleanText(item)).filter(Boolean).join(', ');
     }
-    return String(obj);
+    if (typeof obj === 'object') {
+      const text = obj.descricao || obj.texto || obj.nome || obj.conteudo || obj.problema || obj.achado || '';
+      return text ? sanitizeText(text) : sanitizeText(JSON.stringify(obj));
+    }
+    return sanitizeText(String(obj));
   }
 
   return `

@@ -193,16 +193,87 @@ Deno.serve(async (req: Request) => {
       if (contexto.canvas_proposta_valor) {
         hintContext.achados?.push(contexto.canvas_proposta_valor);
       }
-      if (contexto.processos_identificados) {
-        hintContext.achados?.push(...(contexto.processos_identificados.slice(0, 3) || []));
+
+      // Adicionar problemas identificados no canvas/mapeamento
+      if (contexto.canvas_dores_ganha_dores) {
+        hintContext.achados?.push(contexto.canvas_dores_ganha_dores);
       }
-      // Adicionar processos primários da cadeia de valor
+
+      // Adicionar gaps identificados
+      if (contexto.gaps_identificados && Array.isArray(contexto.gaps_identificados)) {
+        hintContext.achados?.push(...contexto.gaps_identificados.slice(0, 5));
+      }
+
+      // Adicionar processos críticos com suas descrições/problemas
+      if (contexto.processos_identificados && Array.isArray(contexto.processos_identificados)) {
+        contexto.processos_identificados.slice(0, 3).forEach((p: any) => {
+          if (typeof p === 'object') {
+            const desc = `${p.nome || p.processo || ''}: ${p.problema || p.descricao || p.gap || ''}`.trim();
+            if (desc.length > 5) hintContext.achados?.push(desc);
+          } else {
+            hintContext.achados?.push(String(p));
+          }
+        });
+      }
+
+      // Adicionar processos primários da cadeia de valor com descrição
       if (contexto.processos_primarios && Array.isArray(contexto.processos_primarios)) {
-        hintContext.achados?.push(...contexto.processos_primarios.slice(0, 3).map((p: any) => p.nome || p));
+        contexto.processos_primarios.slice(0, 3).forEach((p: any) => {
+          if (typeof p === 'object') {
+            const desc = `${p.nome || ''}: ${p.descricao || p.problema || ''}`.trim();
+            if (desc.length > 5) hintContext.achados?.push(desc);
+          } else {
+            hintContext.achados?.push(String(p));
+          }
+        });
       }
-      // Adicionar processos do escopo (priorizados)
-      if (contexto.escopo_definido && Array.isArray(contexto.escopo_definido)) {
+
+      // Adicionar processos do escopo (priorizados) com scores GUT
+      if (contexto.matriz_gut && Array.isArray(contexto.matriz_gut)) {
+        contexto.matriz_gut.slice(0, 5).forEach((item: any) => {
+          const desc = `${item.processo || ''} (GUT: ${item.score || 0}): ${item.problema || item.descricao || ''}`.trim();
+          if (desc.length > 5) hintContext.achados?.push(desc);
+        });
+      } else if (contexto.escopo_definido && Array.isArray(contexto.escopo_definido)) {
         hintContext.achados?.push(...contexto.escopo_definido.slice(0, 3));
+      }
+
+      // NOVO: Adicionar achados de Ishikawa (causas raiz)
+      if (contexto.ishikawa_causas && Array.isArray(contexto.ishikawa_causas)) {
+        contexto.ishikawa_causas.slice(0, 5).forEach((causa: any) => {
+          if (typeof causa === 'object') {
+            const desc = `Causa: ${causa.categoria || ''} - ${causa.descricao || causa.causa || ''}`.trim();
+            if (desc.length > 10) hintContext.achados?.push(desc);
+          } else {
+            hintContext.achados?.push(String(causa));
+          }
+        });
+      }
+
+      // NOVO: Adicionar conclusões de 5 Porquês
+      if (contexto.cinco_porques_conclusao) {
+        hintContext.achados?.push(`Raiz do problema: ${contexto.cinco_porques_conclusao}`);
+      }
+      if (contexto.cinco_porques && Array.isArray(contexto.cinco_porques)) {
+        const ultimoPorque = contexto.cinco_porques[contexto.cinco_porques.length - 1];
+        if (ultimoPorque) {
+          hintContext.achados?.push(`Causa raiz (5 Porquês): ${ultimoPorque}`);
+        }
+      }
+
+      // NOVO: Adicionar achados da investigação
+      if (contexto.investigacao_achados && Array.isArray(contexto.investigacao_achados)) {
+        hintContext.achados?.push(...contexto.investigacao_achados.slice(0, 5));
+      }
+
+      // NOVO: Adicionar problemas do diagnóstico
+      if (contexto.diagnostico) {
+        if (contexto.diagnostico.principais_dores && Array.isArray(contexto.diagnostico.principais_dores)) {
+          hintContext.achados?.push(...contexto.diagnostico.principais_dores.slice(0, 3));
+        }
+        if (contexto.diagnostico.problemas_identificados && Array.isArray(contexto.diagnostico.problemas_identificados)) {
+          hintContext.achados?.push(...contexto.diagnostico.problemas_identificados.slice(0, 5));
+        }
       }
 
       // Adicionar últimas mensagens do usuário como expressões
@@ -988,14 +1059,34 @@ Deno.serve(async (req: Request) => {
         // VALIDAÇÃO CRÍTICA: BPMN requer SIPOC com passos do processo
         if (tipoEntregavel === 'bpmn' || tipoEntregavel === 'bpmn_as_is' || tipoEntregavel === 'bpmn_to_be') {
           const sipocData = contextoEspecifico.sipoc || contextData.sipoc || contexto.sipoc;
-          const processSteps = sipocData?.process_steps || sipocData?.process || [];
+          let processSteps = sipocData?.process_steps || sipocData?.process || [];
+
+          // Fallback: verificar se process_steps está no nível raiz do contexto
+          if ((!processSteps || processSteps.length < 3) && contextoEspecifico.process_steps) {
+            processSteps = contextoEspecifico.process_steps;
+            console.log('[CONSULTOR] Found process_steps at root level of contextoEspecifico');
+          }
+
+          // Fallback: verificar se etapas está presente (alias antigo)
+          if ((!processSteps || processSteps.length < 3) && contextoEspecifico.etapas) {
+            processSteps = contextoEspecifico.etapas;
+            console.log('[CONSULTOR] Found etapas at root level (using as process_steps)');
+          }
 
           if (!processSteps || processSteps.length < 3) {
             console.error('[CONSULTOR] ❌ BPMN validation failed: Missing SIPOC process steps');
             console.error('[CONSULTOR] SIPOC data:', JSON.stringify(sipocData, null, 2));
-            console.error('[CONSULTOR] Skipping BPMN generation - LLM must provide sipoc.process_steps array');
+            console.error('[CONSULTOR] contextoEspecifico keys:', Object.keys(contextoEspecifico));
+            console.error('[CONSULTOR] Skipping BPMN generation - LLM must provide sipoc.process_steps array with at least 3 steps');
             continue; // Pular este action e não gerar BPMN inválido
           }
+
+          // Se encontrou process_steps em outro local, injetar no sipocData para o template
+          if (sipocData && !sipocData.process_steps) {
+            sipocData.process_steps = processSteps;
+            console.log('[CONSULTOR] Injected process_steps into sipocData for template');
+          }
+
           console.log('[CONSULTOR] ✅ BPMN validation passed:', processSteps.length, 'steps found');
         }
 
@@ -1197,28 +1288,80 @@ Deno.serve(async (req: Request) => {
           console.error('[CONSULTOR] ❌ No valid cards found in update_kanban action');
           console.error('[CONSULTOR] Params received:', JSON.stringify(params, null, 2));
         } else {
-          console.log('[CONSULTOR] ✅ Creating', cards.length, 'Kanban cards');
+          console.log('[CONSULTOR] ✅ Processing', cards.length, 'Kanban cards (before deduplication)');
+
+          // DEDUPLICAÇÃO LOCAL: Remover duplicatas dentro do próprio array de cards
+          const uniqueCards: any[] = [];
+          const seenTitles = new Set<string>();
 
           for (const card of cards) {
-            try {
-              // Validar campos obrigatórios
-              if (!card.title) {
-                console.warn('[CONSULTOR] ⚠️ Card without title, skipping:', card);
-                continue;
-              }
+            if (!card.title) continue;
 
+            // Normalizar título para comparação (lowercase, sem espaços extras, sem pontuação)
+            const normalizedTitle = card.title
+              .toLowerCase()
+              .trim()
+              .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+              .replace(/\s+/g, ' ');
+
+            if (!seenTitles.has(normalizedTitle)) {
+              seenTitles.add(normalizedTitle);
+              uniqueCards.push(card);
+            } else {
+              console.warn('[CONSULTOR] ⚠️ Duplicate card detected in array, skipping:', card.title);
+            }
+          }
+
+          console.log('[CONSULTOR] ✅ After local deduplication:', uniqueCards.length, 'unique cards');
+
+          for (const card of uniqueCards) {
+            try {
               console.log('[CONSULTOR] Processing card:', card.title);
 
-              // VERIFICAÇÃO DE DUPLICATA: Verificar se já existe um card com o mesmo título nesta sessão
+              // Normalizar título para comparação com banco
+              const normalizedTitle = card.title
+                .toLowerCase()
+                .trim()
+                .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+                .replace(/\s+/g, ' ');
+
+              // VERIFICAÇÃO DE DUPLICATA NO BANCO: Buscar cards existentes e fazer matching fuzzy
               const { data: existingCards } = await supabase
                 .from('kanban_cards')
                 .select('id, titulo')
-                .eq('sessao_id', body.sessao_id)
-                .eq('titulo', card.title)
-                .limit(1);
+                .eq('sessao_id', body.sessao_id);
 
+              let isDuplicate = false;
               if (existingCards && existingCards.length > 0) {
-                console.warn('[CONSULTOR] ⚠️ Card already exists, skipping:', card.title);
+                for (const existing of existingCards) {
+                  const existingNormalized = existing.titulo
+                    .toLowerCase()
+                    .trim()
+                    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+                    .replace(/\s+/g, ' ');
+
+                  // Comparação exata após normalização
+                  if (existingNormalized === normalizedTitle) {
+                    console.warn('[CONSULTOR] ⚠️ Exact match found in database, skipping:', card.title);
+                    isDuplicate = true;
+                    break;
+                  }
+
+                  // Comparação de similaridade (pelo menos 80% das palavras em comum)
+                  const titleWords = normalizedTitle.split(' ');
+                  const existingWords = existingNormalized.split(' ');
+                  const commonWords = titleWords.filter(w => existingWords.includes(w));
+                  const similarity = commonWords.length / Math.max(titleWords.length, existingWords.length);
+
+                  if (similarity >= 0.8) {
+                    console.warn('[CONSULTOR] ⚠️ Similar card found (similarity:', Math.round(similarity * 100) + '%), skipping:', card.title, '(similar to:', existing.titulo + ')');
+                    isDuplicate = true;
+                    break;
+                  }
+                }
+              }
+
+              if (isDuplicate) {
                 continue;
               }
 
