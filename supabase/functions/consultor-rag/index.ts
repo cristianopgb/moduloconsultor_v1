@@ -15,7 +15,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { getSystemPrompt } from './consultor-prompts.ts';
-import { getTemplateForType } from '../_shared/deliverable-templates.ts';
+import { getTemplateForType } from './deliverable-templates.ts';
 import {
   searchRelevantHints,
   formatHintsForPrompt,
