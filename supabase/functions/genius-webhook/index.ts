@@ -12,7 +12,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Webhook-Signature, X-Webhook-Timestamp",
 };
 
@@ -76,6 +76,22 @@ function timingSafeEqual(a: string, b: string): boolean {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  // Handle GET/HEAD requests (Manus webhook validation test)
+  if (req.method === "GET" || req.method === "HEAD") {
+    return new Response(
+      JSON.stringify({
+        status: "ok",
+        service: "genius-webhook",
+        version: "1.0.0",
+        ready: true
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      }
+    );
   }
 
   if (req.method !== "POST") {
