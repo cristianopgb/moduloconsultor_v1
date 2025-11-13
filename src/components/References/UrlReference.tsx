@@ -11,6 +11,7 @@ type CreatedRef = {
   title: string;
   type: "url";
   extracted_text?: string | null;
+  file?: File | null;
 };
 
 type Props = {
@@ -71,6 +72,7 @@ export default function UrlReference({ userId, conversationId, onCreated }: Prop
         title: title || url,
         type: "url",
         extracted_text: (text || "").slice(0, 200_000),
+        file: null,
       });
 
       setUrl("");

@@ -23,6 +23,7 @@ export type CreatedRef = {
   source_url?: string | null
   extracted_text?: string | null
   metadata?: Record<string, any> | null
+  file?: File | null
 }
 
 type Props = {
