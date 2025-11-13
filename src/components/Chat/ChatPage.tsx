@@ -1632,8 +1632,8 @@ function ChatPage() {
           userId={user?.id || ''}
           messages={messages}
           onMessagesUpdate={setMessages}
-          attachedFiles={attachedFiles.map(r => r.file).filter(Boolean) as File[]}
-          onClearFiles={() => setAttachedFiles([])}
+          attachedFiles={attachedRefs.map(r => r.file).filter(Boolean) as File[]}
+          onClearFiles={() => setAttachedRefs([])}
         />
       </div>
     );
