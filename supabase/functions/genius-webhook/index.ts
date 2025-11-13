@@ -1,7 +1,7 @@
 // supabase/functions/genius-webhook/index.ts
 // Edge Function: Webhook receiver para eventos do Manus
 // Features:
-// - Validação de assinatura (X-Webhook-Secret)
+// - Validação de assinatura (X-Webhook-Signature + X-Webhook-Timestamp)
 // - Idempotência por event_id
 // - Comparação de updated_at para evitar processar eventos antigos
 // - Atualização de genius_tasks e messages
@@ -13,16 +13,55 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Webhook-Secret",
+  "Access-Control-Allow-Headers": "Content-Type, X-Webhook-Signature, X-Webhook-Timestamp",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const webhookSecret = Deno.env.get("GENIUS_WEBHOOK_SECRET");
+const manusWebhookSecret = Deno.env.get("MANUS_WEBHOOK_SECRET");
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
 });
+
+// Verify Manus webhook signature using HMAC
+async function verifyManusSignature(
+  payload: string,
+  signature: string,
+  timestamp: string,
+  secret: string
+): Promise<boolean> {
+  try {
+    // Construct the signed payload: timestamp.payload
+    const signedPayload = `${timestamp}.${payload}`;
+
+    // Create HMAC-SHA256 signature
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+
+    const signatureBytes = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      encoder.encode(signedPayload)
+    );
+
+    // Convert to hex string
+    const hashArray = Array.from(new Uint8Array(signatureBytes));
+    const computedSignature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Compare signatures (timing-safe)
+    return timingSafeEqual(signature, computedSignature);
+  } catch (error) {
+    console.error("Signature verification error:", error);
+    return false;
+  }
+}
 
 // Timing-safe comparison
 function timingSafeEqual(a: string, b: string): boolean {
@@ -47,32 +86,94 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Validar assinatura
-    const receivedSecret = req.headers.get("X-Webhook-Secret");
+    // Get raw body for signature verification
+    const rawBody = await req.text();
 
-    if (!webhookSecret) {
-      console.error("GENIUS_WEBHOOK_SECRET not configured");
-      return new Response(
-        JSON.stringify({ error: "Webhook not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Log incoming webhook headers for debugging
+    const signature = req.headers.get("X-Webhook-Signature");
+    const timestamp = req.headers.get("X-Webhook-Timestamp");
 
-    if (!receivedSecret || !timingSafeEqual(receivedSecret, webhookSecret)) {
-      console.warn("Invalid webhook secret received");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    console.log(JSON.stringify({
+      event: "webhook_headers_received",
+      has_signature: !!signature,
+      has_timestamp: !!timestamp,
+      has_secret_configured: !!manusWebhookSecret
+    }));
+
+    // Validate signature if secret is configured
+    if (manusWebhookSecret) {
+      if (!signature || !timestamp) {
+        console.warn("Missing signature or timestamp headers");
+        return new Response(
+          JSON.stringify({
+            error: "Missing webhook signature headers",
+            details: "X-Webhook-Signature and X-Webhook-Timestamp required"
+          }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Verify timestamp is recent (within 5 minutes)
+      const timestampMs = parseInt(timestamp) * 1000;
+      const now = Date.now();
+      const timeDiff = Math.abs(now - timestampMs);
+
+      if (timeDiff > 5 * 60 * 1000) {
+        console.warn("Webhook timestamp too old or future");
+        return new Response(
+          JSON.stringify({ error: "Invalid timestamp" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Verify signature
+      const isValid = await verifyManusSignature(rawBody, signature, timestamp, manusWebhookSecret);
+
+      if (!isValid) {
+        console.warn("Invalid webhook signature");
+        return new Response(
+          JSON.stringify({ error: "Invalid signature" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    } else {
+      // If no secret configured, accept all webhooks (for initial setup/testing)
+      console.warn("MANUS_WEBHOOK_SECRET not configured - accepting webhook without validation");
     }
 
     // Parse payload
-    const payload = await req.json();
+    const payload = JSON.parse(rawBody);
+
+    // Log full payload structure for debugging
+    console.log(JSON.stringify({
+      event: "webhook_payload_received",
+      payload_keys: Object.keys(payload),
+      payload_preview: {
+        event_id: payload.event_id,
+        event_type: payload.event_type,
+        has_task_detail: !!payload.task_detail,
+        task_detail_keys: payload.task_detail ? Object.keys(payload.task_detail) : []
+      }
+    }));
+
     const { event_id, event_type, task_detail } = payload;
 
     if (!event_id || !event_type || !task_detail) {
+      console.error(JSON.stringify({
+        event: "invalid_payload_structure",
+        received_keys: Object.keys(payload),
+        missing_fields: {
+          event_id: !event_id,
+          event_type: !event_type,
+          task_detail: !task_detail
+        }
+      }));
+
       return new Response(
-        JSON.stringify({ error: "Invalid payload" }),
+        JSON.stringify({
+          error: "Invalid payload",
+          details: "Missing required fields: event_id, event_type, or task_detail"
+        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -234,16 +335,19 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      // Buscar mensagem correspondente em messages
-      const { data: messageRecord } = await supabase
+      // Find existing message with this task_id
+      const { data: existingMessage } = await supabase
         .from("messages")
         .select("*")
         .eq("external_task_id", task_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .single();
 
-      if (messageRecord) {
+      if (existingMessage && existingMessage.role === "assistant") {
+        // Update existing assistant message
         const messageUpdate: any = {
-          genius_status: stop_reason === "finish" ? "finished" : stop_reason === "ask" ? "ask" : "failed",
+          genius_status: stop_reason === "finish" ? "completed" : stop_reason === "ask" ? "ask" : "failed",
         };
 
         if (updateData.attachments) {
@@ -261,15 +365,57 @@ Deno.serve(async (req: Request) => {
         await supabase
           .from("messages")
           .update(messageUpdate)
-          .eq("id", messageRecord.id);
+          .eq("id", existingMessage.id);
 
         console.log(
           JSON.stringify({
             event: "message_updated",
-            message_id: messageRecord.id,
+            message_id: existingMessage.id,
             task_id,
           })
         );
+      } else {
+        // Create new assistant message if none exists
+        const newMessage: any = {
+          conversation_id: taskRecord.conversation_id,
+          role: "assistant",
+          content: message || "Tarefa concluída",
+          message_type: stop_reason === "finish" ? "genius_result" : "genius_error",
+          external_task_id: task_id,
+          genius_status: stop_reason === "finish" ? "completed" : stop_reason === "ask" ? "ask" : "failed",
+        };
+
+        if (updateData.attachments) {
+          newMessage.genius_attachments = updateData.attachments;
+        }
+
+        if (updateData.credit_usage !== undefined) {
+          newMessage.genius_credit_usage = updateData.credit_usage;
+        }
+
+        const { data: insertedMessage, error: insertError } = await supabase
+          .from("messages")
+          .insert(newMessage)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error(
+            JSON.stringify({
+              event: "message_insert_failed",
+              task_id,
+              error: insertError,
+            })
+          );
+        } else {
+          console.log(
+            JSON.stringify({
+              event: "message_created",
+              message_id: insertedMessage.id,
+              task_id,
+            })
+          );
+        }
       }
 
       console.log(

@@ -148,7 +148,39 @@ async function uploadFileToManus(
     }
 
     const createFileData = await createFileRes.json();
-    const { upload_url, file_id } = createFileData;
+
+    // Log the actual response structure for debugging
+    console.log(
+      JSON.stringify({
+        event: "manus_files_response",
+        trace_id: traceId,
+        response_keys: Object.keys(createFileData),
+        response: createFileData,
+      })
+    );
+
+    // Handle different response structures from Manus API
+    // Try multiple possible formats: { upload_url, file_id }, { upload_url, id }, or nested { file: {...} }
+    let upload_url: string;
+    let file_id: string;
+
+    if (createFileData.upload_url && createFileData.file_id) {
+      upload_url = createFileData.upload_url;
+      file_id = createFileData.file_id;
+    } else if (createFileData.upload_url && createFileData.id) {
+      upload_url = createFileData.upload_url;
+      file_id = createFileData.id;
+    } else if (createFileData.file && createFileData.file.upload_url && createFileData.file.id) {
+      upload_url = createFileData.file.upload_url;
+      file_id = createFileData.file.id;
+    } else if (createFileData.uploadUrl && createFileData.id) {
+      upload_url = createFileData.uploadUrl;
+      file_id = createFileData.id;
+    } else {
+      throw new Error(
+        `Unexpected response format from Manus /files: ${JSON.stringify(createFileData)}`
+      );
+    }
 
     if (!upload_url || !file_id) {
       throw new Error("Missing upload_url or file_id from Manus");

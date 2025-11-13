@@ -107,6 +107,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Registrar webhook no Manus
+    // According to Manus API docs, the format is: { "webhook": { "url": "<string>" } }
     const registerRes = await fetch(`${MANUS_API_BASE}/webhooks`, {
       method: "POST",
       headers: {
@@ -114,8 +115,9 @@ Deno.serve(async (req: Request) => {
         "API_KEY": manusApiKey,
       },
       body: JSON.stringify({
-        url: webhookUrl,
-        events: ["task_created", "task_stopped"],
+        webhook: {
+          url: webhookUrl
+        }
       }),
     });
 
