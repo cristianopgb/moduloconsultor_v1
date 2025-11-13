@@ -6,6 +6,12 @@
 // - Retry com exponential backoff + jitter
 // - Trace_id para correlação de logs
 // - Telemetria completa
+//
+// CONFIGURAÇÃO NECESSÁRIA:
+// No Supabase Dashboard, configure o secret MANUS_API_KEY:
+// 1. Vá para Project Settings > Edge Functions
+// 2. Adicione o secret: MANUS_API_KEY=<seu_token_do_manus>
+// 3. O token deve ser obtido em https://manus.im (formato JWT)
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -19,6 +25,24 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const manusApiKey = Deno.env.get("MANUS_API_KEY");
+
+// Validar formato do API key (deve ser um JWT)
+function validateApiKeyFormat(key: string | undefined): { valid: boolean; error?: string } {
+  if (!key) {
+    return { valid: false, error: "MANUS_API_KEY não configurado" };
+  }
+
+  // JWT tem formato: header.payload.signature (3 segmentos separados por pontos)
+  const segments = key.split('.');
+  if (segments.length !== 3) {
+    return {
+      valid: false,
+      error: `MANUS_API_KEY formato inválido (esperado JWT com 3 segmentos, encontrado ${segments.length})`
+    };
+  }
+
+  return { valid: true };
+}
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
@@ -210,11 +234,21 @@ Deno.serve(async (req: Request) => {
     }
 
     // Validar MANUS_API_KEY
-    if (!manusApiKey) {
-      console.error("MANUS_API_KEY not configured");
+    const keyValidation = validateApiKeyFormat(manusApiKey);
+    if (!keyValidation.valid) {
+      console.error(JSON.stringify({
+        event: "api_key_validation_failed",
+        trace_id: traceId,
+        error: keyValidation.error
+      }));
+
       return new Response(
-        JSON.stringify({ error: "Manus API not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Serviço Genius não configurado",
+          details: keyValidation.error,
+          instructions: "Configure MANUS_API_KEY no Supabase Dashboard > Edge Functions"
+        }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

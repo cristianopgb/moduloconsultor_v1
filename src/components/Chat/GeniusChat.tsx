@@ -1,6 +1,6 @@
 // src/components/Chat/GeniusChat.tsx
-import React, { useState, useEffect } from 'react';
-import { Loader2, AlertCircle, CheckCircle, Clock, Download, FileText, Image as ImageIcon, Table, File, Send } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Loader2, AlertCircle, CheckCircle, Clock, Download, FileText, Image as ImageIcon, Table, File, Send, X, Paperclip } from 'lucide-react';
 import { supabase, GeniusTask, GeniusAttachment, Message } from '../../lib/supabase';
 import { GeniusApiService } from '../../services/geniusApi';
 import { validateGeniusFiles, prepareFilesForUpload, formatFileSize, FileToValidate } from '../../utils/geniusValidation';
@@ -13,6 +13,11 @@ interface GeniusChatProps {
   onMessagesUpdate: (messages: Message[]) => void;
   attachedFiles: File[];
   onClearFiles: () => void;
+}
+
+interface AttachedFilePreview {
+  file: File;
+  id: string;
 }
 
 export function GeniusChat({
@@ -29,6 +34,15 @@ export function GeniusChat({
   const [currentTask, setCurrentTask] = useState<GeniusTask | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<GeniusAttachment | null>(null);
   const [continueInput, setContinueInput] = useState('');
+  const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  // Sync local files with prop
+  useEffect(() => {
+    setLocalFiles(attachedFiles);
+  }, [attachedFiles]);
 
   // Realtime listener para atualizações de tarefas
   useEffect(() => {
@@ -114,8 +128,8 @@ export function GeniusChat({
       // Validar e preparar arquivos se houver
       let preparedFiles: any[] = [];
 
-      if (attachedFiles.length > 0) {
-        const filesToValidate: FileToValidate[] = attachedFiles.map(f => ({
+      if (localFiles.length > 0) {
+        const filesToValidate: FileToValidate[] = localFiles.map(f => ({
           name: f.name,
           size: f.size,
           type: f.type
@@ -129,7 +143,7 @@ export function GeniusChat({
         }
 
         // Preparar arquivos (converter para base64)
-        preparedFiles = await prepareFilesForUpload(attachedFiles);
+        preparedFiles = await prepareFilesForUpload(localFiles);
       }
 
       // Criar mensagem do usuário
@@ -182,9 +196,8 @@ export function GeniusChat({
 
       // Limpar input e arquivos
       setInput('');
-      if (attachedFiles.length > 0) {
-        onClearFiles();
-      }
+      setLocalFiles([]);
+      onClearFiles();
 
       // Refresh messages para pegar a versão do banco
       setTimeout(refreshMessages, 1000);
@@ -269,6 +282,48 @@ export function GeniusChat({
     if (mimeType.startsWith('image/')) return <ImageIcon className="w-5 h-5" />;
     if (mimeType.includes('spreadsheet') || mimeType === 'text/csv') return <Table className="w-5 h-5" />;
     return <File className="w-5 h-5" />;
+  }
+
+  function handleFileSelect(files: FileList | null) {
+    if (!files) return;
+    const newFiles = Array.from(files);
+    const combined = [...localFiles, ...newFiles].slice(0, 5);
+    setLocalFiles(combined);
+  }
+
+  function removeFile(index: number) {
+    setLocalFiles(prev => prev.filter((_, i) => i !== index));
+  }
+
+  // Drag and drop handlers
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === dropZoneRef.current) {
+      setIsDragging(false);
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      handleFileSelect(files);
+    }
   }
 
   return (
@@ -372,34 +427,93 @@ export function GeniusChat({
         </div>
       )}
 
-      {/* Dica sobre arquivos (não obrigatório) */}
-      {attachedFiles.length === 0 && (
-        <div className="mx-4 mb-2 p-3 bg-purple-900/30 border border-purple-700/50 rounded-lg">
-          <p className="text-sm text-purple-200">
-            💡 Dica: Anexe arquivos (PDF, Excel, imagens, etc.) para análises avançadas com o Genius! Você também pode conversar normalmente sem arquivos.
-          </p>
-        </div>
-      )}
-
-      {/* Lista de arquivos anexados */}
-      {attachedFiles.length > 0 && (
-        <div className="mx-4 mb-2 p-3 bg-gray-800 border border-gray-700 rounded-lg">
-          <p className="text-sm font-semibold mb-2">Arquivos anexados ({attachedFiles.length}/5):</p>
-          <div className="space-y-1">
-            {attachedFiles.map((file, idx) => (
-              <div key={idx} className="flex items-center gap-2 text-sm">
-                <div className="text-purple-400">{getFileIcon(file.type)}</div>
-                <span className="flex-1 truncate">{file.name}</span>
-                <span className="text-gray-400">{formatFileSize(file.size)}</span>
-              </div>
-            ))}
+      {/* Lista de arquivos anexados com preview */}
+      {localFiles.length > 0 && (
+        <div className="mx-4 mb-2">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-gray-200">
+                Arquivos anexados ({localFiles.length}/5)
+              </p>
+              <button
+                onClick={() => {
+                  setLocalFiles([]);
+                  onClearFiles();
+                }}
+                className="text-xs text-gray-400 hover:text-gray-200 transition"
+              >
+                Limpar tudo
+              </button>
+            </div>
+            <div className="space-y-2">
+              {localFiles.map((file, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-3 p-2 bg-gray-900 rounded-lg group hover:bg-gray-850 transition"
+                >
+                  <div className="text-purple-400">{getFileIcon(file.type)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{file.name}</p>
+                    <p className="text-xs text-gray-400">{formatFileSize(file.size)}</p>
+                  </div>
+                  <button
+                    onClick={() => removeFile(idx)}
+                    className="p-1 hover:bg-gray-700 rounded opacity-0 group-hover:opacity-100 transition"
+                    title="Remover arquivo"
+                  >
+                    <X className="w-4 h-4 text-gray-400 hover:text-red-400" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Input area */}
-      <div className="border-t border-gray-700 p-4">
+      {/* Input area with drag-and-drop */}
+      <div
+        ref={dropZoneRef}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`border-t border-gray-700 p-4 relative transition-colors ${
+          isDragging ? 'bg-purple-900/20' : ''
+        }`}
+      >
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-purple-600/10 border-2 border-dashed border-purple-500 rounded-lg flex items-center justify-center z-10 pointer-events-none">
+            <div className="text-center">
+              <Paperclip className="w-12 h-12 mx-auto mb-2 text-purple-400" />
+              <p className="text-sm font-medium text-purple-300">Solte os arquivos aqui</p>
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2 items-end">
+          {/* File attachment button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading || localFiles.length >= 5}
+            className="p-3 rounded-lg hover:bg-gray-700 text-gray-300 hover:text-purple-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Anexar arquivos (máx. 5)"
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.docx,.pptx"
+            onChange={(e) => handleFileSelect(e.target.files)}
+            className="hidden"
+          />
+
+          {/* Text input */}
           <div className="flex-1">
             <input
               type="text"
@@ -411,11 +525,17 @@ export function GeniusChat({
                   sendGeniusTask();
                 }
               }}
-              placeholder={attachedFiles.length > 0 ? "Descreva o que você quer que o Genius faça com os arquivos..." : "Digite sua mensagem ou anexe arquivos para análise..."}
+              placeholder={
+                localFiles.length > 0
+                  ? "Descreva o que você quer que o Genius faça com os arquivos..."
+                  : "Digite sua mensagem ou arraste arquivos para anexar..."
+              }
               disabled={loading}
               className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
+
+          {/* Send button */}
           <button
             onClick={sendGeniusTask}
             disabled={!input.trim() || loading}
@@ -429,6 +549,13 @@ export function GeniusChat({
             Enviar
           </button>
         </div>
+
+        {/* File upload hint */}
+        {localFiles.length === 0 && !loading && (
+          <p className="text-xs text-gray-500 mt-2 text-center">
+            💡 Anexe até 5 arquivos (PDF, Excel, CSV, imagens) ou arraste e solte aqui
+          </p>
+        )}
       </div>
 
       {/* Attachment modal */}

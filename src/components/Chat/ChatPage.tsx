@@ -1678,39 +1678,14 @@ function ChatPage() {
 
           {/* Genius Mode - Render dedicated component */}
           {chatMode === 'genius' && current && user ? (
-            <>
-              {/* File upload button */}
-              <div className="border-b border-gray-700 p-4">
-                <label className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg cursor-pointer transition">
-                  <Plus className="w-5 h-5" />
-                  <span>Adicionar Arquivos (máx. 5)</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.docx,.pptx"
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files || []);
-                      setGeniusFiles(prev => [...prev, ...files].slice(0, 5));
-                      e.target.value = '';
-                    }}
-                    className="hidden"
-                  />
-                </label>
-                {geniusFiles.length > 0 && (
-                  <span className="ml-3 text-sm text-gray-400">
-                    {geniusFiles.length} arquivo(s) selecionado(s)
-                  </span>
-                )}
-              </div>
-              <GeniusChat
-                conversationId={current.id}
-                userId={user.id}
-                messages={messages}
-                onMessagesUpdate={setMessages}
-                attachedFiles={geniusFiles}
-                onClearFiles={() => setGeniusFiles([])}
-              />
-            </>
+            <GeniusChat
+              conversationId={current.id}
+              userId={user.id}
+              messages={messages}
+              onMessagesUpdate={setMessages}
+              attachedFiles={geniusFiles}
+              onClearFiles={() => setGeniusFiles([])}
+            />
           ) : (
             <>
             <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3 chat-messages">
