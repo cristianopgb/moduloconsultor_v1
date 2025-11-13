@@ -30,6 +30,7 @@ import { detectFormMarker, removeFormMarkers } from '../../utils/form-markers'
 import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
 import { ValidateScopeButton } from './ValidateScopeButton'
 import { callConsultorRAG, getOrCreateSessao } from '../../lib/consultor/rag-adapter'
+import { GeniusChat } from './GeniusChat'
 // NOTE: Refactored - executeRAGActions and updateSessaoContext removed
 // Actions are no longer used in the simplified architecture
 
@@ -1595,6 +1596,47 @@ function ChatPage() {
         )}
       </div>
     )
+  }
+
+  // Render Genius Chat if in genius mode
+  const isGeniusMode = chatMode === 'genius';
+
+  if (isGeniusMode && current) {
+    return (
+      <div className="h-screen flex flex-col bg-gray-900">
+        {/* Header */}
+        <div className="bg-gray-900 border-b border-gray-800 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              <div>
+                <div className="font-semibold text-white">Genius Chat</div>
+                <div className="text-xs text-gray-400">{current.title}</div>
+              </div>
+            </div>
+            <ChatModeToggle
+              currentMode={chatMode}
+              onModeChange={async (newMode) => {
+                setChatMode(newMode)
+                await supabase.from('conversations').update({ chat_mode: newMode }).eq('id', current.id)
+                setConversations(prev => prev.map(c => c.id === current.id ? { ...c, chat_mode: newMode } : c))
+              }}
+              disabled={loading || generating}
+            />
+          </div>
+        </div>
+
+        {/* Genius Chat Component */}
+        <GeniusChat
+          conversationId={current.id}
+          userId={user?.id || ''}
+          messages={messages}
+          onMessagesUpdate={setMessages}
+          attachedFiles={attachedFiles.map(r => r.file).filter(Boolean) as File[]}
+          onClearFiles={() => setAttachedFiles([])}
+        />
+      </div>
+    );
   }
 
   return (
