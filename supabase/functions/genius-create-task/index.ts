@@ -321,12 +321,15 @@ Deno.serve(async (req: Request) => {
       taskMode: "agent",
     };
 
+    // Adicionar attachments apenas se houver arquivos
     if (fileIds.length > 0) {
       taskPayload.attachments = fileIds.map((id, idx) => ({
         file_id: id,
         filename: filesToUpload[idx].filename,
       }));
     }
+
+    // Se não há arquivos, o Manus vai funcionar como LLM conversacional normal
 
     const createTaskRes = await fetch(`${MANUS_API_BASE}/tasks`, {
       method: "POST",

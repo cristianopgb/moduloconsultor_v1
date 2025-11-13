@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 
 export interface CreateGeniusTaskParams {
   prompt: string;
-  files: Array<{
+  files?: Array<{
     filename: string;
     content: string; // base64
     size_bytes: number;
