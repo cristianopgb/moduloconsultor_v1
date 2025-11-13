@@ -103,7 +103,7 @@ export default function AttachmentBar({ userId, conversationId, attached, onChan
       if (error) throw error
 
       // adiciona chip local
-      addRefOne({ id: data.id, title: url.trim(), type: 'url', source_url: url.trim() })
+      addRefOne({ id: data.id, title: url.trim(), type: 'url', source_url: url.trim(), file: null })
 
       // dispara edge function (assíncrono)
       try {

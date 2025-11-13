@@ -643,7 +643,8 @@ function ChatPage() {
           title: file.name,
           type: (getExt(file.name) as any),
           storage_bucket: bucket,
-          storage_path: path
+          storage_path: path,
+          file: file
         })
       } catch (e: any) {
         console.error('[Attachment] falha ao anexar arquivo:', e?.message)
@@ -675,7 +676,7 @@ function ChatPage() {
         .single()
       if (error) throw error
 
-      const newRef: CreatedRef = { id: data.id, title: url, type: 'url' as any }
+      const newRef: CreatedRef = { id: data.id, title: url, type: 'url' as any, file: null }
       setAttachedRefs(prev => [...prev, newRef])
       setJustAttachedBlink(true); setTimeout(() => setJustAttachedBlink(false), 2000)
 
