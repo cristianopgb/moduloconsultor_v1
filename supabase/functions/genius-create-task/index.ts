@@ -54,7 +54,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
 });
 
-const MANUS_API_BASE = "https://api.manus.im/v1";
+const MANUS_API_BASE = "https://api.manus.ai/v1";
 
 // Limites
 const MAX_FILES = 5;
@@ -135,7 +135,7 @@ async function uploadFileToManus(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${manusApiKey}`,
+        "API_KEY": manusApiKey,
       },
       body: JSON.stringify({ filename: file.filename }),
     });
@@ -375,7 +375,7 @@ Deno.serve(async (req: Request) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${manusApiKey}`,
+        "API_KEY": manusApiKey,
       },
       body: JSON.stringify(taskPayload),
     });

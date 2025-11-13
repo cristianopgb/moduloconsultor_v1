@@ -21,7 +21,7 @@ import { ProjectsPage } from './components/Projects/ProjectsPage'
 import { ProjectManagementPage } from './components/Projects/ProjectManagementPage'
 import { MainLayout } from './components/Layout/MainLayout'
 import { DatasetsPage } from './components/Datasets/DatasetsPage'
-import { LearningPage } from './components/Admin/LearningPage'
+// import { LearningPage } from './components/Admin/LearningPage' // Arquivo corrompido - temporariamente desabilitado
 import AnalysisHealthDashboard from './components/Admin/AnalysisHealthDashboard'
 import { KnowledgeManagementPage } from './components/Admin/KnowledgeManagementPage'
 import { SectorAdaptersPage } from './components/Admin/SectorAdaptersPage'
@@ -272,6 +272,7 @@ function AppContent() {
           }
         />
 
+        {/* Rota temporariamente desabilitada devido ao arquivo corrompido
         <Route
           path="/admin/learning"
           element={
@@ -282,6 +283,7 @@ function AppContent() {
             </ProtectedRoute>
           }
         />
+        */}
 
         <Route
           path="/admin/analysis-health"

@@ -19,7 +19,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
 });
 
-const MANUS_API_BASE = "https://api.manus.im/v1";
+const MANUS_API_BASE = "https://api.manus.ai/v1";
 
 function detectEnvironment(url: string): string {
   if (url.includes("localhost")) return "development";
@@ -111,7 +111,7 @@ Deno.serve(async (req: Request) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${manusApiKey}`,
+        "API_KEY": manusApiKey,
       },
       body: JSON.stringify({
         url: webhookUrl,
