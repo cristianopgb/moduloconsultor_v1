@@ -26,18 +26,24 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const manusApiKey = Deno.env.get("MANUS_API_KEY");
 
-// Validar formato do API key (deve ser um JWT)
+// Validar formato do API key (deve começar com sk- e ter pelo menos 50 chars)
 function validateApiKeyFormat(key: string | undefined): { valid: boolean; error?: string } {
   if (!key) {
     return { valid: false, error: "MANUS_API_KEY não configurado" };
   }
 
-  // JWT tem formato: header.payload.signature (3 segmentos separados por pontos)
-  const segments = key.split('.');
-  if (segments.length !== 3) {
+  // Manus API keys começam com "sk-" e têm pelo menos 50 caracteres
+  if (!key.startsWith('sk-')) {
     return {
       valid: false,
-      error: `MANUS_API_KEY formato inválido (esperado JWT com 3 segmentos, encontrado ${segments.length})`
+      error: `MANUS_API_KEY formato inválido (esperado chave iniciando com 'sk-', encontrado: '${key.substring(0, 5)}...')`
+    };
+  }
+
+  if (key.length < 50) {
+    return {
+      valid: false,
+      error: `MANUS_API_KEY muito curta (esperado pelo menos 50 caracteres, encontrado ${key.length})`
     };
   }
 
