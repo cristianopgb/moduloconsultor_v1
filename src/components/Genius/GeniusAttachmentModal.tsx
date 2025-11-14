@@ -31,6 +31,7 @@ import {
   isTextFile
 } from '../../utils/fileExporters';
 import { ExcelPreview } from './ExcelPreview';
+import '../../styles/markdown.css';
 
 interface Props {
   attachment: GeniusAttachment;
@@ -184,7 +185,7 @@ export function GeniusAttachmentModal({ attachment, taskUrl, onClose }: Props) {
 
     if (isMarkdown && fileContent) {
       return (
-        <div className="prose prose-invert max-w-none p-6 bg-gray-900 rounded-lg">
+        <div className="markdown-content p-6 bg-gray-900 rounded-lg">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {fileContent}
           </ReactMarkdown>

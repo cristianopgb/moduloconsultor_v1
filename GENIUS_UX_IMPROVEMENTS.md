@@ -117,20 +117,21 @@ Modal completamente renovado com:
   "react-markdown": "^10.1.0",
   "remark-gfm": "^4.0.1",
   "rehype-raw": "^7.0.0",
-  "rehype-sanitize": "^6.0.0",
-  "@tailwindcss/typography": "^0.5.19"
+  "rehype-sanitize": "^6.0.0"
 }
 ```
 
-## Configuração do Tailwind
+## Estilos Customizados
 
-Adicionado plugin de tipografia:
+Criado arquivo `src/styles/markdown.css` com estilos profissionais para renderização de Markdown:
+- Tipografia otimizada para leitura (line-height 1.75)
+- Suporte completo a todos os elementos MD (headings, listas, tabelas, código, blockquotes)
+- Tema dark mode integrado com cores consistentes
+- Espaçamento responsivo e hierárquico
+- Destaque visual para links, código inline e blocos de código
+- Tabelas com hover effects e formatação profissional
 
-```javascript
-plugins: [
-  require('@tailwindcss/typography'),
-],
-```
+**Nota**: Usamos CSS customizado ao invés de `@tailwindcss/typography` devido a limitações no ambiente StackBlitz/WebContainers.
 
 ## Fluxo de Uso
 
@@ -192,8 +193,18 @@ plugins: [
 
 Projeto compilado com sucesso:
 ```
-✓ 2005 modules transformed
-✓ built in 14.46s
+✓ 2006 modules transformed
+✓ built in 22.61s
+Bundle: 2.14 MB (589 KB gzipped)
+CSS: 111.71 KB (18.74 KB gzipped)
 ```
 
 Todas as melhorias estão em produção e prontas para uso.
+
+## Resolução de Problemas no StackBlitz
+
+Durante a implementação, encontramos um problema com `@tailwindcss/typography` no ambiente StackBlitz (WebContainers). A solução foi criar estilos CSS customizados que:
+- Funcionam perfeitamente no StackBlitz
+- Mantêm a mesma qualidade visual
+- São mais leves (sem dependência extra)
+- Totalmente customizáveis
