@@ -177,30 +177,13 @@ export function GeniusChat({
         throw new Error(response.error || 'Falha ao criar tarefa');
       }
 
-      // Criar mensagem de status
-      const statusMessage: Message = {
-        id: `temp-status-${Date.now()}`,
-        conversation_id: conversationId,
-        role: 'assistant',
-        content: preparedFiles.length > 0
-          ? 'Analisando seus arquivos no Manus...'
-          : 'Pensando...',
-        message_type: 'genius_task',
-        external_task_id: response.task_id,
-        trace_id: response.trace_id,
-        genius_status: 'pending',
-        created_at: new Date().toISOString()
-      };
-
-      onMessagesUpdate([...messages, userMessage, statusMessage]);
-
       // Limpar input e arquivos
       setInput('');
       setLocalFiles([]);
       onClearFiles();
 
-      // Refresh messages para pegar a versão do banco
-      setTimeout(refreshMessages, 1000);
+      // Refresh messages para pegar a versão do banco (incluindo a mensagem do usuário)
+      setTimeout(refreshMessages, 500);
 
     } catch (err: any) {
       console.error('[Genius] Error sending task:', err);
