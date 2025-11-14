@@ -105,6 +105,23 @@ Deno.serve(async (req: Request) => {
     // Get raw body for signature verification
     const rawBody = await req.text();
 
+    // Handle Manus webhook registration test (empty body or empty JSON)
+    // Test requests from Manus don't include signature headers or meaningful payload
+    // Return 200 OK immediately to pass webhook registration validation
+    if (!rawBody || rawBody.trim() === "" || rawBody.trim() === "{}") {
+      console.log(JSON.stringify({
+        event: "webhook_test_or_empty_body_received",
+        body_length: rawBody ? rawBody.length : 0
+      }));
+      return new Response(JSON.stringify({
+        success: true,
+        message: "Webhook registered successfully."
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     // Log incoming webhook headers for debugging
     const signature = req.headers.get("X-Webhook-Signature");
     const timestamp = req.headers.get("X-Webhook-Timestamp");
