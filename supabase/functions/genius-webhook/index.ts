@@ -172,6 +172,21 @@ Deno.serve(async (req: Request) => {
       }
     }));
 
+    // Handle Manus webhook registration test event
+    if (payload.event_type === 'webhook.test' || payload.event_type === 'ping' || !payload.event_id) {
+      console.log(JSON.stringify({
+        event: "webhook_test_received",
+        payload: payload
+      }));
+      return new Response(JSON.stringify({
+        success: true,
+        message: "Test event received successfully."
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     const { event_id, event_type, task_detail } = payload;
 
     if (!event_id || !event_type || !task_detail) {
