@@ -87,17 +87,15 @@ export function GeniusChat({
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*', // Listen to INSERT and UPDATE
           schema: 'public',
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          const newMessage = payload.new as Message;
-          if (newMessage.message_type === 'genius_result' || newMessage.message_type === 'genius_error') {
-            console.log('[Genius] New result message:', newMessage);
-            refreshMessages();
-          }
+          console.log('[Genius] Message change detected:', payload.eventType, payload.new);
+          // Refresh on any message change
+          refreshMessages();
         }
       )
       .subscribe();
@@ -108,13 +106,21 @@ export function GeniusChat({
   }, [conversationId]);
 
   async function refreshMessages() {
-    const { data } = await supabase
+    console.log('[Genius] Refreshing messages for conversation:', conversationId);
+    const { data, error } = await supabase
       .from('messages')
       .select('*')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
 
+    if (error) {
+      console.error('[Genius] Error fetching messages:', error);
+      return;
+    }
+
+    console.log('[Genius] Fetched messages:', data?.length, 'messages');
     if (data) {
+      console.log('[Genius] Sample message:', data[data.length - 1]);
       onMessagesUpdate(data);
     }
   }
@@ -200,8 +206,9 @@ export function GeniusChat({
         throw new Error(response.error || 'Falha ao criar tarefa');
       }
 
-      // Refresh messages para pegar a versão real do banco
-      setTimeout(refreshMessages, 1000);
+      // Refresh messages imediatamente e novamente após 2s para pegar atualizações
+      await refreshMessages();
+      setTimeout(refreshMessages, 2000);
 
     } catch (err: any) {
       console.error('[Genius] Error sending task:', err);
