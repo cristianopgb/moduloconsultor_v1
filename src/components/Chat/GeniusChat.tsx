@@ -254,11 +254,12 @@ export function GeniusChat({
         );
       }
 
-      // Call Edge Function to create task
+      // Call Edge Function to create task with conversation history
       const response = await GeniusApiService.createTask({
         prompt: userInput,
         files: preparedFiles,
-        conversationId
+        conversationId,
+        history: messages // Pass full conversation context
       });
 
       if (!response.success) {

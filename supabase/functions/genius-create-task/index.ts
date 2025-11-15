@@ -292,7 +292,7 @@ Deno.serve(async (req: Request) => {
 
     // Parse payload
     const body = await req.json();
-    const { prompt, files, conversation_id } = body;
+    const { prompt, files, conversation_id, history } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return new Response(
@@ -310,6 +310,66 @@ Deno.serve(async (req: Request) => {
 
     // Sanitizar prompt (limitar a 5000 chars)
     const sanitizedPrompt = prompt.substring(0, 5000).trim();
+
+    // <<<<<<< OTIMIZAÇÃO: Escolher taskMode inteligentemente >>>>>>>>
+    let taskMode = "llm"; // Padrão: chat rápido (1-3s)
+
+    // Palavras-chave que indicam tarefas complexas
+    const complexKeywords = [
+      "analise", "análise", "crie", "desenvolva", "gere",
+      "relatório", "gráfico", "planilha", "dashboard",
+      "pesquise", "procure", "encontre dados", "extraia",
+      "calcule", "some", "compare", "visualize"
+    ];
+
+    const promptLower = sanitizedPrompt.toLowerCase();
+
+    // Regra 1: Sempre usar agent se há arquivos
+    if (filesToUpload.length > 0) {
+      taskMode = "agent";
+      console.log(JSON.stringify({
+        event: "task_mode_decision",
+        trace_id: traceId,
+        mode: "agent",
+        reason: "files_attached",
+        file_count: filesToUpload.length
+      }));
+    }
+    // Regra 2: Usar agent se prompt contém palavras-chave complexas
+    else if (complexKeywords.some(keyword => promptLower.includes(keyword))) {
+      taskMode = "agent";
+      console.log(JSON.stringify({
+        event: "task_mode_decision",
+        trace_id: traceId,
+        mode: "agent",
+        reason: "complex_prompt",
+        matched_keywords: complexKeywords.filter(k => promptLower.includes(k))
+      }));
+    }
+    // Regra 3: Usar agent se prompt é muito longo (>500 chars indica tarefa complexa)
+    else if (sanitizedPrompt.length > 500) {
+      taskMode = "agent";
+      console.log(JSON.stringify({
+        event: "task_mode_decision",
+        trace_id: traceId,
+        mode: "agent",
+        reason: "long_prompt",
+        prompt_length: sanitizedPrompt.length
+      }));
+    }
+    // Padrão: usar LLM rápido para conversação
+    else {
+      console.log(JSON.stringify({
+        event: "task_mode_decision",
+        trace_id: traceId,
+        mode: "llm",
+        reason: "conversational",
+        prompt_length: sanitizedPrompt.length
+      }));
+    }
+
+    // Preparar histórico para contexto (pegar últimas 10 mensagens)
+    const conversationHistory = (history || []).slice(-10);
 
     // Validar arquivos
     const filesToUpload: FileToUpload[] = files || [];
@@ -390,8 +450,25 @@ Deno.serve(async (req: Request) => {
     const taskPayload: any = {
       prompt: sanitizedPrompt,
       agentProfile: "manus-1.5",
-      taskMode: "agent",
+      taskMode: taskMode, // Usa o modo decidido pela lógica acima
     };
+
+    // Adicionar histórico para contexto da conversa
+    if (conversationHistory.length > 0) {
+      // Formatar mensagens no formato esperado pelo Manus
+      taskPayload.messages = conversationHistory
+        .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
+        .map((msg: any) => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+      console.log(JSON.stringify({
+        event: "conversation_context_added",
+        trace_id: traceId,
+        message_count: taskPayload.messages.length
+      }));
+    }
 
     // Adicionar attachments apenas se houver arquivos
     if (fileIds.length > 0) {
@@ -400,8 +477,6 @@ Deno.serve(async (req: Request) => {
         filename: filesToUpload[idx].filename,
       }));
     }
-
-    // Se não há arquivos, o Manus vai funcionar como LLM conversacional normal
 
     const createTaskRes = await fetch(`${MANUS_API_BASE}/tasks`, {
       method: "POST",

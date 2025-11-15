@@ -12,6 +12,10 @@ export interface CreateGeniusTaskParams {
     mime_type: string;
   }>;
   conversationId: string;
+  history?: Array<{
+    role: string;
+    content: string;
+  }>;
 }
 
 export interface CreateGeniusTaskResponse {
@@ -52,6 +56,7 @@ export class GeniusApiService {
           prompt: params.prompt,
           files: params.files,
           conversation_id: params.conversationId,
+          history: params.history, // Enviar histórico para contexto
         },
       });
 
