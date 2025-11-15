@@ -125,12 +125,20 @@ export function GeniusChat({
     setLoading(true);
     setError('');
 
+    const userInput = input;
+    const userFiles = localFiles;
+
+    // Limpar input e arquivos IMEDIATAMENTE para melhor UX
+    setInput('');
+    setLocalFiles([]);
+    onClearFiles();
+
     try {
       // Validar e preparar arquivos se houver
       let preparedFiles: any[] = [];
 
-      if (localFiles.length > 0) {
-        const filesToValidate: FileToValidate[] = localFiles.map(f => ({
+      if (userFiles.length > 0) {
+        const filesToValidate: FileToValidate[] = userFiles.map(f => ({
           name: f.name,
           size: f.size,
           type: f.type
@@ -140,11 +148,14 @@ export function GeniusChat({
         if (!validation.valid) {
           setError(validation.errors.join(' '));
           setLoading(false);
+          // Restaurar input e arquivos em caso de erro de validação
+          setInput(userInput);
+          setLocalFiles(userFiles);
           return;
         }
 
         // Preparar arquivos (converter para base64)
-        preparedFiles = await prepareFilesForUpload(localFiles);
+        preparedFiles = await prepareFilesForUpload(userFiles);
       }
 
       // Criar mensagem do usuário
@@ -152,24 +163,35 @@ export function GeniusChat({
         id: `temp-user-${Date.now()}`,
         conversation_id: conversationId,
         role: 'user',
-        content: input,
+        content: userInput,
         message_type: 'genius_task',
         created_at: new Date().toISOString()
       };
 
-      onMessagesUpdate([...messages, userMessage]);
+      // Criar mensagem temporária de "processando"
+      const tempProcessingMessage: Message = {
+        id: `temp-processing-${Date.now()}`,
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: 'Iniciando processamento...',
+        message_type: 'genius_task',
+        genius_status: 'pending',
+        created_at: new Date().toISOString()
+      };
+
+      onMessagesUpdate([...messages, userMessage, tempProcessingMessage]);
 
       // Inserir no banco
       await supabase.from('messages').insert({
         conversation_id: conversationId,
         role: 'user',
-        content: input,
+        content: userInput,
         message_type: 'genius_task'
       });
 
       // Sempre chamar Edge Function para criar tarefa (com ou sem arquivos)
       const response = await GeniusApiService.createTask({
-        prompt: input,
+        prompt: userInput,
         files: preparedFiles,
         conversationId
       });
@@ -178,13 +200,8 @@ export function GeniusChat({
         throw new Error(response.error || 'Falha ao criar tarefa');
       }
 
-      // Limpar input e arquivos
-      setInput('');
-      setLocalFiles([]);
-      onClearFiles();
-
-      // Refresh messages para pegar a versão do banco (incluindo a mensagem do usuário)
-      setTimeout(refreshMessages, 500);
+      // Refresh messages para pegar a versão real do banco
+      setTimeout(refreshMessages, 1000);
 
     } catch (err: any) {
       console.error('[Genius] Error sending task:', err);

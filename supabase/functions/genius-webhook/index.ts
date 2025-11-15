@@ -335,7 +335,7 @@ Deno.serve(async (req: Request) => {
         updateData.status = "completed";
         updateData.stop_reason = "finish";
 
-        if (message) updateData.message = message;
+        // Message is stored in messages table, not in genius_tasks
         if (credit_usage !== undefined) updateData.credit_usage = credit_usage;
 
         // Processar attachments: adicionar expires_at
@@ -359,7 +359,7 @@ Deno.serve(async (req: Request) => {
       } else if (stop_reason === "ask") {
         updateData.status = "completed";
         updateData.stop_reason = "ask";
-        if (message) updateData.message = message;
+        // Message is stored in messages table, not in genius_tasks
       } else {
         updateData.status = "failed";
         updateData.stop_reason = "timeout";
