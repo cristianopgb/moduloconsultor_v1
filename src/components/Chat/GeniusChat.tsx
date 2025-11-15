@@ -356,7 +356,7 @@ export function GeniusChat({
                   <TaskProgressIndicator
                     status={msg.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
                     createdAt={msg.created_at}
-                    estimatedTimeSeconds={180}
+                    hasFiles={msg.genius_attachments ? msg.genius_attachments.length > 0 : false}
                   />
                   {msg.genius_credit_usage && (
                     <p className="text-xs text-gray-400 mt-2 text-right">

@@ -5,13 +5,18 @@ interface TaskProgressIndicatorProps {
   status: 'pending' | 'running' | 'completed' | 'failed';
   createdAt: string;
   estimatedTimeSeconds?: number;
+  hasFiles?: boolean;
 }
 
 export function TaskProgressIndicator({
   status,
   createdAt,
-  estimatedTimeSeconds = 120
+  estimatedTimeSeconds,
+  hasFiles = false
 }: TaskProgressIndicatorProps) {
+  // Ajustar tempo estimado com base no contexto
+  const defaultEstimate = hasFiles ? 180 : 60; // 3 min com arquivos, 1 min sem
+  const estimate = estimatedTimeSeconds || defaultEstimate;
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
@@ -31,19 +36,22 @@ export function TaskProgressIndicator({
     if (status === 'completed') return 'Tarefa concluída com sucesso';
     if (status === 'failed') return 'Falha no processamento';
 
-    if (elapsedSeconds < 10) return 'Iniciando processamento...';
-    if (elapsedSeconds < 30) return 'Analisando conteúdo...';
-    if (elapsedSeconds < 60) return 'Gerando insights...';
-    if (elapsedSeconds < 90) return 'Criando visualizações...';
-    if (elapsedSeconds < 120) return 'Finalizando documento...';
-    return 'Processamento avançado em andamento...';
+    if (elapsedSeconds < 5) return 'Iniciando processamento...';
+    if (elapsedSeconds < 15) return 'Conectando com Manus AI...';
+    if (elapsedSeconds < 30) return 'Analisando arquivos e contexto...';
+    if (elapsedSeconds < 60) return 'Processando dados...';
+    if (elapsedSeconds < 90) return 'Gerando insights e análises...';
+    if (elapsedSeconds < 120) return 'Criando visualizações...';
+    if (elapsedSeconds < 180) return 'Finalizando documentos...';
+    if (elapsedSeconds < 240) return 'Processamento avançado (arquivos grandes)...';
+    return 'Quase lá! Finalizando tarefas complexas...';
   };
 
   const getProgressPercentage = () => {
     if (status === 'completed') return 100;
     if (status === 'failed') return 0;
 
-    const percentage = Math.min(95, (elapsedSeconds / estimatedTimeSeconds) * 100);
+    const percentage = Math.min(95, (elapsedSeconds / estimate) * 100);
     return Math.round(percentage);
   };
 
@@ -120,16 +128,18 @@ export function TaskProgressIndicator({
         </div>
       </div>
 
-      {estimatedTimeSeconds && elapsedSeconds < estimatedTimeSeconds && (
+      {elapsedSeconds < estimate && (
         <p className="text-xs text-gray-500 text-center">
-          Tempo estimado restante: ~{formatTime(estimatedTimeSeconds - elapsedSeconds)}
+          Tempo estimado restante: ~{formatTime(estimate - elapsedSeconds)}
         </p>
       )}
 
-      {elapsedSeconds > estimatedTimeSeconds && (
+      {elapsedSeconds > estimate && (
         <p className="text-xs text-yellow-400 text-center flex items-center justify-center gap-1">
           <AlertCircle className="w-3 h-3" />
-          Processamento mais demorado que o esperado, mas ainda em andamento...
+          {hasFiles
+            ? 'Arquivos grandes requerem mais tempo. Processamento em andamento...'
+            : 'Processamento mais demorado que o esperado, mas ainda em andamento...'}
         </p>
       )}
     </div>
