@@ -24,7 +24,7 @@ interface AttachedFilePreview {
 export function GeniusChat({
   conversationId,
   userId,
-  messages,
+  messages: externalMessages,
   onMessagesUpdate,
   attachedFiles,
   onClearFiles
@@ -40,17 +40,106 @@ export function GeniusChat({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
+  // Local state for messages - single source of truth
+  const [messages, setMessages] = useState<Message[]>(externalMessages);
+
+  // Sync with external messages on mount/conversation change
+  useEffect(() => {
+    setMessages(externalMessages);
+  }, [conversationId]);
+
+  // Notify parent of message changes
+  useEffect(() => {
+    onMessagesUpdate(messages);
+  }, [messages]);
+
   // Sync local files with prop
   useEffect(() => {
     setLocalFiles(attachedFiles);
   }, [attachedFiles]);
 
-  // Realtime listener para atualizações de tarefas
+  // Fetch initial messages
+  useEffect(() => {
+    async function fetchInitialMessages() {
+      console.log('[Genius] Fetching initial messages for conversation:', conversationId);
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('[Genius] Error fetching initial messages:', error);
+        return;
+      }
+
+      if (data) {
+        console.log('[Genius] Loaded', data.length, 'initial messages');
+        setMessages(data);
+      }
+    }
+    fetchInitialMessages();
+  }, [conversationId]);
+
+  // UNIFIED Realtime listener - single source of truth
   useEffect(() => {
     if (!conversationId) return;
 
     const channel = supabase
-      .channel(`genius-tasks-${conversationId}`)
+      .channel(`realtime-genius-${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        },
+        (payload) => {
+          console.log('[Genius] New message INSERT:', payload.new);
+          const newMessage = payload.new as Message;
+          // Append new message to list
+          setMessages((current) => {
+            // Avoid duplicates
+            if (current.some(m => m.id === newMessage.id)) return current;
+
+            // If this is a genius_result, remove any temp placeholder
+            if (newMessage.message_type === 'genius_result' || newMessage.message_type === 'genius_error') {
+              // Remove temp messages that match the task
+              const filtered = current.filter(m => {
+                // Keep if not temp, or if temp but different task
+                if (!m.id.startsWith('temp-')) return true;
+                if (m.external_task_id && newMessage.external_task_id && m.external_task_id === newMessage.external_task_id) {
+                  return false; // Remove temp with same task_id
+                }
+                return true;
+              });
+              return [...filtered, newMessage];
+            }
+
+            return [...current, newMessage];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        },
+        (payload) => {
+          console.log('[Genius] Message UPDATE:', payload.new);
+          const updatedMessage = payload.new as Message;
+          // Update existing message in list
+          setMessages((current) =>
+            current.map((msg) =>
+              msg.id === updatedMessage.id ? updatedMessage : msg
+            )
+          );
+        }
+      )
       .on(
         'postgres_changes',
         {
@@ -62,11 +151,13 @@ export function GeniusChat({
         (payload) => {
           console.log('[Genius] Task update:', payload);
           if (payload.new) {
-            setCurrentTask(payload.new as GeniusTask);
+            const task = payload.new as GeniusTask;
+            setCurrentTask(task);
 
-            // Se tarefa completou, atualizar mensagens
-            if (payload.new.status === 'completed') {
-              refreshMessages();
+            // If task completed, disable loading
+            if (task.status === 'completed' || task.status === 'failed') {
+              console.log('[Genius] Task finished:', task.status);
+              setLoading(false);
             }
           }
         }
@@ -78,52 +169,7 @@ export function GeniusChat({
     };
   }, [conversationId]);
 
-  // Realtime listener para novas mensagens de resultado
-  useEffect(() => {
-    if (!conversationId) return;
-
-    const channel = supabase
-      .channel(`genius-messages-${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // Listen to INSERT and UPDATE
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        (payload) => {
-          console.log('[Genius] Message change detected:', payload.eventType, payload.new);
-          // Refresh on any message change
-          refreshMessages();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId]);
-
-  async function refreshMessages() {
-    console.log('[Genius] Refreshing messages for conversation:', conversationId);
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('[Genius] Error fetching messages:', error);
-      return;
-    }
-
-    console.log('[Genius] Fetched messages:', data?.length, 'messages');
-    if (data) {
-      console.log('[Genius] Sample message:', data[data.length - 1]);
-      onMessagesUpdate(data);
-    }
-  }
+  // Function removed - using realtime updates instead
 
   async function sendGeniusTask() {
     if (!input.trim() || loading) return;
@@ -164,9 +210,10 @@ export function GeniusChat({
         preparedFiles = await prepareFilesForUpload(userFiles);
       }
 
-      // Criar mensagem do usuário
+      // OPTIMISTIC UI UPDATE: Add user message immediately
+      const tempUserId = `temp-user-${Date.now()}`;
       const userMessage: Message = {
-        id: `temp-user-${Date.now()}`,
+        id: tempUserId,
         conversation_id: conversationId,
         role: 'user',
         content: userInput,
@@ -174,28 +221,40 @@ export function GeniusChat({
         created_at: new Date().toISOString()
       };
 
-      // Criar mensagem temporária de "processando"
+      // Add to local state immediately for instant feedback
+      setMessages((current) => [...current, userMessage]);
+
+      // OPTIMISTIC UI UPDATE: Add placeholder assistant message with loading state
+      const tempAssistantId = `temp-assistant-${Date.now()}`;
       const tempProcessingMessage: Message = {
-        id: `temp-processing-${Date.now()}`,
+        id: tempAssistantId,
         conversation_id: conversationId,
         role: 'assistant',
-        content: 'Iniciando processamento...',
-        message_type: 'genius_task',
+        content: '',
+        message_type: 'genius_result',
         genius_status: 'pending',
         created_at: new Date().toISOString()
       };
 
-      onMessagesUpdate([...messages, userMessage, tempProcessingMessage]);
+      // Add placeholder to show progress indicator
+      setMessages((current) => [...current, tempProcessingMessage]);
 
-      // Inserir no banco
-      await supabase.from('messages').insert({
+      // Insert user message to database (don't await to avoid blocking UI)
+      const { data: insertedUserMsg } = await supabase.from('messages').insert({
         conversation_id: conversationId,
         role: 'user',
         content: userInput,
         message_type: 'genius_task'
-      });
+      }).select().single();
 
-      // Sempre chamar Edge Function para criar tarefa (com ou sem arquivos)
+      // Replace temp user message with real one
+      if (insertedUserMsg) {
+        setMessages((current) =>
+          current.map((m) => (m.id === tempUserId ? insertedUserMsg as Message : m))
+        );
+      }
+
+      // Call Edge Function to create task
       const response = await GeniusApiService.createTask({
         prompt: userInput,
         files: preparedFiles,
@@ -206,9 +265,18 @@ export function GeniusChat({
         throw new Error(response.error || 'Falha ao criar tarefa');
       }
 
-      // Refresh messages imediatamente e novamente após 2s para pegar atualizações
-      await refreshMessages();
-      setTimeout(refreshMessages, 2000);
+      console.log('[Genius] Task created successfully:', response.task_id);
+
+      // Update placeholder with task_id so we can track it
+      setMessages((current) =>
+        current.map((m) =>
+          m.id === tempAssistantId
+            ? { ...m, external_task_id: response.task_id, genius_status: 'running' }
+            : m
+        )
+      );
+
+      // Webhook will handle adding the final response via realtime
 
     } catch (err: any) {
       console.error('[Genius] Error sending task:', err);
@@ -234,18 +302,32 @@ export function GeniusChat({
         throw new Error(response.error || 'Falha ao continuar tarefa');
       }
 
+      const userResponse = continueInput;
       setContinueInput('');
 
-      // Mensagem do usuário
+      // OPTIMISTIC: Add user message immediately
+      const tempMsgId = `temp-continue-${Date.now()}`;
+      const userMsg: Message = {
+        id: tempMsgId,
+        conversation_id: conversationId,
+        role: 'user',
+        content: userResponse,
+        message_type: 'text',
+        external_task_id: taskId,
+        created_at: new Date().toISOString()
+      };
+      setMessages((current) => [...current, userMsg]);
+
+      // Insert to database
       await supabase.from('messages').insert({
         conversation_id: conversationId,
         role: 'user',
-        content: continueInput,
+        content: userResponse,
         message_type: 'text',
         external_task_id: taskId
       });
 
-      refreshMessages();
+      // Webhook will handle the response via realtime
 
     } catch (err: any) {
       console.error('[Genius] Error continuing task:', err);
