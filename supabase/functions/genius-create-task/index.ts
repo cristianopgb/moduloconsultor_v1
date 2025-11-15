@@ -311,6 +311,12 @@ Deno.serve(async (req: Request) => {
     // Sanitizar prompt (limitar a 5000 chars)
     const sanitizedPrompt = prompt.substring(0, 5000).trim();
 
+    // Preparar histórico para contexto (pegar últimas 10 mensagens)
+    const conversationHistory = (history || []).slice(-10);
+
+    // Validar arquivos (DECLARAR ANTES DE USAR)
+    const filesToUpload: FileToUpload[] = files || [];
+
     // <<<<<<< OTIMIZAÇÃO: Escolher taskMode inteligentemente >>>>>>>>
     let taskMode = "llm"; // Padrão: chat rápido (1-3s)
 
@@ -367,12 +373,6 @@ Deno.serve(async (req: Request) => {
         prompt_length: sanitizedPrompt.length
       }));
     }
-
-    // Preparar histórico para contexto (pegar últimas 10 mensagens)
-    const conversationHistory = (history || []).slice(-10);
-
-    // Validar arquivos
-    const filesToUpload: FileToUpload[] = files || [];
 
     if (filesToUpload.length > MAX_FILES) {
       return new Response(
