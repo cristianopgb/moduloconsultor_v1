@@ -1,6 +1,5 @@
 import { saveAs } from 'file-saver';
 import { Document, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
-import PptxGenJS from 'pptxgenjs';
 
 export interface ExportOptions {
   content: string;
@@ -103,6 +102,8 @@ export async function exportToWord(markdown: string, fileName: string): Promise<
 
 export async function exportToPowerPoint(markdown: string, fileName: string): Promise<void> {
   try {
+    const { default: PptxGenJS }: any = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/+esm');
+
     const pptx = new PptxGenJS();
     pptx.layout = 'LAYOUT_16x9';
     pptx.author = 'Manus AI Assistant';

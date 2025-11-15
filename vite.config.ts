@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 // Bloqueia o pré-bundle/transform dessas libs UMD antigas.
 // (Estamos carregando via CDN no runtime, então não devem passar pelo esbuild.)
-const EXCLUDES = ['html-docx-js', 'pptxgenjs', 'xlsx', 'html2pdf.js']
+const EXCLUDES = ['html-docx-js', 'pptxgenjs', 'xlsx', 'html2pdf.js', 'jszip']
 
 export default defineConfig({
   plugins: [react()],
