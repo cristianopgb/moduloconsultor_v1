@@ -318,7 +318,8 @@ Deno.serve(async (req: Request) => {
     const filesToUpload: FileToUpload[] = files || [];
 
     // <<<<<<< OTIMIZAÇÃO: Escolher taskMode inteligentemente >>>>>>>>
-    let taskMode = "llm"; // Padrão: chat rápido (1-3s)
+    // Modos válidos do Manus: "chat" (rápido), "adaptive" (médio), "agent" (completo)
+    let taskMode = "chat"; // Padrão: chat rápido (1-3s)
 
     // Palavras-chave que indicam tarefas complexas
     const complexKeywords = [
@@ -363,12 +364,12 @@ Deno.serve(async (req: Request) => {
         prompt_length: sanitizedPrompt.length
       }));
     }
-    // Padrão: usar LLM rápido para conversação
+    // Padrão: usar chat rápido para conversação
     else {
       console.log(JSON.stringify({
         event: "task_mode_decision",
         trace_id: traceId,
-        mode: "llm",
+        mode: "chat",
         reason: "conversational",
         prompt_length: sanitizedPrompt.length
       }));
