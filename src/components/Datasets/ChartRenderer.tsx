@@ -17,25 +17,43 @@ interface ChartConfig {
 }
 
 interface ChartRendererProps {
-  chartConfig: ChartConfig
+  chartConfig?: ChartConfig
+  type?: 'bar' | 'line' | 'pie' | 'scatter' | 'histogram'
+  data?: any
+  title?: string
 }
 
-export function ChartRenderer({ chartConfig }: ChartRendererProps) {
+export function ChartRenderer({ chartConfig, type, data, title }: ChartRendererProps) {
+  const config = chartConfig || (type && data ? {
+    type,
+    title: title || 'Gráfico',
+    data
+  } : null)
+
+  if (!config) {
+    return (
+      <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4">
+        <p className="text-sm text-gray-400">Configuração de gráfico inválida</p>
+      </div>
+    )
+  }
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartInstanceRef = useRef<any>(null)
 
   useEffect(() => {
-    renderChart()
+    if (config) {
+      renderChart()
+    }
     return () => {
       if (chartInstanceRef.current) {
         chartInstanceRef.current.destroy()
         chartInstanceRef.current = null
       }
     }
-  }, [chartConfig])
+  }, [config])
 
   const renderChart = async () => {
-    if (!canvasRef.current) return
+    if (!canvasRef.current || !config) return
 
     try {
       // Importar Chart.js dinamicamente
@@ -56,20 +74,20 @@ export function ChartRenderer({ chartConfig }: ChartRendererProps) {
         '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6366f1'
       ]
 
-      let chartType = chartConfig.type
-      if (chartType === 'histogram') chartType = 'bar' // Chart.js não tem histogram nativo
+      let chartType = config.type
+      if (chartType === 'histogram') chartType = 'bar'
 
-      const config: any = {
+      const chartJsConfig: any = {
         type: chartType,
         data: {
-          labels: chartConfig.data.labels,
-          datasets: chartConfig.data.datasets.map((dataset, index) => ({
+          labels: config.data.labels,
+          datasets: config.data.datasets.map((dataset, index) => ({
             ...dataset,
-            backgroundColor: dataset.backgroundColor || 
-              (chartConfig.type === 'pie' ? defaultColors : defaultColors[index % defaultColors.length]),
+            backgroundColor: dataset.backgroundColor ||
+              (config.type === 'pie' ? defaultColors : defaultColors[index % defaultColors.length]),
             borderColor: dataset.borderColor || defaultColors[index % defaultColors.length],
-            borderWidth: chartConfig.type === 'line' ? 2 : 1,
-            fill: chartConfig.type === 'line' ? false : undefined,
+            borderWidth: config.type === 'line' ? 2 : 1,
+            fill: config.type === 'line' ? false : undefined,
           }))
         },
         options: {
@@ -78,7 +96,7 @@ export function ChartRenderer({ chartConfig }: ChartRendererProps) {
           plugins: {
             title: {
               display: true,
-              text: chartConfig.title,
+              text: config.title,
               color: '#e5e7eb',
               font: { size: 14, weight: 'bold' }
             },
@@ -86,7 +104,7 @@ export function ChartRenderer({ chartConfig }: ChartRendererProps) {
               labels: { color: '#e5e7eb' }
             }
           },
-          scales: chartConfig.type !== 'pie' ? {
+          scales: config.type !== 'pie' ? {
             x: {
               ticks: { color: '#9ca3af' },
               grid: { color: '#374151' }
@@ -96,11 +114,11 @@ export function ChartRenderer({ chartConfig }: ChartRendererProps) {
               grid: { color: '#374151' }
             }
           } : undefined,
-          ...chartConfig.options
+          ...config.options
         }
       }
 
-      chartInstanceRef.current = new Chart(ctx, config)
+      chartInstanceRef.current = new Chart(ctx, chartJsConfig)
 
       // Add data-chart-title attribute for export functionality
       if (canvasRef.current) {
@@ -150,7 +168,7 @@ export function ChartRenderer({ chartConfig }: ChartRendererProps) {
   }
 
   const getChartIcon = () => {
-    switch (chartConfig.type) {
+    switch (config?.type) {
       case 'bar': return <BarChart3 className="w-4 h-4" />
       case 'pie': return <PieChart className="w-4 h-4" />
       case 'line': return <TrendingUp className="w-4 h-4" />
@@ -162,9 +180,9 @@ export function ChartRenderer({ chartConfig }: ChartRendererProps) {
     <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4">
       <div className="flex items-center gap-2 mb-3">
         {getChartIcon()}
-        <h4 className="text-white font-medium">{chartConfig.title}</h4>
+        <h4 className="text-white font-medium">{config?.title || 'Gráfico'}</h4>
         <span className="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded capitalize">
-          {chartConfig.type}
+          {config?.type || 'bar'}
         </span>
       </div>
       <div className="h-64 relative">

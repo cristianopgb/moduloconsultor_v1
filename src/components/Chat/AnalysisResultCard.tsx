@@ -141,28 +141,36 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
               Insights
             </h4>
             <ul className="space-y-1">
-              {insights.map((insight: string, idx: number) => (
-                <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
-                  <span className="text-blue-400 mt-1">•</span>
-                  <span>{insight}</span>
-                </li>
-              ))}
+              {insights.map((insight: any, idx: number) => {
+                const insightText = typeof insight === 'string'
+                  ? insight
+                  : insight?.content || insight?.description || insight?.title || JSON.stringify(insight)
+                return (
+                  <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+                    <span className="text-blue-400 mt-1">•</span>
+                    <span>{insightText}</span>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         )}
 
         {charts.length > 0 && (
           <div className="space-y-4">
-            {charts.map((chart: any, idx: number) => (
-              <div key={idx} className="bg-gray-900/50 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-white mb-3">{chart.title}</h4>
-                <ChartRenderer
-                  type={chart.type}
-                  data={chart.data}
-                  title={chart.title}
-                />
-              </div>
-            ))}
+            {charts.map((chart: any, idx: number) => {
+              if (!chart || !chart.type || !chart.data) return null
+              return (
+                <div key={idx} className="bg-gray-900/50 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-white mb-3">{chart.title || 'Gráfico'}</h4>
+                  <ChartRenderer
+                    type={chart.type}
+                    data={chart.data}
+                    title={chart.title || 'Gráfico'}
+                  />
+                </div>
+              )
+            })}
           </div>
         )}
 
