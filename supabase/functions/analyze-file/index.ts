@@ -11,12 +11,16 @@
  * 5. Hallucination Detector - Scans final text
  *
  * CRITICAL: Zero hallucinations guaranteed
+ *
+ * SUPPORTS TWO INPUT FORMATS:
+ * A) NEW: file_data (base64) + filename - Direct upload
+ * B) OLD: dataset_id - Pre-uploaded dataset
  * ===================================================================
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { enrichSchema, validatePlaybookCompatibility, type Column } from '../_shared/schema-validator.ts';
-import { loadPlaybooks, getPlaybookById } from '../_shared/playbook-registry.ts';
+import { loadPlaybooks } from '../_shared/playbook-registry.ts';
 import { evaluateGuardrails } from '../_shared/guardrails-engine.ts';
 import { generateSchemaAwareNarrative, formatNarrativeOutput } from '../_shared/narrative-adapter.ts';
 import { scanForHallucinations, formatViolationReport, generateBlockedResultMessage } from '../_shared/hallucination-detector.ts';
@@ -37,10 +41,19 @@ const corsHeaders = {
 };
 
 interface AnalyzeFileRequest {
-  dataset_id: string;
-  user_id: string;
-  file_key: string;
+  // NEW FORMAT: Direct file upload
+  file_data?: string; // base64 encoded file
+  filename?: string;
+
+  // OLD FORMAT: Pre-uploaded dataset
+  dataset_id?: string;
+  file_key?: string;
+
+  // COMMON
+  user_id?: string;
   user_question?: string;
+  conversation_id?: string;
+  force_analysis?: boolean;
 }
 
 Deno.serve(async (req: Request) => {
@@ -52,39 +65,149 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body: AnalyzeFileRequest = await req.json();
-    const { dataset_id, user_id, file_key, user_question } = body;
+    const { dataset_id, user_id, file_key, user_question, file_data, filename, conversation_id } = body;
 
-    console.log('[AnalyzeFile] Starting analysis:', { dataset_id, user_id, file_key });
+    console.log('[AnalyzeFile] Starting analysis:', {
+      has_file_data: !!file_data,
+      has_dataset_id: !!dataset_id,
+      filename,
+      conversation_id
+    });
 
-    // 1. Load dataset
-    const { data: dataset, error: datasetError } = await supabase
-      .from('datasets')
-      .select('*')
-      .eq('id', dataset_id)
-      .single();
-
-    if (datasetError || !dataset) {
-      throw new Error(`Dataset not found: ${datasetError?.message}`);
+    // ===================================================================
+    // INPUT VALIDATION
+    // ===================================================================
+    if (!file_data && !dataset_id) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Missing required field: file_data or dataset_id',
+          hint: 'Provide either file_data (base64) or dataset_id (UUID)'
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
-    // 2. Load rows from dataset_rows
-    const { data: rows, error: rowsError } = await supabase
-      .from('dataset_rows')
-      .select('row_data')
-      .eq('dataset_id', dataset_id)
-      .limit(1000);
-
-    if (rowsError) {
-      throw new Error(`Failed to load dataset rows: ${rowsError.message}`);
+    // Get user from JWT if not provided
+    let actualUserId = user_id;
+    if (!actualUserId) {
+      const authHeader = req.headers.get('Authorization');
+      if (authHeader) {
+        const { data: { user }, error: userError } = await supabase.auth.getUser(
+          authHeader.replace('Bearer ', '')
+        );
+        if (user) actualUserId = user.id;
+      }
     }
 
-    const rowData = rows?.map(r => r.row_data) || [];
+    console.log('[AnalyzeFile] User ID:', actualUserId || 'anonymous');
+
+    // ===================================================================
+    // LOAD DATA: Support both formats
+    // ===================================================================
+    let rowData: any[] = [];
+    let actualDatasetId = dataset_id;
+
+    if (file_data) {
+      console.log('[AnalyzeFile] Processing file_data (base64)');
+
+      // Decode base64 and parse file
+      try {
+        const decoded = atob(file_data);
+
+        // Try to parse as JSON first (simplest case)
+        try {
+          rowData = JSON.parse(decoded);
+        } catch {
+          // If not JSON, we need a real parser here
+          // For MVP, return error asking for CSV/JSON
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'File format not supported in this version',
+              hint: 'Please convert your file to JSON format or use the dataset upload flow'
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+      } catch (error) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: `Failed to decode file_data: ${error.message}`
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      console.log(`[AnalyzeFile] Parsed ${rowData.length} rows from file_data`);
+
+    } else if (dataset_id) {
+      console.log('[AnalyzeFile] Loading from dataset_id:', dataset_id);
+
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(dataset_id)) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Invalid dataset_id format',
+            hint: 'dataset_id must be a valid UUID'
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      // Load from database
+      const { data: rows, error: rowsError } = await supabase
+        .from('dataset_rows')
+        .select('row_data')
+        .eq('dataset_id', dataset_id)
+        .limit(1000);
+
+      if (rowsError) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: `Failed to load dataset rows: ${rowsError.message}`
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      rowData = rows?.map(r => r.row_data) || [];
+      console.log(`[AnalyzeFile] Loaded ${rowData.length} rows from dataset`);
+    }
+
     const rowCount = rowData.length;
 
-    console.log(`[AnalyzeFile] Loaded ${rowCount} rows`);
-
     if (rowCount === 0) {
-      throw new Error('Dataset is empty');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Dataset is empty',
+          hint: 'No rows found in the provided data'
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     // 3. Detect basic schema
@@ -169,37 +292,45 @@ Deno.serve(async (req: Request) => {
 
       const formattedAnalysis = formatFallbackAnalysis(fallbackResult);
 
-      // Save result to database
-      const { data: savedAnalysis, error: saveError } = await supabase
-        .from('data_analyses')
-        .insert({
-          dataset_id,
-          user_id,
-          playbook_id: 'generic_exploratory_v1',
-          narrative_text: formattedAnalysis,
-          compatibility_score: 0,
-          quality_score: fallbackResult.metadata.row_count >= 20 ? 60 : 40,
-          is_fallback: true,
-          metadata: {
-            fallback_reason: fallbackReason,
-            ...fallbackResult.metadata,
-            execution_time_ms: Date.now() - startTime
-          }
-        })
-        .select()
-        .single();
+      // Save result to database (if we have user_id)
+      let savedAnalysisId = null;
+      if (actualUserId) {
+        const { data: savedAnalysis, error: saveError } = await supabase
+          .from('data_analyses')
+          .insert({
+            dataset_id: actualDatasetId,
+            user_id: actualUserId,
+            playbook_id: 'generic_exploratory_v1',
+            narrative_text: formattedAnalysis,
+            compatibility_score: 0,
+            quality_score: fallbackResult.metadata.row_count >= 20 ? 60 : 40,
+            is_fallback: true,
+            metadata: {
+              fallback_reason: fallbackReason,
+              ...fallbackResult.metadata,
+              execution_time_ms: Date.now() - startTime
+            }
+          })
+          .select()
+          .single();
 
-      if (saveError) {
-        console.error('[AnalyzeFile] Error saving fallback analysis:', saveError);
+        if (saveError) {
+          console.error('[AnalyzeFile] Error saving fallback analysis:', saveError);
+        } else {
+          savedAnalysisId = savedAnalysis?.id;
+        }
       }
 
       return new Response(
         JSON.stringify({
           success: true,
-          analysis_id: savedAnalysis?.id,
+          analysis_id: savedAnalysisId,
           playbook_id: 'generic_exploratory_v1',
           is_fallback: true,
-          narrative: formattedAnalysis,
+          result: {
+            summary: formattedAnalysis
+          },
+          full_dataset_rows: rowCount,
           metadata: fallbackResult.metadata,
           execution_time_ms: Date.now() - startTime
         }),
@@ -340,66 +471,74 @@ Deno.serve(async (req: Request) => {
     // ===================================================================
     // Save analysis to database
     // ===================================================================
-    const { data: savedAnalysis, error: saveError } = await supabase
-      .from('data_analyses')
-      .insert({
-        dataset_id,
-        user_id,
-        playbook_id: selectedPlaybook.id,
-        narrative_text: formattedNarrative,
-        compatibility_score: bestMatch.score,
-        quality_score: finalQualityScore,
-        is_fallback: false,
-        metadata: {
-          playbook_name: selectedPlaybook.description,
-          schema_validation: {
-            columns_detected: basicSchema.length,
-            columns_enriched: enrichedSchema.length,
-            inferred_types: enrichedSchema.reduce((acc, col) => {
-              acc[col.name] = col.inferred_type || col.type;
-              return acc;
-            }, {} as Record<string, string>)
-          },
-          guardrails: {
-            active_sections: guardrails.active_sections,
-            disabled_sections: guardrails.disabled_sections.map(ds => ({
-              section: ds.section,
-              reason: ds.reason
-            })),
-            forbidden_terms_count: guardrails.forbidden_terms.length,
-            warnings: guardrails.warnings
-          },
-          hallucination_check: {
-            violations: hallucinationReport.violations.length,
-            confidence_penalty: hallucinationReport.confidence_penalty,
-            blocked_terms: hallucinationReport.blocked_terms
-          },
-          column_usage: narrative.column_usage_summary,
-          execution_time_ms: Date.now() - startTime,
-          row_count: rowCount
-        }
-      })
-      .select()
-      .single();
+    let savedAnalysisId = null;
+    if (actualUserId) {
+      const { data: savedAnalysis, error: saveError } = await supabase
+        .from('data_analyses')
+        .insert({
+          dataset_id: actualDatasetId,
+          user_id: actualUserId,
+          playbook_id: selectedPlaybook.id,
+          narrative_text: formattedNarrative,
+          compatibility_score: bestMatch.score,
+          quality_score: finalQualityScore,
+          is_fallback: false,
+          metadata: {
+            playbook_name: selectedPlaybook.description,
+            schema_validation: {
+              columns_detected: basicSchema.length,
+              columns_enriched: enrichedSchema.length,
+              inferred_types: enrichedSchema.reduce((acc, col) => {
+                acc[col.name] = col.inferred_type || col.type;
+                return acc;
+              }, {} as Record<string, string>)
+            },
+            guardrails: {
+              active_sections: guardrails.active_sections,
+              disabled_sections: guardrails.disabled_sections.map(ds => ({
+                section: ds.section,
+                reason: ds.reason
+              })),
+              forbidden_terms_count: guardrails.forbidden_terms.length,
+              warnings: guardrails.warnings
+            },
+            hallucination_check: {
+              violations: hallucinationReport.violations.length,
+              confidence_penalty: hallucinationReport.confidence_penalty,
+              blocked_terms: hallucinationReport.blocked_terms
+            },
+            column_usage: narrative.column_usage_summary,
+            execution_time_ms: Date.now() - startTime,
+            row_count: rowCount
+          }
+        })
+        .select()
+        .single();
 
-    if (saveError) {
-      console.error('[AnalyzeFile] Error saving analysis:', saveError);
+      if (saveError) {
+        console.error('[AnalyzeFile] Error saving analysis:', saveError);
+      } else {
+        savedAnalysisId = savedAnalysis?.id;
+      }
     }
 
     console.log(`[AnalyzeFile] ✅ Analysis complete in ${Date.now() - startTime}ms`);
 
     // ===================================================================
-    // Return final result
+    // Return final result (compatible with frontend expectations)
     // ===================================================================
     return new Response(
       JSON.stringify({
         success: true,
-        analysis_id: savedAnalysis?.id,
+        analysis_id: savedAnalysisId,
         playbook_id: selectedPlaybook.id,
         playbook_name: selectedPlaybook.description,
         compatibility_score: bestMatch.score,
         quality_score: finalQualityScore,
-        narrative: formattedNarrative,
+        result: {
+          summary: formattedNarrative
+        },
+        full_dataset_rows: rowCount,
         enriched_schema: enrichedSchema,
         columns_used: Object.keys(narrative.column_usage_summary),
         guardrails: {
