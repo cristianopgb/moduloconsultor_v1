@@ -25,6 +25,8 @@ import { evaluateGuardrails } from '../_shared/guardrails-engine.ts';
 import { generateSchemaAwareNarrative, formatNarrativeOutput } from '../_shared/narrative-adapter.ts';
 import { scanForHallucinations, formatViolationReport, generateBlockedResultMessage } from '../_shared/hallucination-detector.ts';
 import { generateSafeExploratoryAnalysis, formatFallbackAnalysis } from '../_shared/safe-exploratory-fallback.ts';
+import { ingestFile } from '../_shared/ingest-orchestrator.ts';
+import { buildAuditCard, formatAuditCardAsMarkdown } from '../_shared/audit-card-builder.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -110,37 +112,29 @@ Deno.serve(async (req: Request) => {
     // ===================================================================
     let rowData: any[] = [];
     let actualDatasetId = dataset_id;
+    let ingestTelemetry: any = null;
 
     if (file_data) {
-      console.log('[AnalyzeFile] Processing file_data (base64)');
+      console.log('[AnalyzeFile] Processing file_data (base64) using ingest orchestrator');
 
-      // Decode base64 and parse file
+      // Use ingest orchestrator to handle multiple file formats
       try {
-        const decoded = atob(file_data);
+        const ingestResult = await ingestFile(file_data, filename || 'unknown');
+        rowData = ingestResult.rows;
+        ingestTelemetry = ingestResult.telemetry;
 
-        // Try to parse as JSON first (simplest case)
-        try {
-          rowData = JSON.parse(decoded);
-        } catch {
-          // If not JSON, we need a real parser here
-          // For MVP, return error asking for CSV/JSON
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'File format not supported in this version',
-              hint: 'Please convert your file to JSON format or use the dataset upload flow'
-            }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            }
-          );
-        }
+        console.log('[AnalyzeFile] Ingestion complete:', {
+          source: ingestTelemetry.ingest_source,
+          rows: rowData.length,
+          columns: ingestTelemetry.column_count,
+          warnings: ingestTelemetry.ingest_warnings.length
+        });
       } catch (error) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: `Failed to decode file_data: ${error.message}`
+            error: error.message,
+            hint: 'Verifique se o arquivo está em um formato suportado (CSV, Excel, JSON, TXT)'
           }),
           {
             status: 400,
@@ -148,8 +142,6 @@ Deno.serve(async (req: Request) => {
           }
         );
       }
-
-      console.log(`[AnalyzeFile] Parsed ${rowData.length} rows from file_data`);
 
     } else if (dataset_id) {
       console.log('[AnalyzeFile] Loading from dataset_id:', dataset_id);
@@ -474,6 +466,15 @@ Deno.serve(async (req: Request) => {
     let savedAnalysisId = actualDatasetId; // If dataset_id provided, it's already created
 
     if (actualUserId) {
+      // Build audit card
+      const auditCard = ingestTelemetry ? buildAuditCard(
+        ingestTelemetry,
+        enrichedSchema,
+        guardrails,
+        selectedPlaybook.id,
+        bestMatch.score
+      ) : null;
+
       // Build the analysis result data
       const analysisData = {
         parsed_schema: {
@@ -490,7 +491,8 @@ Deno.serve(async (req: Request) => {
           compatibility_score: bestMatch.score,
           quality_score: finalQualityScore,
           narrative: formattedNarrative,
-          is_fallback: false
+          is_fallback: false,
+          audit_card: auditCard
         },
         status: 'completed',
         narrative_text: formattedNarrative,
@@ -502,6 +504,26 @@ Deno.serve(async (req: Request) => {
           playbook_id: selectedPlaybook.id,
           playbook_name: selectedPlaybook.description,
           compatibility_score: bestMatch.score,
+
+          // Ingestion telemetry (if available)
+          ...(ingestTelemetry && {
+            ingestion: {
+              source: ingestTelemetry.ingest_source,
+              file_size_bytes: ingestTelemetry.file_size_bytes,
+              detection_confidence: ingestTelemetry.detection_confidence,
+              discarded_rows: ingestTelemetry.discarded_rows,
+              dialect: ingestTelemetry.dialect,
+              decimal_locale: ingestTelemetry.decimal_locale,
+              encoding: ingestTelemetry.encoding,
+              sheet_name: ingestTelemetry.sheet_name,
+              total_sheets: ingestTelemetry.total_sheets,
+              detection_method: ingestTelemetry.detection_method,
+              format: ingestTelemetry.format,
+              ingest_warnings: ingestTelemetry.ingest_warnings,
+              limitations: ingestTelemetry.limitations
+            }
+          }),
+
           schema_validation: {
             columns_detected: basicSchema.length,
             columns_enriched: enrichedSchema.length,

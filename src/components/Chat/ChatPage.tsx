@@ -1154,8 +1154,8 @@ function ChatPage() {
 
       } else if (isAnalyticsMode && hasDataFiles) {
         console.log('[ANALYTICS MODE - NEW] Iniciando fluxo simplificado de análise...');
-        const dataFileRef = attachedRefs.find(ref => /\.(xlsx|xls|csv)$/i.test(ref.title || ''));
-        if (!dataFileRef) throw new Error('Nenhum arquivo de dados (Excel/CSV) encontrado para análise.');
+        const dataFileRef = attachedRefs.find(ref => /\.(xlsx|xls|csv|json|txt|pdf|docx|pptx)$/i.test(ref.title || ''));
+        if (!dataFileRef) throw new Error('Nenhum arquivo de dados encontrado para análise. Formatos suportados: Excel, CSV, JSON, TXT, PDF, Word, PowerPoint.');
 
         console.log('[ANALYTICS MODE - NEW] Arquivo de dados:', dataFileRef);
 
