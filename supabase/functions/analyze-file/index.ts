@@ -469,56 +469,104 @@ Deno.serve(async (req: Request) => {
     console.log(`[AnalyzeFile] Final quality score: ${finalQualityScore}/100`);
 
     // ===================================================================
-    // Save analysis to database
+    // Save or Update analysis to database
     // ===================================================================
-    let savedAnalysisId = null;
+    let savedAnalysisId = actualDatasetId; // If dataset_id provided, it's already created
+
     if (actualUserId) {
-      const { data: savedAnalysis, error: saveError } = await supabase
-        .from('data_analyses')
-        .insert({
-          dataset_id: actualDatasetId,
-          user_id: actualUserId,
+      // Build the analysis result data
+      const analysisData = {
+        parsed_schema: {
+          columns: enrichedSchema,
+          basic_columns: basicSchema.length,
+          enriched_columns: enrichedSchema.length
+        },
+        sample_data: rowData.slice(0, 50), // First 50 rows for reference
+        full_dataset_rows: rowCount,
+        llm_reasoning: `Playbook: ${selectedPlaybook.description} (compatibility: ${bestMatch.score}%)`,
+        ai_response: {
           playbook_id: selectedPlaybook.id,
-          narrative_text: formattedNarrative,
+          playbook_name: selectedPlaybook.description,
           compatibility_score: bestMatch.score,
           quality_score: finalQualityScore,
-          is_fallback: false,
-          metadata: {
-            playbook_name: selectedPlaybook.description,
-            schema_validation: {
-              columns_detected: basicSchema.length,
-              columns_enriched: enrichedSchema.length,
-              inferred_types: enrichedSchema.reduce((acc, col) => {
-                acc[col.name] = col.inferred_type || col.type;
-                return acc;
-              }, {} as Record<string, string>)
-            },
-            guardrails: {
-              active_sections: guardrails.active_sections,
-              disabled_sections: guardrails.disabled_sections.map(ds => ({
-                section: ds.section,
-                reason: ds.reason
-              })),
-              forbidden_terms_count: guardrails.forbidden_terms.length,
-              warnings: guardrails.warnings
-            },
-            hallucination_check: {
-              violations: hallucinationReport.violations.length,
-              confidence_penalty: hallucinationReport.confidence_penalty,
-              blocked_terms: hallucinationReport.blocked_terms
-            },
-            column_usage: narrative.column_usage_summary,
-            execution_time_ms: Date.now() - startTime,
-            row_count: rowCount
-          }
-        })
-        .select()
-        .single();
+          narrative: formattedNarrative,
+          is_fallback: false
+        },
+        status: 'completed',
+        narrative_text: formattedNarrative,
+        quality_score: finalQualityScore,
+        confidence_score: finalQualityScore,
+        processing_mode: 'enhanced',
+        methodology_used: selectedPlaybook.description,
+        metadata: {
+          playbook_id: selectedPlaybook.id,
+          playbook_name: selectedPlaybook.description,
+          compatibility_score: bestMatch.score,
+          schema_validation: {
+            columns_detected: basicSchema.length,
+            columns_enriched: enrichedSchema.length,
+            inferred_types: enrichedSchema.reduce((acc, col) => {
+              acc[col.name] = col.inferred_type || col.type;
+              return acc;
+            }, {} as Record<string, string>)
+          },
+          guardrails: {
+            active_sections: guardrails.active_sections,
+            disabled_sections: guardrails.disabled_sections.map(ds => ({
+              section: ds.section,
+              reason: ds.reason
+            })),
+            forbidden_terms_count: guardrails.forbidden_terms.length,
+            warnings: guardrails.warnings
+          },
+          hallucination_check: {
+            violations: hallucinationReport.violations.length,
+            confidence_penalty: hallucinationReport.confidence_penalty,
+            blocked_terms: hallucinationReport.blocked_terms
+          },
+          column_usage: narrative.column_usage_summary,
+          execution_time_ms: Date.now() - startTime,
+          row_count: rowCount
+        }
+      };
 
-      if (saveError) {
-        console.error('[AnalyzeFile] Error saving analysis:', saveError);
+      // If dataset_id provided, UPDATE existing record (frontend already created it)
+      // Otherwise, INSERT new record (legacy flow)
+      if (actualDatasetId) {
+        console.log('[AnalyzeFile] Updating existing data_analyses record:', actualDatasetId);
+
+        const { error: updateError } = await supabase
+          .from('data_analyses')
+          .update(analysisData)
+          .eq('id', actualDatasetId);
+
+        if (updateError) {
+          console.error('[AnalyzeFile] Error updating analysis:', updateError);
+        } else {
+          console.log('[AnalyzeFile] ✅ Analysis record updated successfully');
+        }
       } else {
-        savedAnalysisId = savedAnalysis?.id;
+        console.log('[AnalyzeFile] Creating new data_analyses record (legacy flow)');
+
+        const { data: savedAnalysis, error: insertError } = await supabase
+          .from('data_analyses')
+          .insert({
+            user_id: actualUserId,
+            conversation_id: conversation_id,
+            file_hash: 'legacy-' + Date.now(),
+            file_metadata: { filename: filename || 'unknown' },
+            user_question: user_question || 'No question provided',
+            ...analysisData
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('[AnalyzeFile] Error inserting analysis:', insertError);
+        } else {
+          savedAnalysisId = savedAnalysis?.id;
+          console.log('[AnalyzeFile] ✅ New analysis record created:', savedAnalysisId);
+        }
       }
     }
 

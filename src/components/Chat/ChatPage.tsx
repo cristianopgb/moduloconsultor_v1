@@ -1183,9 +1183,48 @@ function ChatPage() {
         setAnalysisState('analyzing');
         setLoading(false); // Hide generic loading, use analysisState instead
 
-        // 🎯 NOVA ARQUITETURA: Chama analyze-file diretamente
+        // 🎯 STEP 1: Create data_analyses record for tracking and telemetry
+        // Generate file hash for deduplication
+        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const file_hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        console.log('[ANALYTICS MODE - NEW] Creating data_analyses record with hash:', file_hash.substring(0, 16));
+
+        const { data: dataAnalysisRecord, error: createError } = await supabase
+          .from('data_analyses')
+          .insert({
+            user_id: user?.id,
+            conversation_id: current.id,
+            file_hash: file_hash,
+            file_metadata: {
+              filename: dataFileRef.title || 'arquivo.xlsx',
+              size: fileData.size,
+              type: fileData.type,
+              storage_path: dataFileRef.storage_path,
+              storage_bucket: dataFileRef.storage_bucket || 'references'
+            },
+            user_question: text,
+            parsed_schema: {},
+            sample_data: [],
+            full_dataset_rows: 0,
+            status: 'processing'
+          })
+          .select()
+          .single();
+
+        if (createError || !dataAnalysisRecord) {
+          console.error('[ANALYTICS MODE - NEW] Failed to create data_analyses record:', createError);
+          throw new Error(`Falha ao criar registro de análise: ${createError?.message || 'Erro desconhecido'}`);
+        }
+
+        const dataset_id = dataAnalysisRecord.id;
+        console.log('[ANALYTICS MODE - NEW] ✅ data_analyses record created:', dataset_id);
+
+        // 🎯 STEP 2: Call analyze-file with dataset_id
         const { data: analysisResponse, error: analysisError } = await supabase.functions.invoke('analyze-file', {
           body: {
+            dataset_id: dataset_id,
             file_data: file_data_base64,
             filename: dataFileRef.title || 'arquivo.xlsx',
             user_question: text,
