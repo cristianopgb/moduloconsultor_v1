@@ -1,0 +1,639 @@
+{
+  "schema_version": "1.0",
+  "registry_version": "2025-11-17.1",
+  "playbooks": [
+    {
+      "id": "pb_estoque_divergencias_v1",
+      "domain": "estoque",
+      "description": "Divergências de estoque a partir de saldo_anterior, entrada, saida e contagem_fisica.",
+      "required_columns": {
+        "saldo_anterior": "numeric",
+        "entrada": "numeric",
+        "saida": "numeric",
+        "contagem_fisica": "numeric"
+      },
+      "optional_columns": {
+        "categoria": "text",
+        "rua": "text",
+        "data": "date"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "qtd_esperada": { "deps": ["saldo_anterior","entrada","saida"], "formula": "saldo_anterior + entrada - saida" },
+        "divergencia": { "deps": ["qtd_esperada","contagem_fisica"], "formula": "contagem_fisica - qtd_esperada" },
+        "div_abs": { "deps": ["divergencia"], "formula": "ABS(divergencia)" },
+        "taxa_div": { "deps": ["divergencia"], "formula": "CASE WHEN divergencia != 0 THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20,
+        "require_numeric": ["saldo_anterior","entrada","saida","contagem_fisica"]
+      },
+      "sections": {
+        "overview": ["AVG(divergencia) AS div_media","AVG(div_abs) AS div_abs_media","SUM(taxa_div)/COUNT(*) AS taxa_itens_divergentes"],
+        "by_category": ["AVG_BY(categoria, div_abs)","SUM_BY(categoria, taxa_div)"],
+        "by_location": ["AVG_BY(rua, div_abs)","SUM_BY(rua, taxa_div)"],
+        "temporal_trend": ["AVG_BY(data, div_abs)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_vendas_basico_v1",
+      "domain": "vendas",
+      "description": "Análise básica de vendas (valor, quantidade, ticket).",
+      "required_columns": {
+        "quantidade": "numeric",
+        "valor_unit": "numeric"
+      },
+      "optional_columns": {
+        "produto": "text",
+        "categoria": "text",
+        "vendedor": "text",
+        "data": "date",
+        "cliente": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "valor_total": { "deps": ["quantidade","valor_unit"], "formula": "quantidade * valor_unit" },
+        "ticket_medio": { "deps": ["valor_total","quantidade"], "formula": "valor_total/NULLIF(quantidade,0)" }
+      },
+      "guardrails": {
+        "min_rows": 20,
+        "require_numeric": ["quantidade","valor_unit"]
+      },
+      "sections": {
+        "overview": ["SUM(valor_total) AS faturamento","SUM(quantidade) AS itens","AVG(ticket_medio) AS ticket_medio"],
+        "by_category": ["SUM_BY(categoria, valor_total)","SUM_BY(produto, valor_total)"],
+        "by_seller": ["SUM_BY(vendedor, valor_total)","AVG_BY(vendedor, ticket_medio)"],
+        "temporal_trend": ["SUM_BY(data, valor_total)","SUM_BY(data, quantidade)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_logistica_otif_v1",
+      "domain": "logistica",
+      "description": "OTIF (On Time In Full) com pontualidade e completude.",
+      "required_columns": {
+        "data_prevista": "date",
+        "data_entrega": "date",
+        "qtd_prevista": "numeric",
+        "qtd_entregue": "numeric"
+      },
+      "optional_columns": {
+        "cliente": "text",
+        "rota": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "on_time": { "deps": ["data_entrega","data_prevista"], "formula": "CASE WHEN data_entrega <= data_prevista THEN 1 ELSE 0 END" },
+        "in_full": { "deps": ["qtd_entregue","qtd_prevista"], "formula": "CASE WHEN qtd_entregue >= qtd_prevista THEN 1 ELSE 0 END" },
+        "otif": { "deps": ["on_time","in_full"], "formula": "CASE WHEN on_time=1 AND in_full=1 THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20,
+        "temporal_sections_require": ["data_prevista","data_entrega"]
+      },
+      "sections": {
+        "overview": ["AVG(on_time) AS taxa_on_time","AVG(in_full) AS taxa_in_full","AVG(otif) AS taxa_otif"],
+        "by_route": ["AVG_BY(rota, otif)","AVG_BY(rota, on_time)","AVG_BY(rota, in_full)"],
+        "by_customer": ["AVG_BY(cliente, otif)"],
+        "temporal_trend": ["AVG_BY(data_prevista, otif)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_rh_performance_v1",
+      "domain": "rh",
+      "description": "Performance de RH: absenteísmo, horas extras, churn.",
+      "required_columns": {
+        "colaborador": "text",
+        "presencas": "numeric",
+        "faltas": "numeric"
+      },
+      "optional_columns": {
+        "horas_extras": "numeric",
+        "data": "date",
+        "demitido": "numeric"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "absenteismo": { "deps": ["faltas","presencas"], "formula": "faltas/NULLIF(presencas+faltas,0)" },
+        "uso_horas_extras": { "deps": ["horas_extras"], "formula": "horas_extras" },
+        "churn_flag": { "deps": ["demitido"], "formula": "CASE WHEN demitido=1 THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20
+      },
+      "sections": {
+        "overview": ["AVG(absenteismo) AS absenteismo_medio","AVG(uso_horas_extras) AS he_media","AVG(churn_flag) AS taxa_churn"],
+        "by_employee": ["AVG_BY(colaborador, absenteismo)","SUM_BY(colaborador, uso_horas_extras)"],
+        "temporal_trend": ["AVG_BY(data, absenteismo)","AVG_BY(data, churn_flag)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_financeiro_cashflow_v1",
+      "domain": "financeiro",
+      "description": "Fluxo de caixa básico: entradas, saídas, saldo e projeção simples.",
+      "required_columns": {
+        "data": "date",
+        "valor": "numeric",
+        "tipo": "text"
+      },
+      "optional_columns": {
+        "centro_custo": "text",
+        "categoria": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "entrada": { "deps": ["valor","tipo"], "formula": "CASE WHEN LOWER(tipo) IN ('entrada','receita','in') THEN valor ELSE 0 END" },
+        "saida": { "deps": ["valor","tipo"], "formula": "CASE WHEN LOWER(tipo) IN ('saida','despesa','out') THEN valor ELSE 0 END" },
+        "saldo_dia": { "deps": ["entrada","saida"], "formula": "entrada - saida" }
+      },
+      "guardrails": {
+        "min_rows": 20,
+        "temporal_sections_require": ["data"]
+      },
+      "sections": {
+        "overview": ["SUM(entrada) AS total_entradas","SUM(saida) AS total_saidas","SUM(saldo_dia) AS saldo_liquido"],
+        "temporal_trend": ["SUM_BY(data, entrada)","SUM_BY(data, saida)","CUMSUM_BY(data, saldo_dia)"],
+        "by_category": ["SUM_BY(categoria, entrada)","SUM_BY(categoria, saida)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_estoque_enderecamento_rua_erros_v1",
+      "domain": "estoque",
+      "description": "Correlação de divergências por endereçamento (rua/andar/box).",
+      "required_columns": {
+        "saldo_anterior": "numeric",
+        "entrada": "numeric",
+        "saida": "numeric",
+        "contagem_fisica": "numeric",
+        "rua": "text"
+      },
+      "optional_columns": {
+        "andar": "text",
+        "box": "text",
+        "categoria": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "qtd_esperada": { "deps": ["saldo_anterior","entrada","saida"], "formula": "saldo_anterior + entrada - saida" },
+        "divergencia": { "deps": ["qtd_esperada","contagem_fisica"], "formula": "contagem_fisica - qtd_esperada" },
+        "div_abs": { "deps": ["divergencia"], "formula": "ABS(divergencia)" }
+      },
+      "guardrails": {
+        "min_rows": 20
+      },
+      "sections": {
+        "by_location": ["AVG_BY(rua, div_abs)","AVG_BY(andar, div_abs)","AVG_BY(box, div_abs)"],
+        "by_category": ["AVG_BY(categoria, div_abs)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_servicos_utilizacao_capacidade_v1",
+      "domain": "servicos",
+      "description": "Utilização da capacidade e taxa de ocupação.",
+      "required_columns": {
+        "capacidade_disponivel": "numeric",
+        "capacidade_usada": "numeric"
+      },
+      "optional_columns": {
+        "data": "date",
+        "unidade": "text",
+        "profissional": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "utilizacao": { "deps": ["capacidade_usada","capacidade_disponivel"], "formula": "capacidade_usada/NULLIF(capacidade_disponivel,0)" }
+      },
+      "guardrails": {
+        "min_rows": 10
+      },
+      "sections": {
+        "overview": ["AVG(utilizacao) AS utilizacao_media"],
+        "by_unit": ["AVG_BY(unidade, utilizacao)","AVG_BY(profissional, utilizacao)"],
+        "temporal_trend": ["AVG_BY(data, utilizacao)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_servicos_churn_clientes_v1",
+      "domain": "servicos",
+      "description": "Churn/retenção em serviços recorrentes.",
+      "required_columns": {
+        "cliente": "text",
+        "ativo_no_mes": "numeric",
+        "data": "date"
+      },
+      "optional_columns": {
+        "receita": "numeric",
+        "segmento": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "churn": { "deps": ["ativo_no_mes"], "formula": "CASE WHEN ativo_no_mes=0 THEN 1 ELSE 0 END" },
+        "retencao": { "deps": ["ativo_no_mes"], "formula": "CASE WHEN ativo_no_mes=1 THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20,
+        "temporal_sections_require": ["data"]
+      },
+      "sections": {
+        "overview": ["AVG(churn) AS taxa_churn","AVG(retencao) AS taxa_retencao"],
+        "by_segment": ["AVG_BY(segmento, churn)"],
+        "temporal_trend": ["AVG_BY(data, churn)","AVG_BY(data, retencao)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_clinicas_agendamento_no_show_v1",
+      "domain": "servicos_saude",
+      "description": "No-show e taxa de comparecimento em clínicas.",
+      "required_columns": {
+        "data": "date",
+        "status": "text"
+      },
+      "optional_columns": {
+        "especialidade": "text",
+        "profissional": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "no_show": { "deps": ["status"], "formula": "CASE WHEN LOWER(status) IN ('no-show','falta','nao compareceu') THEN 1 ELSE 0 END" },
+        "compareceu": { "deps": ["status"], "formula": "CASE WHEN LOWER(status) IN ('atendido','compareceu') THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20
+      },
+      "sections": {
+        "overview": ["AVG(no_show) AS taxa_no_show","AVG(compareceu) AS taxa_comparecimento"],
+        "by_group": ["AVG_BY(especialidade, no_show)","AVG_BY(profissional, no_show)"],
+        "temporal_trend": ["AVG_BY(data, no_show)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_contabilidade_receitas_recorrentes_v1",
+      "domain": "servicos_contabeis",
+      "description": "MRR/ARR simples e inadimplência em recorrência.",
+      "required_columns": {
+        "cliente": "text",
+        "data": "date",
+        "valor_fatura": "numeric",
+        "pago": "numeric"
+      },
+      "optional_columns": {
+        "plano": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "mrr": { "deps": ["valor_fatura"], "formula": "valor_fatura" },
+        "inadimplente": { "deps": ["pago"], "formula": "CASE WHEN pago=0 THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20
+      },
+      "sections": {
+        "overview": ["SUM_BY(data, mrr) AS mrr_mensal","AVG(inadimplente) AS taxa_inadimplencia"],
+        "by_plan": ["SUM_BY(plano, mrr)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_industrial_oee_basico_v1",
+      "domain": "industrial",
+      "description": "OEE básico (Disponibilidade × Performance × Qualidade).",
+      "required_columns": {
+        "disponibilidade": "numeric",
+        "performance": "numeric",
+        "qualidade": "numeric"
+      },
+      "optional_columns": {
+        "linha": "text",
+        "turno": "text",
+        "data": "date"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "oee": { "deps": ["disponibilidade","performance","qualidade"], "formula": "disponibilidade*performance*qualidade" }
+      },
+      "guardrails": {
+        "min_rows": 10,
+        "require_numeric": ["disponibilidade","performance","qualidade"]
+      },
+      "sections": {
+        "overview": ["AVG(oee) AS oee_medio"],
+        "by_line": ["AVG_BY(linha, oee)","AVG_BY(turno, oee)"],
+        "temporal_trend": ["AVG_BY(data, oee)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_industrial_qualidade_pareto_defeitos_v1",
+      "domain": "industrial",
+      "description": "Pareto de defeitos por tipo/causa.",
+      "required_columns": {
+        "tipo_defeito": "text",
+        "qtd_defeitos": "numeric"
+      },
+      "optional_columns": {
+        "linha": "text",
+        "data": "date"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "total_by_tipo": { "deps": ["tipo_defeito","qtd_defeitos"], "formula": "SUM_BY(tipo_defeito, qtd_defeitos)" },
+        "abc": { "deps": ["total_by_tipo"], "formula": "ABC(total_by_tipo)" }
+      },
+      "guardrails": {
+        "min_rows": 10
+      },
+      "sections": {
+        "overview": ["abc"],
+        "by_cause": ["total_by_tipo"],
+        "temporal_trend": ["SUM_BY(data, qtd_defeitos)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_industrial_pd_pipeline_leadtime_v1",
+      "domain": "industrial_pd",
+      "description": "Lead time do pipeline de P&D por fase.",
+      "required_columns": {
+        "projeto": "text",
+        "fase": "text",
+        "inicio_fase": "date",
+        "fim_fase": "date"
+      },
+      "optional_columns": {
+        "squad": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "leadtime_fase": { "deps": ["inicio_fase","fim_fase"], "formula": "DATEDIFF(fim_fase, inicio_fase)" }
+      },
+      "guardrails": {
+        "min_rows": 5
+      },
+      "sections": {
+        "overview": ["AVG(leadtime_fase) AS leadtime_medio"],
+        "by_phase": ["AVG_BY(fase, leadtime_fase)"],
+        "by_team": ["AVG_BY(squad, leadtime_fase)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_comercio_giro_estoque_cobertura_v1",
+      "domain": "comercio",
+      "description": "Giro de estoque e cobertura (dias).",
+      "required_columns": {
+        "estoque_medio": "numeric",
+        "saida": "numeric",
+        "dias_periodo": "numeric"
+      },
+      "optional_columns": {
+        "produto": "text",
+        "categoria": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "giro": { "deps": ["saida","estoque_medio"], "formula": "saida/NULLIF(estoque_medio,0)" },
+        "cobertura_dias": { "deps": ["estoque_medio","saida","dias_periodo"], "formula": "CASE WHEN saida>0 THEN (estoque_medio/saida)*dias_periodo ELSE NULL END" }
+      },
+      "guardrails": {
+        "min_rows": 10
+      },
+      "sections": {
+        "overview": ["AVG(giro) AS giro_medio","AVG(cobertura_dias) AS cobertura_media"],
+        "by_category": ["AVG_BY(categoria, giro)","AVG_BY(categoria, cobertura_dias)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_comercio_caixa_fluxo_diario_v1",
+      "domain": "comercio",
+      "description": "Fluxo de caixa diário (PDV/loja).",
+      "required_columns": {
+        "data": "date",
+        "valor": "numeric",
+        "tipo": "text"
+      },
+      "optional_columns": {
+        "loja": "text",
+        "pdv": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "entrada": { "deps": ["valor","tipo"], "formula": "CASE WHEN LOWER(tipo)='entrada' THEN valor ELSE 0 END" },
+        "saida": { "deps": ["valor","tipo"], "formula": "CASE WHEN LOWER(tipo)='saida' THEN valor ELSE 0 END" },
+        "saldo": { "deps": ["entrada","saida"], "formula": "entrada - saida" }
+      },
+      "guardrails": {
+        "min_rows": 10
+      },
+      "sections": {
+        "overview": ["SUM_BY(data, entrada)","SUM_BY(data, saida)","CUMSUM_BY(data, saldo)"],
+        "by_store": ["SUM_BY(loja, saldo)","SUM_BY(pdv, saldo)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_comercio_atendimento_sla_csats_v1",
+      "domain": "comercio_atendimento",
+      "description": "Atendimento: SLA de primeira resposta e CSAT.",
+      "required_columns": {
+        "tempo_primeira_resposta_min": "numeric",
+        "csat": "numeric"
+      },
+      "optional_columns": {
+        "canal": "text",
+        "data": "date",
+        "agente": "text"
+      },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "sla_ok": { "deps": ["tempo_primeira_resposta_min"], "formula": "CASE WHEN tempo_primeira_resposta_min <= 5 THEN 1 ELSE 0 END" }
+      },
+      "guardrails": {
+        "min_rows": 20
+      },
+      "sections": {
+        "overview": ["AVG(sla_ok) AS sla_5min","AVG(csat) AS csat_medio"],
+        "by_channel": ["AVG_BY(canal, sla_ok)","AVG_BY(canal, csat)"],
+        "by_agent": ["AVG_BY(agente, csat)"],
+        "temporal_trend": ["AVG_BY(data, csat)","AVG_BY(data, sla_ok)"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_stats_descritivas_univariada_v1",
+      "domain": "estatistica",
+      "description": "Estatística descritiva univariada para colunas numéricas.",
+      "required_columns": { "value": "numeric" },
+      "optional_columns": { "group": "text" },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "count": { "deps": ["value"], "formula": "COUNT(value)" },
+        "mean": { "deps": ["value"], "formula": "AVG(value)" },
+        "median": { "deps": ["value"], "formula": "MEDIAN(value)" },
+        "stddev": { "deps": ["value"], "formula": "STDDEV(value)" },
+        "min": { "deps": ["value"], "formula": "MIN(value)" },
+        "max": { "deps": ["value"], "formula": "MAX(value)" },
+        "p25": { "deps": ["value"], "formula": "PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY value)" },
+        "p75": { "deps": ["value"], "formula": "PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY value)" },
+        "cv": { "deps": ["mean","stddev"], "formula": "stddev/NULLIF(mean,0)" }
+      },
+      "guardrails": { "min_rows": 20, "require_numeric": ["value"] },
+      "sections": {
+        "overview": ["count","mean","median","stddev","min","max"],
+        "distribution": ["p25","p75","cv"],
+        "by_group": ["mean","median","stddev"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_distribuicao_quantis_histograma_v1",
+      "domain": "estatistica",
+      "description": "Distribuição (histograma), quantis e caudas para uma métrica.",
+      "required_columns": { "value": "numeric" },
+      "optional_columns": { "bins": "numeric" },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "histogram": { "deps": ["value"], "formula": "HISTOGRAM(value, 10)" },
+        "quantiles": { "deps": ["value"], "formula": "QUANTILES(value, [0.01,0.05,0.1,0.5,0.9,0.95,0.99])" },
+        "skewness": { "deps": ["value"], "formula": "SKEWNESS(value)" },
+        "kurtosis": { "deps": ["value"], "formula": "KURTOSIS(value)" }
+      },
+      "guardrails": { "min_rows": 50, "require_numeric": ["value"] },
+      "sections": {
+        "overview": ["quantiles"],
+        "distribution": ["histogram","skewness","kurtosis"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_stats_bivariada_num_num_v1",
+      "domain": "estatistica",
+      "description": "Correlação e relação linear entre duas variáveis numéricas.",
+      "required_columns": { "x": "numeric", "y": "numeric" },
+      "optional_columns": {},
+      "forbidden_terms": [],
+      "metrics_map": {
+        "corr_pearson": { "deps": ["x","y"], "formula": "CORR(x, y)" },
+        "corr_spearman": { "deps": ["x","y"], "formula": "SPEARMAN(x, y)" },
+        "slope": { "deps": ["x","y"], "formula": "REGR_SLOPE(y, x)" },
+        "intercept": { "deps": ["x","y"], "formula": "REGR_INTERCEPT(y, x)" },
+        "r2": { "deps": ["x","y"], "formula": "REGR_R2(y, x)" }
+      },
+      "guardrails": { "min_rows": 30, "require_numeric": ["x","y"] },
+      "sections": {
+        "overview": ["corr_pearson","corr_spearman","r2"],
+        "relationship": ["slope","intercept"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_stats_bivariada_num_cat_v1",
+      "domain": "estatistica",
+      "description": "Comparação de uma métrica numérica entre grupos.",
+      "required_columns": { "group": "text", "value": "numeric" },
+      "optional_columns": {},
+      "forbidden_terms": [],
+      "metrics_map": {
+        "group_mean": { "deps": ["group","value"], "formula": "AVG_BY(group, value)" },
+        "group_median": { "deps": ["group","value"], "formula": "MEDIAN_BY(group, value)" },
+        "anova_f": { "deps": ["group","value"], "formula": "ANOVA_F(group, value)" },
+        "effect_size": { "deps": ["group","value"], "formula": "EFFECT_SIZE(group, value)" }
+      },
+      "guardrails": { "min_rows": 30, "top_bottom_min_group_n": 10, "require_numeric": ["value"] },
+      "sections": {
+        "overview": ["group_mean","group_median"],
+        "significance": ["anova_f","effect_size"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_outliers_iqr_zscore_v1",
+      "domain": "estatistica",
+      "description": "Detecção de outliers por IQR e Z-Score.",
+      "required_columns": { "value": "numeric" },
+      "optional_columns": { "group": "text" },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "iqr_bounds": { "deps": ["value"], "formula": "IQR_BOUNDS(value)" },
+        "zscore_flags": { "deps": ["value"], "formula": "ZSCORE_FLAGS(value, 3.0)" },
+        "outlier_rate": { "deps": ["value"], "formula": "OUTLIER_RATE(value)" }
+      },
+      "guardrails": { "min_rows": 30, "require_numeric": ["value"] },
+      "sections": {
+        "overview": ["outlier_rate"],
+        "by_group": ["outlier_rate"],
+        "methods": ["iqr_bounds","zscore_flags"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_pareto_abc_generico_v1",
+      "domain": "indicadores",
+      "description": "Princípio de Pareto/Curva ABC para valor por categoria.",
+      "required_columns": { "category": "text", "value": "numeric" },
+      "optional_columns": {},
+      "forbidden_terms": [],
+      "metrics_map": {
+        "total_by_cat": { "deps": ["category","value"], "formula": "SUM_BY(category, value)" },
+        "abc_class": { "deps": ["total_by_cat"], "formula": "ABC(total_by_cat)" },
+        "cum_share": { "deps": ["total_by_cat"], "formula": "CUMULATIVE_SHARE(total_by_cat)" }
+      },
+      "guardrails": { "min_rows": 20, "top_bottom_min_group_n": 5, "require_numeric": ["value"] },
+      "sections": {
+        "overview": ["abc_class","cum_share"],
+        "by_category": ["total_by_cat","abc_class"],
+        "limitations": [],
+        "recommendations": []
+      }
+    },
+    {
+      "id": "pb_kpis_taxas_basicas_v1",
+      "domain": "indicadores",
+      "description": "Taxas genéricas: conversão, aprovação, erro, sucesso.",
+      "required_columns": { "numerator": "numeric", "denominator": "numeric" },
+      "optional_columns": { "group": "text", "date": "date" },
+      "forbidden_terms": [],
+      "metrics_map": {
+        "rate": { "deps": ["numerator","denominator"], "formula": "numerator/NULLIF(denominator,0)" },
+        "count": { "deps": ["denominator"], "formula": "SUM(denominator)" }
+      },
+      "guardrails": { "min_rows": 10, "require_numeric": ["numerator","denominator"] },
+      "sections": {
+        "overview": ["rate"],
+        "by_group": ["rate"],
+        "temporal_trend": ["rate"],
+        "limitations": [],
+        "recommendations": []
+      }
+    }
+  ]
+}
