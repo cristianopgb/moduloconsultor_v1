@@ -39,37 +39,62 @@ export interface SemanticContext {
 
 /**
  * Load semantic dictionary from database
+ * FIXED: Removed is_active filter (column doesn't exist), using correct schema
  */
 async function loadSemanticDictionary(context?: SemanticContext): Promise<Map<string, any>> {
   const { data, error } = await supabase
     .from('semantic_dictionary')
-    .select('*')
-    .eq('is_active', true);
+    .select('*');
 
   if (error) {
     console.warn('[SemanticLayer] Error loading dictionary:', error.message);
     return new Map();
   }
 
+  if (!data || data.length === 0) {
+    console.warn('[SemanticLayer] Dictionary is empty - semantic mapping will fall back to raw names');
+    return new Map();
+  }
+
   const dictionary = new Map();
 
   (data || []).forEach(entry => {
-    const normalized = normalizeString(entry.raw_name);
+    // Use canonical_name as the base for matching
+    const canonical = normalizeString(entry.canonical_name);
 
-    if (!dictionary.has(normalized)) {
-      dictionary.set(normalized, []);
+    if (!dictionary.has(canonical)) {
+      dictionary.set(canonical, []);
     }
 
-    dictionary.get(normalized).push({
+    dictionary.get(canonical).push({
       canonical_name: entry.canonical_name,
       entity_type: entry.entity_type,
-      domain: entry.domain,
-      language: entry.language,
-      confidence: entry.confidence,
-      aliases: entry.aliases || [],
+      tenant_id: entry.tenant_id,
+      synonyms: entry.synonyms || [],
+      description: entry.description,
+      version: entry.version,
     });
+
+    // Also index by synonyms for lookup
+    if (entry.synonyms && Array.isArray(entry.synonyms)) {
+      entry.synonyms.forEach((synonym: string) => {
+        const normSynonym = normalizeString(synonym);
+        if (!dictionary.has(normSynonym)) {
+          dictionary.set(normSynonym, []);
+        }
+        dictionary.get(normSynonym).push({
+          canonical_name: entry.canonical_name,
+          entity_type: entry.entity_type,
+          tenant_id: entry.tenant_id,
+          synonyms: entry.synonyms,
+          description: entry.description,
+          version: entry.version,
+        });
+      });
+    }
   });
 
+  console.log(`[SemanticLayer] Loaded ${data.length} entries from semantic_dictionary`);
   return dictionary;
 }
 
@@ -165,14 +190,16 @@ export async function resolveColumnName(
     };
   }
 
-  // 2. Alias match
+  // 2. Synonym match (now indexed, so should hit in step 1)
+  // This is kept for backwards compatibility but should rarely execute
   for (const [key, entries] of dictionary.entries()) {
     for (const entry of entries) {
-      if (entry.aliases) {
-        const matchedAlias = entry.aliases.find(
-          (alias: string) => normalizeString(alias) === normalized
+      if (entry.synonyms && Array.isArray(entry.synonyms)) {
+        const matchedSynonym = entry.synonyms.find(
+          (synonym: string) => normalizeString(synonym) === normalized
         );
-        if (matchedAlias) {
+        if (matchedSynonym) {
+          console.log(`[SemanticLayer] Matched via synonym: "${rawName}" → "${entry.canonical_name}"`);
           return {
             raw_name: rawName,
             canonical_name: entry.canonical_name,
@@ -221,21 +248,19 @@ export async function resolveColumnName(
 
 /**
  * Select best entry based on context
+ * Prioritizes: tenant-specific > global, with version tiebreaker
  */
 function selectBestEntry(entries: any[], context?: SemanticContext): any {
   if (entries.length === 1) return entries[0];
 
-  if (context?.domain) {
-    const domainMatch = entries.find(e => e.domain === context.domain);
-    if (domainMatch) return domainMatch;
+  // Prefer tenant-specific entries (not NULL tenant_id)
+  const tenantSpecific = entries.filter(e => e.tenant_id !== null);
+  if (tenantSpecific.length > 0) {
+    return tenantSpecific.sort((a, b) => (b.version || 0) - (a.version || 0))[0];
   }
 
-  if (context?.language) {
-    const langMatch = entries.find(e => e.language === context.language);
-    if (langMatch) return langMatch;
-  }
-
-  return entries.sort((a, b) => b.confidence - a.confidence)[0];
+  // Fall back to global (NULL tenant_id), highest version
+  return entries.sort((a, b) => (b.version || 0) - (a.version || 0))[0];
 }
 
 /**
@@ -295,23 +320,18 @@ export async function isKnownEntity(
 }
 
 /**
- * Get all canonical entities for a domain
+ * Get all canonical entities
+ * FIXED: Removed is_active filter and domain filter (not in schema)
  */
 export async function getCanonicalEntities(
-  entityType?: 'dimension' | 'measure',
-  domain?: string
+  entityType?: 'column' | 'metric'
 ): Promise<string[]> {
   let query = supabase
     .from('semantic_dictionary')
-    .select('canonical_name')
-    .eq('is_active', true);
+    .select('canonical_name');
 
   if (entityType) {
     query = query.eq('entity_type', entityType);
-  }
-
-  if (domain) {
-    query = query.eq('domain', domain);
   }
 
   const { data, error } = await query;

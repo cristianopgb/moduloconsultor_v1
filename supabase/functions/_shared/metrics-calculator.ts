@@ -53,18 +53,18 @@ export interface MetricCalculationResult {
 
 /**
  * Load metrics registry from database
+ * FIXED: Removed is_active filter (column doesn't exist in metrics_registry)
  */
 async function loadMetricsRegistry(category?: string): Promise<Map<string, MetricDefinition>> {
   let query = supabase
     .from('metrics_registry')
-    .select('*')
-    .eq('is_active', true);
+    .select('*');
 
   if (category) {
     query = query.eq('category', category);
   }
 
-  const { data, error } = await query;
+  const { data, error} = await query;
 
   if (error) {
     console.warn('[MetricsCalculator] Error loading metrics registry:', error.message);
