@@ -58,12 +58,27 @@ export interface TypeDetectionResult {
 }
 
 // Excel serial date reference (1899-12-30 as day 0)
-const EXCEL_DATE_MIN = 1; // 1900-01-01
+const EXCEL_DATE_MIN = 25569; // 1970-01-01 (safer minimum to avoid ID conflicts)
 const EXCEL_DATE_MAX = 60000; // ~2064
 const EXCEL_BASE_DATE = new Date(1899, 11, 30);
 
 // Invalid dates to block
 const INVALID_DATES = ['1970-01-01', '0001-01-01', '1900-01-01'];
+
+// Temporal window: reject dates outside plausible range
+const MIN_PLAUSIBLE_YEAR = 1990;
+const MAX_PLAUSIBLE_YEAR = new Date().getFullYear() + 1;
+
+// Header blacklist: these column names should NEVER be detected as dates
+const DATE_HEADER_BLACKLIST = [
+  'id', 'sku', 'codigo', 'code', 'num', 'numero', 'number',
+  'rua', 'andar', 'box', 'posicao', 'posição', 'position',
+  'saldo', 'entrada', 'saida', 'saída', 'qnt', 'quantidade',
+  'contagem', 'count', 'qtd', 'qty', 'estoque', 'stock'
+];
+
+// Patterns that indicate ID/key columns (not dates)
+const ID_PATTERNS = /^(id|cod|sku|num|key|index|seq|pk|fk)[_\s]?/i;
 
 // Dictionary cache (in-memory, TTL handled by Edge)
 let dictionaryCache: Map<string, any> | null = null;
@@ -228,6 +243,7 @@ function levenshteinDistance(str1: string, str2: string): number {
  * Detect column type from sample values
  *
  * CRITICAL: Handles Excel dates, epoch timestamps, comma decimals
+ * Anti-hallucination: Triple validation for dates (header + range + temporal window)
  */
 export async function detectColumnIntent(
   columnName: string,
@@ -250,16 +266,53 @@ export async function detectColumnIntent(
   // Quick pass: 1% sample
   const quickSample = validValues.slice(0, Math.max(10, Math.floor(validValues.length * 0.01)));
 
-  // Try Excel serial dates
-  const excelDateResult = tryParseExcelDates(quickSample);
-  if (excelDateResult.success && excelDateResult.confidence >= 90) {
-    console.log(`[SchemaValidator] Detected Excel serial dates in "${columnName}"`);
-    return {
-      inferred_type: 'date',
-      confidence: excelDateResult.confidence,
-      parse_errors_pct: excelDateResult.parse_errors_pct,
-      metadata: { is_excel_serial: true }
-    };
+  // ANTI-HALLUCINATION: Check if header suggests this is NOT a date
+  const normalizedName = normalizeString(columnName);
+  const isBlacklistedHeader = DATE_HEADER_BLACKLIST.some(term =>
+    normalizedName.includes(term)
+  );
+  const matchesIdPattern = ID_PATTERNS.test(columnName);
+
+  if (isBlacklistedHeader || matchesIdPattern) {
+    console.log(`[SchemaValidator] Blocked date detection for "${columnName}" (blacklisted header or ID pattern)`);
+  }
+
+  // ANTI-HALLUCINATION: Check for sequence pattern (1,2,3... = ID)
+  const isSequence = detectSequencePattern(quickSample);
+  if (isSequence) {
+    console.log(`[SchemaValidator] Blocked date detection for "${columnName}" (sequential ID pattern)`);
+  }
+
+  // ANTI-HALLUCINATION: Check for high cardinality (likely ID)
+  const cardinalityPct = calculateCardinalityPercent(quickSample);
+  const isHighCardinality = cardinalityPct > 80;
+  if (isHighCardinality) {
+    console.log(`[SchemaValidator] Blocked date detection for "${columnName}" (high cardinality: ${cardinalityPct}%)`);
+  }
+
+  // Try Excel serial dates ONLY if header is safe
+  if (!isBlacklistedHeader && !matchesIdPattern && !isSequence && !isHighCardinality) {
+    const excelDateResult = tryParseExcelDates(quickSample, columnName);
+    if (excelDateResult.success && excelDateResult.confidence >= 90) {
+      // ANTI-HALLUCINATION: Validate temporal window
+      const datesInWindow = excelDateResult.parsed_dates.filter(d =>
+        d.getFullYear() >= MIN_PLAUSIBLE_YEAR &&
+        d.getFullYear() <= MAX_PLAUSIBLE_YEAR
+      );
+      const windowPct = (datesInWindow.length / excelDateResult.parsed_dates.length) * 100;
+
+      if (windowPct >= 70) {
+        console.log(`[SchemaValidator] Detected Excel serial dates in "${columnName}" (${windowPct.toFixed(0)}% in plausible window)`);
+        return {
+          inferred_type: 'date',
+          confidence: excelDateResult.confidence,
+          parse_errors_pct: excelDateResult.parse_errors_pct,
+          metadata: { is_excel_serial: true }
+        };
+      } else {
+        console.log(`[SchemaValidator] Rejected Excel dates for "${columnName}" (only ${windowPct.toFixed(0)}% in plausible window)`);
+      }
+    }
   }
 
   // Try standard dates
@@ -275,6 +328,23 @@ export async function detectColumnIntent(
       return {
         inferred_type: 'text',
         confidence: 50,
+        parse_errors_pct: 0,
+        metadata: {}
+      };
+    }
+
+    // ANTI-HALLUCINATION: Validate temporal window for standard dates
+    const datesInWindow = dateResult.parsed_dates.filter(d =>
+      d.getFullYear() >= MIN_PLAUSIBLE_YEAR &&
+      d.getFullYear() <= MAX_PLAUSIBLE_YEAR
+    );
+    const windowPct = (datesInWindow.length / dateResult.parsed_dates.length) * 100;
+
+    if (windowPct < 70) {
+      console.log(`[SchemaValidator] Rejected dates for "${columnName}" (only ${windowPct.toFixed(0)}% in plausible window)`);
+      return {
+        inferred_type: 'text',
+        confidence: 60,
         parse_errors_pct: 0,
         metadata: {}
       };
@@ -323,9 +393,41 @@ export async function detectColumnIntent(
 }
 
 /**
+ * Detect if values follow a sequential pattern (1,2,3... = ID)
+ */
+function detectSequencePattern(values: any[]): boolean {
+  if (values.length < 5) return false;
+
+  const nums = values.map(v => Number(v)).filter(n => !isNaN(n));
+  if (nums.length < values.length * 0.8) return false; // Not mostly numeric
+
+  // Sort and check for sequential increments
+  const sorted = [...nums].sort((a, b) => a - b);
+  let sequentialCount = 0;
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] - sorted[i - 1] === 1) {
+      sequentialCount++;
+    }
+  }
+
+  // If >70% are sequential increments, it's likely an ID
+  const sequentialPct = (sequentialCount / (sorted.length - 1)) * 100;
+  return sequentialPct > 70;
+}
+
+/**
+ * Calculate cardinality percentage (distinct values / total)
+ */
+function calculateCardinalityPercent(values: any[]): number {
+  const distinctValues = new Set(values.map(v => String(v)));
+  return (distinctValues.size / values.length) * 100;
+}
+
+/**
  * Try to parse values as Excel serial dates
  */
-function tryParseExcelDates(values: any[]): {
+function tryParseExcelDates(values: any[], columnName: string): {
   success: boolean;
   confidence: number;
   parse_errors_pct: number;
@@ -394,6 +496,8 @@ function tryParseDates(values: any[]): {
 /**
  * Try to parse values as numeric
  * Handles comma/period as decimal separator
+ *
+ * CRITICAL FIX: Variable naming must match between declaration and return
  */
 function tryParseNumeric(values: any[]): {
   success: boolean;
@@ -402,7 +506,7 @@ function tryParseNumeric(values: any[]): {
   decimal_separator: 'comma' | 'period';
 } {
   let successCount = 0;
-  let hasNegatives = false;
+  let has_negatives = false; // FIXED: was hasNegatives (camelCase)
   let commaCount = 0;
   let periodCount = 0;
 
@@ -419,7 +523,7 @@ function tryParseNumeric(values: any[]): {
     const num = Number(str);
     if (!isNaN(num)) {
       successCount++;
-      if (num < 0) hasNegatives = true;
+      if (num < 0) has_negatives = true; // FIXED: was hasNegatives
     }
   }
 
@@ -429,7 +533,7 @@ function tryParseNumeric(values: any[]): {
   return {
     success: parseErrorsPct < 30,
     parse_errors_pct: parseErrorsPct,
-    has_negatives,
+    has_negatives, // FIXED: Now matches the variable name
     decimal_separator: commaCount > periodCount ? 'comma' : 'period'
   };
 }
