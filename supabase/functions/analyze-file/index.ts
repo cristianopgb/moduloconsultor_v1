@@ -28,6 +28,8 @@ import { generateSafeExploratoryAnalysis, formatFallbackAnalysis } from '../_sha
 import { ingestFile } from '../_shared/ingest-orchestrator.ts';
 import { buildAuditCard, formatAuditCardAsMarkdown } from '../_shared/audit-card-builder.ts';
 import { executePlaybook } from '../_shared/playbook-executor.ts';
+import { planAnalysis } from '../_shared/semantic-planner.ts';
+import { applyDerivations, getDerivationStats } from '../_shared/feature-derivation.ts';
 import {
   jsonOk,
   jsonError,
@@ -499,11 +501,90 @@ Deno.serve(async (req: Request) => {
     console.log(`[AnalyzeFile] Selected playbook: ${selectedPlaybook.id} (score: ${bestMatch.score}%)`);
 
     // ===================================================================
-    // ANTI-HALLUCINATION LAYER 3: GUARDRAILS ENGINE
+    // NEW LAYER: SEMANTIC PLANNER
     // ===================================================================
-    console.log('[AnalyzeFile] LAYER 3: Guardrails Engine');
+    console.log('[AnalyzeFile] SEMANTIC PLANNER: Analyzing available columns and planning derivations...');
 
-    const guardrails = evaluateGuardrails(selectedPlaybook, enrichedSchema, rowCount);
+    const semanticPlan = await planAnalysis(
+      user_question || 'Análise de dados',
+      enrichedSchema,
+      selectedPlaybook,
+      rowCount
+    );
+
+    console.log(`[AnalyzeFile] Semantic Plan:`);
+    console.log(`  - User intent: ${semanticPlan.user_intent}`);
+    console.log(`  - Confidence: ${semanticPlan.confidence}%`);
+    console.log(`  - Mapped columns: ${Object.keys(semanticPlan.required_columns).length}`);
+    console.log(`  - Missing columns: ${semanticPlan.missing_columns.length}`);
+    console.log(`  - Derivations planned: ${semanticPlan.derivations.length}`);
+    console.log(`  - Active sections: ${semanticPlan.active_sections.length}`);
+    console.log(`  - Disabled sections: ${semanticPlan.disabled_sections.length}`);
+
+    if (semanticPlan.derivations.length > 0) {
+      console.log(`[AnalyzeFile] Planned derivations:`);
+      semanticPlan.derivations.forEach(d => {
+        console.log(`  - ${d.name} = ${d.formula}`);
+      });
+    }
+
+    // ===================================================================
+    // NEW LAYER: FEATURE DERIVATION
+    // ===================================================================
+    console.log('[AnalyzeFile] FEATURE DERIVATION: Computing derived columns...');
+
+    const derivationResult = applyDerivations(rowData, semanticPlan.derivations);
+    const derivationStats = getDerivationStats(derivationResult);
+
+    console.log(`[AnalyzeFile] Derivation complete:`);
+    console.log(`  - Columns added: ${derivationResult.columns_added.length}`);
+    console.log(`  - Errors: ${derivationResult.errors.length}`);
+    console.log(`  - Error rate: ${derivationStats.error_rate}%`);
+    console.log(`  - Execution time: ${derivationResult.execution_time_ms}ms`);
+
+    if (derivationResult.errors.length > 0) {
+      console.warn(`[AnalyzeFile] Derivation errors (first 5):`);
+      derivationResult.errors.slice(0, 5).forEach(err => {
+        console.warn(`  - ${err.column} at row ${err.row_index}: ${err.error}`);
+      });
+    }
+
+    // Update rowData with enriched rows
+    rowData = derivationResult.enriched_rows;
+
+    // Update enriched schema to include derived columns
+    for (const derivedCol of semanticPlan.derivations) {
+      enrichedSchema.push({
+        name: derivedCol.name,
+        type: derivedCol.type,
+        inferred_type: derivedCol.type,
+        confidence: 100,
+        sample_values: rowData.slice(0, 5).map(r => r[derivedCol.name]),
+        normalized_name: derivedCol.name.toLowerCase(),
+        canonical_name: derivedCol.name
+      });
+    }
+
+    console.log(`[AnalyzeFile] Enriched schema now has ${enrichedSchema.length} columns (${semanticPlan.derivations.length} derived)`);
+
+    // ===================================================================
+    // ANTI-HALLUCINATION LAYER 3: GUARDRAILS ENGINE (UPDATED)
+    // ===================================================================
+    console.log('[AnalyzeFile] LAYER 3: Guardrails Engine (using semantic plan)');
+
+    // Use sections from semantic plan instead of guardrails
+    const guardrails = {
+      active_sections: semanticPlan.active_sections,
+      disabled_sections: semanticPlan.disabled_sections.map(ds => ({
+        section: ds.section,
+        reason: ds.reason,
+        missing_requirement: ds.missing_requirement,
+        call_to_action: `💡 ${ds.reason}`
+      })),
+      forbidden_terms: selectedPlaybook.forbidden_terms || [],
+      warnings: semanticPlan.warnings,
+      quality_score: semanticPlan.confidence
+    };
 
     console.log(`[AnalyzeFile] Guardrails result:`);
     console.log(`  - Active sections: ${guardrails.active_sections.length}`);
@@ -727,10 +808,21 @@ Deno.serve(async (req: Request) => {
           schema_validation: {
             columns_detected: basicSchema.length,
             columns_enriched: enrichedSchema.length,
+            columns_derived: derivationResult.columns_added.length,
             inferred_types: enrichedSchema.reduce((acc, col) => {
               acc[col.name] = col.inferred_type || col.type;
               return acc;
             }, {} as Record<string, string>)
+          },
+          semantic_planning: {
+            user_intent: semanticPlan.user_intent,
+            plan_confidence: semanticPlan.confidence,
+            mapped_columns: Object.keys(semanticPlan.required_columns).length,
+            missing_columns: semanticPlan.missing_columns,
+            derivations_planned: semanticPlan.derivations.length,
+            derivations_successful: derivationResult.columns_added.length,
+            derivation_errors: derivationResult.errors.length,
+            derivation_time_ms: derivationResult.execution_time_ms
           },
           guardrails: {
             active_sections: guardrails.active_sections,
@@ -801,8 +893,14 @@ Deno.serve(async (req: Request) => {
         playbook_id: selectedPlaybook.id,
         playbook_name: selectedPlaybook.description,
         compatibility_score: bestMatch.score,
+        semantic_plan_confidence: semanticPlan.confidence,
         execution_ms: Date.now() - startTime,
-        columns_used: Object.keys(narrative.column_usage_summary),
+        columns_available: enrichedSchema.length - derivationResult.columns_added.length,
+        columns_derived: derivationResult.columns_added.length,
+        columns_used: [
+          ...Object.values(semanticPlan.required_columns),
+          ...derivationResult.columns_added
+        ],
         sections_active: guardrails.active_sections.length,
         sections_disabled: guardrails.disabled_sections.length,
         hallucination_violations: hallucinationReport.violations.length
