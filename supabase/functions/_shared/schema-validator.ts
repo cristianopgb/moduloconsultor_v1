@@ -74,11 +74,15 @@ const DATE_HEADER_BLACKLIST = [
   'id', 'sku', 'codigo', 'code', 'num', 'numero', 'number',
   'rua', 'andar', 'box', 'posicao', 'posição', 'position',
   'saldo', 'entrada', 'saida', 'saída', 'qnt', 'quantidade',
-  'contagem', 'count', 'qtd', 'qty', 'estoque', 'stock'
+  'contagem', 'count', 'qtd', 'qty', 'estoque', 'stock',
+  'qnt_atual', 'saldo_anterior', 'contagem_fisica'
 ];
 
 // Patterns that indicate ID/key columns (not dates)
 const ID_PATTERNS = /^(id|cod|sku|num|key|index|seq|pk|fk)[_\s]?/i;
+
+// Patterns for numeric business columns that should NEVER be dates
+const NUMERIC_BUSINESS_PATTERNS = /^(qnt|qtd|qty|quantidade|saldo|entrada|saida|estoque|stock|contagem|count|valor|value|preco|price)/i;
 
 // Dictionary cache (in-memory, TTL handled by Edge)
 let dictionaryCache: Map<string, any> | null = null;
@@ -272,15 +276,45 @@ export async function detectColumnIntent(
     normalizedName.includes(term)
   );
   const matchesIdPattern = ID_PATTERNS.test(columnName);
+  const matchesNumericBusinessPattern = NUMERIC_BUSINESS_PATTERNS.test(columnName);
 
-  if (isBlacklistedHeader || matchesIdPattern) {
-    console.log(`[SchemaValidator] Blocked date detection for "${columnName}" (blacklisted header or ID pattern)`);
+  if (isBlacklistedHeader || matchesIdPattern || matchesNumericBusinessPattern) {
+    console.log(`[SchemaValidator] Blocked date detection for "${columnName}" (blacklisted header, ID pattern, or business numeric column)`);
+
+    // FORCE NUMERIC for business columns if values are mostly numeric
+    const numericResult = tryParseNumeric(quickSample);
+    if (numericResult.success && numericResult.parse_errors_pct < 30) {
+      return {
+        inferred_type: 'numeric',
+        confidence: 100 - numericResult.parse_errors_pct,
+        parse_errors_pct: numericResult.parse_errors_pct,
+        metadata: {
+          has_negatives: numericResult.has_negatives,
+          decimal_separator: numericResult.decimal_separator,
+          forced_numeric: true
+        }
+      };
+    }
+
+    // Otherwise default to text
+    return {
+      inferred_type: 'text',
+      confidence: 80,
+      parse_errors_pct: 0,
+      metadata: { blocked_date_detection: true }
+    };
   }
 
   // ANTI-HALLUCINATION: Check for sequence pattern (1,2,3... = ID)
   const isSequence = detectSequencePattern(quickSample);
   if (isSequence) {
     console.log(`[SchemaValidator] Blocked date detection for "${columnName}" (sequential ID pattern)`);
+    return {
+      inferred_type: 'numeric',
+      confidence: 95,
+      parse_errors_pct: 0,
+      metadata: { is_sequential_id: true }
+    };
   }
 
   // ANTI-HALLUCINATION: Check for high cardinality (likely ID)
@@ -291,7 +325,7 @@ export async function detectColumnIntent(
   }
 
   // Try Excel serial dates ONLY if header is safe
-  if (!isBlacklistedHeader && !matchesIdPattern && !isSequence && !isHighCardinality) {
+  if (!isHighCardinality) {
     const excelDateResult = tryParseExcelDates(quickSample, columnName);
     if (excelDateResult.success && excelDateResult.confidence >= 90) {
       // ANTI-HALLUCINATION: Validate temporal window

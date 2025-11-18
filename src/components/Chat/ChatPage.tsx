@@ -1388,8 +1388,17 @@ function ChatPage() {
           console.log('[ANALYTICS MODE - DUAL PATH] Enviando base64 (Path 2: Backend)');
         }
 
+        // Sanitize payload before sending (remove undefined, convert Date to ISO strings)
+        const sanitizedPayload = JSON.parse(JSON.stringify(requestBody, (key, value) => {
+          if (value === undefined) return null;
+          if (value instanceof Date) return value.toISOString();
+          return value;
+        }));
+
+        console.log('[ANALYTICS MODE - DUAL PATH] Payload size:', JSON.stringify(sanitizedPayload).length, 'bytes');
+
         const { data: analysisResponse, error: analysisError } = await supabase.functions.invoke('analyze-file', {
-          body: requestBody
+          body: sanitizedPayload
         });
 
         console.log('[ANALYTICS MODE - NEW] Resposta:', { analysisResponse, analysisError });
@@ -1399,20 +1408,28 @@ function ChatPage() {
           throw analysisError;
         }
 
-        if (!analysisResponse?.success) {
-          console.error('[ANALYTICS MODE - NEW] Resposta de falha:', analysisResponse);
-          throw new Error(analysisResponse?.error || 'Falha na análise.');
+        // Handle both success and fallback responses (both are valid 200 responses)
+        const isFallback = analysisResponse?.is_fallback === true;
+        const hasResults = analysisResponse?.result?.summary || analysisResponse?.success;
+
+        if (!hasResults) {
+          console.error('[ANALYTICS MODE - NEW] Resposta inválida:', analysisResponse);
+          throw new Error(analysisResponse?.error || analysisResponse?.fallback_reason || 'Falha na análise.');
         }
 
-        // Analysis completed successfully
+        // Analysis completed successfully (or with fallback)
         setAnalysisState('ready_to_answer');
         setShowDialoguePanel(false);
         setDialogueStateId(null);
 
-        const { result, analysis_id, full_dataset_rows } = analysisResponse;
+        const { result, analysis_id, full_dataset_rows, fallback_reason } = analysisResponse;
         const summary = result?.summary || 'Análise concluída. Veja os detalhes abaixo.';
 
-        console.log(`[ANALYTICS MODE - NEW] ✅ Análise concluída em ${full_dataset_rows} linhas completas`);
+        if (isFallback) {
+          console.log(`[ANALYTICS MODE - NEW] ⚠️ Análise em modo fallback: ${fallback_reason}`);
+        } else {
+          console.log(`[ANALYTICS MODE - NEW] ✅ Análise concluída em ${full_dataset_rows} linhas completas`);
+        }
 
         // Save analysis data for suggestions
         setLastAnalysisData({

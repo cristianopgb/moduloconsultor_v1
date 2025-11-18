@@ -28,6 +28,16 @@ import { generateSafeExploratoryAnalysis, formatFallbackAnalysis } from '../_sha
 import { ingestFile } from '../_shared/ingest-orchestrator.ts';
 import { buildAuditCard, formatAuditCardAsMarkdown } from '../_shared/audit-card-builder.ts';
 import { executePlaybook } from '../_shared/playbook-executor.ts';
+import {
+  jsonOk,
+  jsonError,
+  jsonFallback,
+  corsPreflightResponse,
+  sanitizeForJson,
+  buildDiagnostics,
+  safeConversationId,
+  checkPayloadSize
+} from '../_shared/response-helpers.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -37,11 +47,10 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   global: { fetch },
 });
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
-};
+// Payload limits
+const MAX_PAYLOAD_BYTES = 3_000_000; // ~3 MB
+const MAX_ROWS_PER_REQUEST = 10_000;
+const MAX_COLUMNS = 200;
 
 interface AnalyzeFileRequest {
   // DUAL PATH FORMAT: Frontend-parsed data (preferred)
@@ -53,6 +62,12 @@ interface AnalyzeFileRequest {
     [key: string]: any;
   };
   frontend_parsed?: boolean;
+
+  // CHUNKED DATA FORMAT (for large payloads)
+  parts?: Array<{
+    part_index: number;
+    parsed_rows: Array<Record<string, any>>;
+  }>;
 
   // NEW FORMAT: Direct file upload (backend will parse)
   file_data?: string; // base64 encoded file
@@ -71,39 +86,60 @@ interface AnalyzeFileRequest {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return corsPreflightResponse();
   }
 
   const startTime = Date.now();
 
   try {
-    const body: AnalyzeFileRequest = await req.json();
-    const { dataset_id, user_id, file_key, user_question, file_data, filename, conversation_id, parsed_rows, parse_metadata, frontend_parsed } = body;
+    const body: AnalyzeFileRequest = await req.json().catch(() => ({}));
+    const {
+      dataset_id,
+      user_id,
+      file_key,
+      user_question,
+      file_data,
+      filename,
+      conversation_id,
+      parsed_rows,
+      parts,
+      parse_metadata,
+      frontend_parsed
+    } = body;
 
-    console.log('[AnalyzeFile] Starting analysis:', {
+    // Check payload size (non-blocking, just for diagnostics)
+    const payloadCheck = checkPayloadSize(body, MAX_PAYLOAD_BYTES);
+
+    // Build initial diagnostics
+    const initialDiagnostics = buildDiagnostics({
+      payload_size: payloadCheck.size,
+      payload_size_mb: (payloadCheck.size / 1024 / 1024).toFixed(2),
+      payload_exceeded: payloadCheck.exceeded,
       has_parsed_rows: !!parsed_rows,
+      has_parts: !!(parts && parts.length > 0),
       has_file_data: !!file_data,
       has_dataset_id: !!dataset_id,
-      frontend_parsed,
+      frontend_parsed: !!frontend_parsed,
       filename,
-      conversation_id
     });
 
+    console.log('[AnalyzeFile] Starting analysis:', initialDiagnostics);
+
     // ===================================================================
-    // INPUT VALIDATION
+    // INPUT VALIDATION - Only reject if NO data provided
     // ===================================================================
-    if (!parsed_rows && !file_data && !dataset_id) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Missing required field: parsed_rows, file_data, or dataset_id',
-          hint: 'Provide either parsed_rows (frontend parsed), file_data (base64), or dataset_id (UUID)'
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
+    const hasAnyData =
+      (Array.isArray(parsed_rows) && parsed_rows.length > 0) ||
+      (Array.isArray(parts) && parts.length > 0) ||
+      !!dataset_id ||
+      !!file_data;
+
+    if (!hasAnyData) {
+      return jsonError(400, 'No data provided', {
+        hint: 'Provide either parsed_rows (frontend parsed), parts (chunked data), file_data (base64), or dataset_id (UUID)',
+        received_keys: Object.keys(body || {}),
+        diagnostics: initialDiagnostics
+      });
     }
 
     // Get user from JWT if not provided
@@ -120,16 +156,44 @@ Deno.serve(async (req: Request) => {
 
     console.log('[AnalyzeFile] User ID:', actualUserId || 'anonymous');
 
+    // Sanitize conversation_id (relaxed validation)
+    const safeConvId = safeConversationId(conversation_id);
+    console.log('[AnalyzeFile] Conversation ID:', safeConvId);
+
     // ===================================================================
-    // LOAD DATA: DUAL PATH - Support frontend-parsed, backend-parsed, or pre-loaded
+    // LOAD DATA: Support frontend-parsed, chunked, backend-parsed, or pre-loaded
+    // Precedence: parsed_rows > parts > file_data > dataset_id
     // ===================================================================
     let rowData: any[] = [];
     let actualDatasetId = dataset_id;
     let ingestTelemetry: any = null;
 
-    if (parsed_rows && Array.isArray(parsed_rows)) {
-      // PATH 1: Frontend already parsed the data (PREFERRED)
-      console.log('[AnalyzeFile] Using frontend-parsed data (Path 1)');
+    // PATH 1: Reconstruct from chunked parts (for large payloads)
+    if (parts && Array.isArray(parts) && parts.length > 0) {
+      console.log('[AnalyzeFile] Reconstructing from chunked parts (Path 1A)');
+
+      rowData = parts
+        .sort((a, b) => (a.part_index ?? 0) - (b.part_index ?? 0))
+        .flatMap(p => Array.isArray(p.parsed_rows) ? p.parsed_rows : []);
+
+      console.log(`[AnalyzeFile] Reconstructed ${rowData.length} rows from ${parts.length} chunks`);
+
+      ingestTelemetry = {
+        ingest_source: 'frontend_parsed_chunked',
+        row_count: rowData.length,
+        column_count: rowData.length > 0 ? Object.keys(rowData[0]).length : 0,
+        chunks_received: parts.length,
+        discarded_rows: 0,
+        detection_confidence: 100,
+        headers_original: rowData.length > 0 ? Object.keys(rowData[0]) : [],
+        headers_normalized: rowData.length > 0 ? Object.keys(rowData[0]) : [],
+        ingest_warnings: [],
+        limitations: []
+      };
+
+    } else if (parsed_rows && Array.isArray(parsed_rows)) {
+      // PATH 2: Frontend already parsed the data (PREFERRED)
+      console.log('[AnalyzeFile] Using frontend-parsed data (Path 1B)');
       rowData = parsed_rows;
 
       // Build telemetry from parse_metadata
@@ -319,14 +383,14 @@ Deno.serve(async (req: Request) => {
     });
 
     // ===================================================================
-    // FALLBACK: No compatible playbook found
+    // FALLBACK: No compatible playbook found (ALWAYS RETURN 200)
     // ===================================================================
     if (compatiblePlaybooks.length === 0) {
       console.log('[AnalyzeFile] No compatible playbook (all scores < 80%). Using safe fallback.');
 
       const topScores = validationResults
         .sort((a, b) => b.score - a.score)
-        .slice(0, 3)
+        .slice(0, 5)
         .map(v => `${v.playbook.id}: ${v.score}%`)
         .join(', ');
 
@@ -334,60 +398,86 @@ Deno.serve(async (req: Request) => {
         `O dataset não corresponde aos requisitos de nenhum playbook específico. ` +
         `Isso geralmente ocorre quando: (1) faltam colunas obrigatórias, (2) os tipos detectados não correspondem aos esperados, ou (3) o dataset é muito pequeno.`;
 
-      const fallbackResult = generateSafeExploratoryAnalysis(
-        enrichedSchema,
-        rowData.slice(0, 100),
-        fallbackReason
-      );
+      let fallbackResult;
+      let formattedAnalysis;
 
-      const formattedAnalysis = formatFallbackAnalysis(fallbackResult);
+      try {
+        fallbackResult = generateSafeExploratoryAnalysis(
+          enrichedSchema,
+          rowData.slice(0, 100),
+          fallbackReason
+        );
+        formattedAnalysis = formatFallbackAnalysis(fallbackResult);
+      } catch (fallbackError) {
+        console.error('[AnalyzeFile] Error generating fallback analysis:', fallbackError);
+        formattedAnalysis = `Análise exploratória não pôde ser gerada. Dados recebidos: ${rowCount} linhas, ${enrichedSchema.length} colunas.`;
+        fallbackResult = {
+          metadata: {
+            row_count: rowCount,
+            column_count: enrichedSchema.length,
+            error: String(fallbackError)
+          }
+        };
+      }
 
       // Save result to database (if we have user_id)
       let savedAnalysisId = null;
       if (actualUserId) {
-        const { data: savedAnalysis, error: saveError } = await supabase
-          .from('data_analyses')
-          .insert({
-            dataset_id: actualDatasetId,
-            user_id: actualUserId,
-            playbook_id: 'generic_exploratory_v1',
-            narrative_text: formattedAnalysis,
-            compatibility_score: 0,
-            quality_score: fallbackResult.metadata.row_count >= 20 ? 60 : 40,
-            is_fallback: true,
-            metadata: {
-              fallback_reason: fallbackReason,
-              ...fallbackResult.metadata,
-              execution_time_ms: Date.now() - startTime
-            }
-          })
-          .select()
-          .single();
+        try {
+          const { data: savedAnalysis, error: saveError } = await supabase
+            .from('data_analyses')
+            .insert({
+              dataset_id: actualDatasetId,
+              user_id: actualUserId,
+              conversation_id: safeConvId,
+              playbook_id: 'generic_exploratory_v1',
+              narrative_text: formattedAnalysis,
+              compatibility_score: 0,
+              quality_score: fallbackResult.metadata.row_count >= 20 ? 60 : 40,
+              is_fallback: true,
+              metadata: {
+                fallback_reason: fallbackReason,
+                top_scores: topScores,
+                ...fallbackResult.metadata,
+                execution_time_ms: Date.now() - startTime,
+                ...initialDiagnostics
+              }
+            })
+            .select()
+            .single();
 
-        if (saveError) {
-          console.error('[AnalyzeFile] Error saving fallback analysis:', saveError);
-        } else {
-          savedAnalysisId = savedAnalysis?.id;
+          if (saveError) {
+            console.error('[AnalyzeFile] Error saving fallback analysis:', saveError);
+          } else {
+            savedAnalysisId = savedAnalysis?.id;
+          }
+        } catch (dbError) {
+          console.error('[AnalyzeFile] Database error:', dbError);
         }
       }
 
-      return new Response(
-        JSON.stringify({
-          success: true,
+      return jsonFallback(
+        {
           analysis_id: savedAnalysisId,
           playbook_id: 'generic_exploratory_v1',
-          is_fallback: true,
           result: {
             summary: formattedAnalysis
           },
           full_dataset_rows: rowCount,
           metadata: fallbackResult.metadata,
-          execution_time_ms: Date.now() - startTime
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
+          execution_time_ms: Date.now() - startTime,
+          playbook_scores: validationResults
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10)
+            .map(v => ({
+              playbook_id: v.playbook.id,
+              score: v.score,
+              missing: v.missing_required,
+              type_mismatches: v.type_mismatches.length
+            }))
+        },
+        fallbackReason,
+        initialDiagnostics
       );
     }
 
@@ -665,52 +755,51 @@ Deno.serve(async (req: Request) => {
     // ===================================================================
     // Return final result (compatible with frontend expectations)
     // ===================================================================
-    return new Response(
-      JSON.stringify({
-        success: true,
-        analysis_id: savedAnalysisId,
-        playbook_id: selectedPlaybook.id,
-        playbook_name: selectedPlaybook.description,
-        compatibility_score: bestMatch.score,
-        quality_score: finalQualityScore,
-        result: {
-          summary: formattedNarrative
-        },
-        full_dataset_rows: rowCount,
-        enriched_schema: enrichedSchema,
-        columns_used: Object.keys(narrative.column_usage_summary),
-        guardrails: {
-          active_sections: guardrails.active_sections,
-          disabled_sections: guardrails.disabled_sections,
-          warnings: guardrails.warnings
-        },
-        hallucination_check: {
-          violations_count: hallucinationReport.violations.length,
-          confidence_penalty: hallucinationReport.confidence_penalty
-        },
-        metadata: {
-          row_count: rowCount,
-          execution_time_ms: Date.now() - startTime
-        }
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    return jsonOk({
+      success: true,
+      analysis_id: savedAnalysisId,
+      playbook_id: selectedPlaybook.id,
+      playbook_name: selectedPlaybook.description,
+      compatibility_score: bestMatch.score,
+      quality_score: finalQualityScore,
+      is_fallback: false,
+      result: {
+        summary: formattedNarrative
+      },
+      full_dataset_rows: rowCount,
+      enriched_schema: enrichedSchema,
+      columns_used: Object.keys(narrative.column_usage_summary),
+      guardrails: {
+        active_sections: guardrails.active_sections,
+        disabled_sections: guardrails.disabled_sections,
+        warnings: guardrails.warnings
+      },
+      hallucination_check: {
+        violations_count: hallucinationReport.violations.length,
+        confidence_penalty: hallucinationReport.confidence_penalty
+      },
+      metadata: {
+        row_count: rowCount,
+        execution_time_ms: Date.now() - startTime
       }
-    );
+    });
 
   } catch (error) {
-    console.error('[AnalyzeFile] Error:', error);
+    console.error('[AnalyzeFile] Critical error:', error);
+    console.error('[AnalyzeFile] Stack:', error.stack);
 
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message,
-        stack: error.stack
-      }),
+    // Return 200 with error details (not 500) - let frontend handle gracefully
+    return jsonFallback(
       {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        result: {
+          summary: `Erro ao processar análise: ${error.message}. Por favor, tente novamente ou entre em contato com o suporte.`
+        }
+      },
+      `Critical error during analysis: ${error.message}`,
+      {
+        error_type: error.name,
+        error_message: error.message,
+        error_stack: error.stack?.split('\n').slice(0, 5).join('\n')
       }
     );
   }
