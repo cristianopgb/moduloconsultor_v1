@@ -44,7 +44,17 @@ const corsHeaders = {
 };
 
 interface AnalyzeFileRequest {
-  // NEW FORMAT: Direct file upload
+  // DUAL PATH FORMAT: Frontend-parsed data (preferred)
+  parsed_rows?: Array<Record<string, any>>;
+  parse_metadata?: {
+    row_count: number;
+    column_count: number;
+    headers: string[];
+    [key: string]: any;
+  };
+  frontend_parsed?: boolean;
+
+  // NEW FORMAT: Direct file upload (backend will parse)
   file_data?: string; // base64 encoded file
   filename?: string;
 
@@ -68,11 +78,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body: AnalyzeFileRequest = await req.json();
-    const { dataset_id, user_id, file_key, user_question, file_data, filename, conversation_id } = body;
+    const { dataset_id, user_id, file_key, user_question, file_data, filename, conversation_id, parsed_rows, parse_metadata, frontend_parsed } = body;
 
     console.log('[AnalyzeFile] Starting analysis:', {
+      has_parsed_rows: !!parsed_rows,
       has_file_data: !!file_data,
       has_dataset_id: !!dataset_id,
+      frontend_parsed,
       filename,
       conversation_id
     });
@@ -80,12 +92,12 @@ Deno.serve(async (req: Request) => {
     // ===================================================================
     // INPUT VALIDATION
     // ===================================================================
-    if (!file_data && !dataset_id) {
+    if (!parsed_rows && !file_data && !dataset_id) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Missing required field: file_data or dataset_id',
-          hint: 'Provide either file_data (base64) or dataset_id (UUID)'
+          error: 'Missing required field: parsed_rows, file_data, or dataset_id',
+          hint: 'Provide either parsed_rows (frontend parsed), file_data (base64), or dataset_id (UUID)'
         }),
         {
           status: 400,
@@ -109,14 +121,58 @@ Deno.serve(async (req: Request) => {
     console.log('[AnalyzeFile] User ID:', actualUserId || 'anonymous');
 
     // ===================================================================
-    // LOAD DATA: Support both formats
+    // LOAD DATA: DUAL PATH - Support frontend-parsed, backend-parsed, or pre-loaded
     // ===================================================================
     let rowData: any[] = [];
     let actualDatasetId = dataset_id;
     let ingestTelemetry: any = null;
 
-    if (file_data) {
-      console.log('[AnalyzeFile] Processing file_data (base64) using ingest orchestrator');
+    if (parsed_rows && Array.isArray(parsed_rows)) {
+      // PATH 1: Frontend already parsed the data (PREFERRED)
+      console.log('[AnalyzeFile] Using frontend-parsed data (Path 1)');
+      rowData = parsed_rows;
+
+      // Build telemetry from parse_metadata
+      if (parse_metadata) {
+        ingestTelemetry = {
+          ingest_source: 'frontend_parsed',
+          row_count: parse_metadata.row_count || rowData.length,
+          column_count: parse_metadata.column_count || (rowData.length > 0 ? Object.keys(rowData[0]).length : 0),
+          discarded_rows: 0,
+          file_size_bytes: parse_metadata.file_size || 0,
+          detection_confidence: 100,
+          headers_original: parse_metadata.headers || [],
+          headers_normalized: parse_metadata.headers || [],
+          ingest_warnings: [],
+          limitations: [],
+          // Include any additional metadata from frontend
+          ...parse_metadata
+        };
+      } else {
+        // Build basic telemetry if metadata not provided
+        ingestTelemetry = {
+          ingest_source: 'frontend_parsed',
+          row_count: rowData.length,
+          column_count: rowData.length > 0 ? Object.keys(rowData[0]).length : 0,
+          discarded_rows: 0,
+          file_size_bytes: 0,
+          detection_confidence: 100,
+          headers_original: rowData.length > 0 ? Object.keys(rowData[0]) : [],
+          headers_normalized: rowData.length > 0 ? Object.keys(rowData[0]) : [],
+          ingest_warnings: [],
+          limitations: []
+        };
+      }
+
+      console.log('[AnalyzeFile] Frontend-parsed data ready:', {
+        source: 'frontend',
+        rows: rowData.length,
+        columns: ingestTelemetry.column_count
+      });
+
+    } else if (file_data) {
+      // PATH 2: Backend will parse the file (FALLBACK)
+      console.log('[AnalyzeFile] Processing file_data (base64) using ingest orchestrator (Path 2)');
 
       // Use ingest orchestrator to handle multiple file formats
       try {
@@ -145,6 +201,7 @@ Deno.serve(async (req: Request) => {
       }
 
     } else if (dataset_id) {
+      // PATH 3: Load from pre-existing dataset (LEGACY)
       console.log('[AnalyzeFile] Loading from dataset_id:', dataset_id);
 
       // Validate UUID format
@@ -475,9 +532,9 @@ Deno.serve(async (req: Request) => {
     console.log(`[AnalyzeFile] Final quality score: ${finalQualityScore}/100`);
 
     // ===================================================================
-    // Save or Update analysis to database
+    // Save analysis to database (ALWAYS INSERT, never UPDATE)
     // ===================================================================
-    let savedAnalysisId = actualDatasetId; // If dataset_id provided, it's already created
+    let savedAnalysisId = null;
 
     if (actualUserId) {
       // Build audit card
@@ -489,8 +546,27 @@ Deno.serve(async (req: Request) => {
         bestMatch.score
       ) : null;
 
+      // Generate file hash if we have conversation_id
+      let file_hash = 'analysis-' + Date.now();
+      if (conversation_id) {
+        const hashStr = `${conversation_id}-${Date.now()}-${rowCount}`;
+        const encoder = new TextEncoder();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(hashStr));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        file_hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+
       // Build the analysis result data
       const analysisData = {
+        user_id: actualUserId,
+        conversation_id: conversation_id,
+        file_hash: file_hash,
+        file_metadata: {
+          filename: filename || 'data.xlsx',
+          ingestion_path: ingestTelemetry?.ingest_source || 'unknown',
+          frontend_parsed: frontend_parsed || false
+        },
+        user_question: user_question || 'Análise de dados',
         parsed_schema: {
           columns: enrichedSchema,
           basic_columns: basicSchema.length,
@@ -566,43 +642,21 @@ Deno.serve(async (req: Request) => {
         }
       };
 
-      // If dataset_id provided, UPDATE existing record (frontend already created it)
-      // Otherwise, INSERT new record (legacy flow)
-      if (actualDatasetId) {
-        console.log('[AnalyzeFile] Updating existing data_analyses record:', actualDatasetId);
+      // ALWAYS INSERT new record (backend creates and manages data_analyses)
+      console.log('[AnalyzeFile] Creating data_analyses record');
 
-        const { error: updateError } = await supabase
-          .from('data_analyses')
-          .update(analysisData)
-          .eq('id', actualDatasetId);
+      const { data: savedAnalysis, error: insertError } = await supabase
+        .from('data_analyses')
+        .insert(analysisData)
+        .select()
+        .single();
 
-        if (updateError) {
-          console.error('[AnalyzeFile] Error updating analysis:', updateError);
-        } else {
-          console.log('[AnalyzeFile] ✅ Analysis record updated successfully');
-        }
+      if (insertError) {
+        console.error('[AnalyzeFile] Error creating analysis:', insertError);
+        // Continue anyway - return results even if save fails
       } else {
-        console.log('[AnalyzeFile] Creating new data_analyses record (legacy flow)');
-
-        const { data: savedAnalysis, error: insertError } = await supabase
-          .from('data_analyses')
-          .insert({
-            user_id: actualUserId,
-            conversation_id: conversation_id,
-            file_hash: 'legacy-' + Date.now(),
-            file_metadata: { filename: filename || 'unknown' },
-            user_question: user_question || 'No question provided',
-            ...analysisData
-          })
-          .select()
-          .single();
-
-        if (insertError) {
-          console.error('[AnalyzeFile] Error inserting analysis:', insertError);
-        } else {
-          savedAnalysisId = savedAnalysis?.id;
-          console.log('[AnalyzeFile] ✅ New analysis record created:', savedAnalysisId);
-        }
+        savedAnalysisId = savedAnalysis?.id;
+        console.log('[AnalyzeFile] ✅ Analysis record created:', savedAnalysisId);
       }
     }
 

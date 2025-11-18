@@ -137,6 +137,152 @@ async function extractTextFromXlsx(file: File): Promise<string> {
   return out.trim()
 }
 
+async function extractDataFromXlsx(file: File): Promise<{
+  rows: Array<Record<string, any>>
+  metadata: {
+    sheet_name: string
+    total_sheets: number
+    row_count: number
+    column_count: number
+    headers: string[]
+    file_size: number
+  }
+}> {
+  const XLSX = await loadXLSX()
+  const buf = await readAsArrayBuffer(file)
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+
+  if (!wb.SheetNames || wb.SheetNames.length === 0) {
+    throw new Error('Arquivo Excel não contém planilhas')
+  }
+
+  const sheetName = wb.SheetNames[0]
+  const ws = wb.Sheets[sheetName]
+
+  if (!ws) {
+    throw new Error(`Planilha "${sheetName}" não encontrada`)
+  }
+
+  // Convert to array of objects
+  const jsonData = XLSX.utils.sheet_to_json(ws, {
+    header: 1,
+    defval: null,
+    blankrows: false,
+    raw: false
+  }) as any[][]
+
+  if (jsonData.length === 0) {
+    throw new Error('Planilha está vazia')
+  }
+
+  if (jsonData.length === 1) {
+    throw new Error('Planilha contém apenas cabeçalho (sem dados)')
+  }
+
+  // First row is header
+  const headers = jsonData[0].map((h: any) => String(h || '').trim())
+
+  if (headers.every(h => !h)) {
+    throw new Error('Cabeçalhos inválidos na primeira linha')
+  }
+
+  // Convert rows to objects
+  const rows: Array<Record<string, any>> = []
+
+  for (let i = 1; i < jsonData.length; i++) {
+    const rawRow = jsonData[i]
+    const rowObj: Record<string, any> = {}
+    let hasNonNullValue = false
+
+    for (let j = 0; j < headers.length; j++) {
+      const cellValue = rawRow[j] !== undefined && rawRow[j] !== null && rawRow[j] !== '' ? rawRow[j] : null
+      rowObj[headers[j]] = cellValue
+      if (cellValue !== null) hasNonNullValue = true
+    }
+
+    // Skip empty rows
+    if (hasNonNullValue) {
+      rows.push(rowObj)
+    }
+  }
+
+  if (rows.length === 0) {
+    throw new Error('Nenhuma linha de dados válida encontrada')
+  }
+
+  return {
+    rows,
+    metadata: {
+      sheet_name: sheetName,
+      total_sheets: wb.SheetNames.length,
+      row_count: rows.length,
+      column_count: headers.length,
+      headers,
+      file_size: buf.byteLength
+    }
+  }
+}
+
+async function extractDataFromCsv(file: File): Promise<{
+  rows: Array<Record<string, any>>
+  metadata: {
+    delimiter: string
+    confidence: number
+    encoding: string
+    row_count: number
+    column_count: number
+    headers: string[]
+    file_size: number
+  }
+}> {
+  const { rows: rawRows, delimiter, confidence, encoding, headers } = await detectAndParseCSV(file)
+
+  if (rawRows.length === 0) {
+    throw new Error('Arquivo CSV está vazio')
+  }
+
+  if (rawRows.length === 1) {
+    throw new Error('CSV contém apenas cabeçalho (sem dados)')
+  }
+
+  // Skip header row and convert to objects
+  const dataRows = rawRows.slice(1)
+  const rows: Array<Record<string, any>> = []
+
+  for (const rawRow of dataRows) {
+    const rowObj: Record<string, any> = {}
+    let hasNonNullValue = false
+
+    for (let j = 0; j < headers.length; j++) {
+      const cellValue = rawRow[j] !== undefined && rawRow[j] !== null && rawRow[j].trim() !== '' ? rawRow[j].trim() : null
+      rowObj[headers[j]] = cellValue
+      if (cellValue !== null) hasNonNullValue = true
+    }
+
+    // Skip empty rows
+    if (hasNonNullValue) {
+      rows.push(rowObj)
+    }
+  }
+
+  if (rows.length === 0) {
+    throw new Error('Nenhuma linha de dados válida encontrada no CSV')
+  }
+
+  return {
+    rows,
+    metadata: {
+      delimiter: getDelimiterName(delimiter),
+      confidence,
+      encoding,
+      row_count: rows.length,
+      column_count: headers.length,
+      headers,
+      file_size: file.size
+    }
+  }
+}
+
 async function extractTextFromCsv(file: File): Promise<string> {
   try {
     const { text, delimiter, confidence, encoding } = await detectAndParseCSV(file)
@@ -1153,13 +1299,13 @@ function ChatPage() {
   setTimeout(() => setPendingConsultorActions(null), 45_000);
 
       } else if (isAnalyticsMode && hasDataFiles) {
-        console.log('[ANALYTICS MODE - NEW] Iniciando fluxo simplificado de análise...');
-        const dataFileRef = attachedRefs.find(ref => /\.(xlsx|xls|csv|json|txt|pdf|docx|pptx)$/i.test(ref.title || ''));
-        if (!dataFileRef) throw new Error('Nenhum arquivo de dados encontrado para análise. Formatos suportados: Excel, CSV, JSON, TXT, PDF, Word, PowerPoint.');
+        console.log('[ANALYTICS MODE - DUAL PATH] Iniciando análise com parse local...');
+        const dataFileRef = attachedRefs.find(ref => /\.(xlsx|xls|csv|json)$/i.test(ref.title || ''));
+        if (!dataFileRef) throw new Error('Nenhum arquivo de dados encontrado para análise. Formatos suportados: Excel (.xlsx), CSV, JSON.');
 
-        console.log('[ANALYTICS MODE - NEW] Arquivo de dados:', dataFileRef);
+        console.log('[ANALYTICS MODE - DUAL PATH] Arquivo de dados:', dataFileRef);
 
-        // Baixar o arquivo do storage para enviar à nova função
+        // Baixar o arquivo do storage
         const { data: fileData, error: downloadError } = await supabase.storage
           .from(dataFileRef.storage_bucket || 'references')
           .download(dataFileRef.storage_path!);
@@ -1168,70 +1314,82 @@ function ChatPage() {
           throw new Error(`Falha ao baixar arquivo: ${downloadError?.message || 'Arquivo não encontrado'}`);
         }
 
-        // Converte para base64
-        const arrayBuffer = await fileData.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const file_data_base64 = btoa(binary);
-
-        console.log('[ANALYTICS MODE - NEW] Arquivo baixado e convertido para base64');
-
         // Update state to analyzing
         setAnalysisState('analyzing');
         setLoading(false); // Hide generic loading, use analysisState instead
 
-        // 🎯 STEP 1: Create data_analyses record for tracking and telemetry
-        // Generate file hash for deduplication
-        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const file_hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // 🎯 DUAL PATH: Parse local (frontend) para XLSX e CSV
+        const ext = getExt(dataFileRef.title || '');
+        let parsedRows: Array<Record<string, any>> | null = null;
+        let parseMetadata: any = null;
+        let frontendParsed = false;
 
-        console.log('[ANALYTICS MODE - NEW] Creating data_analyses record with hash:', file_hash.substring(0, 16));
-
-        const { data: dataAnalysisRecord, error: createError } = await supabase
-          .from('data_analyses')
-          .insert({
-            user_id: user?.id,
-            conversation_id: current.id,
-            file_hash: file_hash,
-            file_metadata: {
-              filename: dataFileRef.title || 'arquivo.xlsx',
-              size: fileData.size,
-              type: fileData.type,
-              storage_path: dataFileRef.storage_path,
-              storage_bucket: dataFileRef.storage_bucket || 'references'
-            },
-            user_question: text,
-            parsed_schema: {},
-            sample_data: [],
-            full_dataset_rows: 0,
-            status: 'processing'
-          })
-          .select()
-          .single();
-
-        if (createError || !dataAnalysisRecord) {
-          console.error('[ANALYTICS MODE - NEW] Failed to create data_analyses record:', createError);
-          throw new Error(`Falha ao criar registro de análise: ${createError?.message || 'Erro desconhecido'}`);
+        try {
+          if (ext === 'xlsx' || ext === 'xls') {
+            console.log('[ANALYTICS MODE - DUAL PATH] Parseando Excel localmente...');
+            const parseStartTime = Date.now();
+            const result = await extractDataFromXlsx(fileData);
+            parsedRows = result.rows;
+            parseMetadata = result.metadata;
+            frontendParsed = true;
+            console.log(`[ANALYTICS MODE - DUAL PATH] ✅ Excel parseado: ${result.rows.length} linhas, ${result.metadata.column_count} colunas (${Date.now() - parseStartTime}ms)`);
+          } else if (ext === 'csv') {
+            console.log('[ANALYTICS MODE - DUAL PATH] Parseando CSV localmente...');
+            const parseStartTime = Date.now();
+            const result = await extractDataFromCsv(fileData);
+            parsedRows = result.rows;
+            parseMetadata = result.metadata;
+            frontendParsed = true;
+            console.log(`[ANALYTICS MODE - DUAL PATH] ✅ CSV parseado: ${result.rows.length} linhas, ${result.metadata.column_count} colunas (${Date.now() - parseStartTime}ms)`);
+          } else if (ext === 'json') {
+            console.log('[ANALYTICS MODE - DUAL PATH] Parseando JSON...');
+            const text = await fileData.text();
+            const jsonData = JSON.parse(text);
+            parsedRows = Array.isArray(jsonData) ? jsonData : [jsonData];
+            parseMetadata = {
+              row_count: parsedRows.length,
+              column_count: parsedRows.length > 0 ? Object.keys(parsedRows[0]).length : 0,
+              headers: parsedRows.length > 0 ? Object.keys(parsedRows[0]) : [],
+              file_size: fileData.size
+            };
+            frontendParsed = true;
+            console.log(`[ANALYTICS MODE - DUAL PATH] ✅ JSON parseado: ${parsedRows.length} objetos`);
+          }
+        } catch (parseError: any) {
+          console.error('[ANALYTICS MODE - DUAL PATH] Erro no parse local:', parseError);
+          throw new Error(`Erro ao processar arquivo: ${parseError.message}`);
         }
 
-        const dataset_id = dataAnalysisRecord.id;
-        console.log('[ANALYTICS MODE - NEW] ✅ data_analyses record created:', dataset_id);
+        // 🎯 STEP 2: Call analyze-file with parsed data
+        const requestBody: any = {
+          user_question: text,
+          conversation_id: current.id,
+          user_id: user?.id,
+          filename: dataFileRef.title || 'arquivo.xlsx',
+          force_analysis: true
+        };
 
-        // 🎯 STEP 2: Call analyze-file with dataset_id
-        const { data: analysisResponse, error: analysisError } = await supabase.functions.invoke('analyze-file', {
-          body: {
-            dataset_id: dataset_id,
-            file_data: file_data_base64,
-            filename: dataFileRef.title || 'arquivo.xlsx',
-            user_question: text,
-            conversation_id: current.id,
-            existing_context: dialogueStateId,  // Send existing dialogue state ID (legacy)
-            force_analysis: true  // SEMPRE TRUE: Pula diálogo e analisa direto
+        if (frontendParsed && parsedRows) {
+          // Path 1: Send parsed rows (frontend parsed)
+          requestBody.parsed_rows = parsedRows;
+          requestBody.parse_metadata = parseMetadata;
+          requestBody.frontend_parsed = true;
+          console.log('[ANALYTICS MODE - DUAL PATH] Enviando dados parseados (Path 1: Frontend)');
+        } else {
+          // Path 2: Send base64 (backend will parse) - fallback
+          const arrayBuffer = await fileData.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
           }
+          requestBody.file_data = btoa(binary);
+          requestBody.frontend_parsed = false;
+          console.log('[ANALYTICS MODE - DUAL PATH] Enviando base64 (Path 2: Backend)');
+        }
+
+        const { data: analysisResponse, error: analysisError } = await supabase.functions.invoke('analyze-file', {
+          body: requestBody
         });
 
         console.log('[ANALYTICS MODE - NEW] Resposta:', { analysisResponse, analysisError });
