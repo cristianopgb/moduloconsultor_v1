@@ -78,14 +78,14 @@ export async function generateSchemaAwareNarrative(
   const columnUsage = new Map<string, number>();
 
   try {
+    // Check if we have playbook results (new format)
+    const hasPlaybookResults = analysisResults.playbook_results && analysisResults.sections;
+
     // Generate Executive Summary
     if (context.active_sections.includes('overview')) {
-      const summaryInsights = await generateOverviewInsights(
-        analysisResults,
-        context,
-        columnNames,
-        canonicalNames
-      );
+      const summaryInsights = hasPlaybookResults
+        ? generateOverviewInsightsFromPlaybook(analysisResults, context)
+        : await generateOverviewInsights(analysisResults, context, columnNames, canonicalNames);
 
       for (const insight of summaryInsights) {
         // Validate insight
@@ -110,13 +110,9 @@ export async function generateSchemaAwareNarrative(
         continue; // Already handled or will handle separately
       }
 
-      const sectionInsights = await generateSectionInsights(
-        analysisResults,
-        section,
-        context,
-        columnNames,
-        canonicalNames
-      );
+      const sectionInsights = hasPlaybookResults
+        ? generateSectionInsightsFromPlaybook(analysisResults, section, context)
+        : await generateSectionInsights(analysisResults, section, context, columnNames, canonicalNames);
 
       for (const insight of sectionInsights) {
         const validation = validateInsight(insight, context);
@@ -499,4 +495,150 @@ export function formatNarrativeOutput(output: NarrativeOutput): string {
   }
 
   return formatted;
+}
+
+/**
+ * ===================================================================
+ * PLAYBOOK-SPECIFIC NARRATIVE GENERATION
+ * ===================================================================
+ */
+
+/**
+ * Generate overview insights from playbook results
+ */
+function generateOverviewInsightsFromPlaybook(
+  analysisResults: any,
+  context: NarrativeContext
+): InsightWithTracking[] {
+  const insights: InsightWithTracking[] = [];
+  const overviewSection = analysisResults.sections?.overview;
+
+  if (!overviewSection) {
+    return insights;
+  }
+
+  const rowCount = analysisResults.row_count || 0;
+
+  // Dataset size insight
+  insights.push({
+    text: `Dataset contém ${rowCount} registros analisados.`,
+    columns_used: [],
+    confidence: 100,
+    section: 'overview'
+  });
+
+  // Add metrics from overview section
+  const metrics = overviewSection.metrics || {};
+  const columnsUsed = new Set<string>();
+
+  // Extract columns used from metrics_map dependencies
+  for (const metricName in metrics) {
+    const metricDef = context.metrics_map[metricName];
+    if (metricDef && metricDef.deps) {
+      metricDef.deps.forEach((dep: string) => columnsUsed.add(dep));
+    }
+  }
+
+  // Generate insights from metrics
+  for (const [metricName, value] of Object.entries(metrics)) {
+    const numValue = Number(value);
+
+    if (!isNaN(numValue)) {
+      const formattedValue = Math.abs(numValue) < 0.01
+        ? numValue.toExponential(2)
+        : numValue.toFixed(2);
+
+      // Create human-readable metric name
+      const readableName = metricName
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+
+      insights.push({
+        text: `${readableName}: ${formattedValue}`,
+        columns_used: Array.from(columnsUsed),
+        confidence: 95,
+        section: 'overview'
+      });
+    }
+  }
+
+  return insights;
+}
+
+/**
+ * Generate section insights from playbook results
+ */
+function generateSectionInsightsFromPlaybook(
+  analysisResults: any,
+  sectionName: string,
+  context: NarrativeContext
+): InsightWithTracking[] {
+  const insights: InsightWithTracking[] = [];
+  const section = analysisResults.sections?.[sectionName];
+
+  if (!section) {
+    return insights;
+  }
+
+  const aggregations = section.aggregations || [];
+  const columnsUsed = new Set<string>();
+
+  // Track columns used
+  aggregations.forEach((agg: any) => {
+    if (agg.dimension) {
+      columnsUsed.add(agg.dimension);
+    }
+    // Add metric dependencies
+    for (const metricName in agg.metrics) {
+      const metricDef = context.metrics_map[metricName];
+      if (metricDef && metricDef.deps) {
+        metricDef.deps.forEach((dep: string) => columnsUsed.add(dep));
+      }
+    }
+  });
+
+  // Generate Top N insights (show top 5 by default)
+  const topN = aggregations.slice(0, 5);
+
+  for (const agg of topN) {
+    const dimension = agg.dimension;
+    const dimensionValue = agg.dimension_value;
+    const metrics = agg.metrics || {};
+
+    // Format metrics
+    const metricTexts: string[] = [];
+    for (const [metricName, value] of Object.entries(metrics)) {
+      const numValue = Number(value);
+      if (!isNaN(numValue)) {
+        const formattedValue = Math.abs(numValue) < 0.01
+          ? numValue.toExponential(2)
+          : numValue.toFixed(2);
+
+        const readableMetric = metricName.replace(/_/g, ' ');
+        metricTexts.push(`${readableMetric}: ${formattedValue}`);
+      }
+    }
+
+    if (metricTexts.length > 0) {
+      const readableDimension = dimension.replace(/_/g, ' ');
+      insights.push({
+        text: `${readableDimension} "${dimensionValue}": ${metricTexts.join(', ')}`,
+        columns_used: Array.from(columnsUsed),
+        confidence: 90,
+        section: sectionName
+      });
+    }
+  }
+
+  // Add summary if we have many results
+  if (aggregations.length > 5) {
+    insights.push({
+      text: `Análise inclui ${aggregations.length} valores distintos de ${aggregations[0]?.dimension || 'dimensão'}.`,
+      columns_used: Array.from(columnsUsed),
+      confidence: 100,
+      section: sectionName
+    });
+  }
+
+  return insights;
 }

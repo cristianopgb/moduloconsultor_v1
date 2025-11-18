@@ -27,6 +27,7 @@ import { scanForHallucinations, formatViolationReport, generateBlockedResultMess
 import { generateSafeExploratoryAnalysis, formatFallbackAnalysis } from '../_shared/safe-exploratory-fallback.ts';
 import { ingestFile } from '../_shared/ingest-orchestrator.ts';
 import { buildAuditCard, formatAuditCardAsMarkdown } from '../_shared/audit-card-builder.ts';
+import { executePlaybook } from '../_shared/playbook-executor.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -362,16 +363,29 @@ Deno.serve(async (req: Request) => {
     }
 
     // ===================================================================
-    // Execute Analysis (Simplified - would call actual analysis engine)
+    // EXECUTE ANALYSIS - Real Playbook Execution
     // ===================================================================
-    console.log('[AnalyzeFile] Executing analysis...');
+    console.log('[AnalyzeFile] Executing playbook analysis with real data...');
 
-    // For now, we'll create a simple analysis result
-    // In production, this would call the actual analytics engine
+    const playbookResults = await executePlaybook(
+      selectedPlaybook,
+      enrichedSchema,
+      rowData,
+      guardrails.active_sections
+    );
+
+    console.log(`[AnalyzeFile] Playbook execution complete:`);
+    console.log(`  - Sections executed: ${playbookResults.execution_metadata.sections_executed}`);
+    console.log(`  - Metrics computed: ${playbookResults.execution_metadata.metrics_computed}`);
+    console.log(`  - Execution time: ${playbookResults.execution_metadata.execution_time_ms}ms`);
+
+    // Transform playbook results into format expected by narrative adapter
     const analysisResults = {
-      data: rowData.slice(0, 20), // Sample results
+      playbook_results: playbookResults,
+      sections: playbookResults.sections,
+      computed_metrics: playbookResults.computed_metrics,
       row_count: rowCount,
-      execution_time_ms: Date.now() - startTime
+      execution_time_ms: playbookResults.execution_metadata.execution_time_ms
     };
 
     // ===================================================================
