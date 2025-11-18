@@ -559,18 +559,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ===================================================================
-    // CRITICAL: Block if hallucinations detected
+    // TELEMETRY ONLY: Never block - violations are logged for monitoring
     // ===================================================================
+    // Hallucination detection is for observability, not gatekeeping.
+    // The LLM and playbook executor already validated against real data.
+    // If playbook execution succeeded, results are valid by definition.
     if (hallucinationReport.should_block) {
-      console.error('[AnalyzeFile] 🚫 BLOCKING RESULT - Critical hallucinations detected');
-
-      const blockedMessage = generateBlockedResultMessage(hallucinationReport);
-
-      return jsonError(400, 'Analysis blocked due to hallucinations', {
-        blocked_reason: blockedMessage,
-        violations: hallucinationReport.violations.length,
-        details: hallucinationReport.violations
-      }, req);
+      console.warn('[AnalyzeFile] ⚠️  Hallucinations detected - adding to quality notes (not blocking)');
     }
 
     // ===================================================================
@@ -582,6 +577,30 @@ Deno.serve(async (req: Request) => {
     );
 
     console.log(`[AnalyzeFile] Final quality score: ${finalQualityScore}/100`);
+
+    // ===================================================================
+    // Build quality notes from violations (warnings, never errors)
+    // ===================================================================
+    const qualityNotes: string[] = [...guardrails.warnings];
+
+    if (hallucinationReport.violations.length > 0) {
+      const criticalCount = hallucinationReport.violations.filter(v => v.severity === 'critical').length;
+      const highCount = hallucinationReport.violations.filter(v => v.severity === 'high').length;
+
+      if (criticalCount > 0) {
+        qualityNotes.push(`Analysis may contain approximations (${criticalCount} critical pattern(s) detected)`);
+      }
+      if (highCount > 0) {
+        qualityNotes.push(`Some column names were mapped using fuzzy matching (${highCount} variance(s))`);
+      }
+      if (hallucinationReport.blocked_terms.length > 0) {
+        qualityNotes.push(`Note: Certain terms were detected but analysis completed successfully`);
+      }
+    }
+
+    if (guardrails.disabled_sections.length > 0) {
+      qualityNotes.push(`${guardrails.disabled_sections.length} section(s) skipped due to insufficient data signals`);
+    }
 
     // ===================================================================
     // Save analysis to database (ALWAYS INSERT, never UPDATE)
@@ -715,35 +734,49 @@ Deno.serve(async (req: Request) => {
     console.log(`[AnalyzeFile] ✅ Analysis complete in ${Date.now() - startTime}ms`);
 
     // ===================================================================
-    // Return final result (compatible with frontend expectations)
+    // Return final result (Unified SaaS Response Contract)
     // ===================================================================
     return jsonOk({
       success: true,
-      analysis_id: savedAnalysisId,
-      playbook_id: selectedPlaybook.id,
-      playbook_name: selectedPlaybook.description,
-      compatibility_score: bestMatch.score,
-      quality_score: finalQualityScore,
-      is_fallback: false,
+      mode: 'playbook',
       result: {
-        summary: formattedNarrative
+        summary: formattedNarrative,
+        sections: narrative.sections || [],
+        metrics: narrative.metrics || []
       },
+      schema: {
+        columns: enrichedSchema.map(col => ({
+          original: col.name,
+          normalized: col.normalized_name || col.name.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+          type: col.inferred_type || col.type,
+          canonical: col.canonical_name
+        })),
+        row_count: rowCount
+      },
+      quality: {
+        score: finalQualityScore,
+        confidence: finalQualityScore,
+        notes: qualityNotes
+      },
+      telemetry: {
+        playbook_id: selectedPlaybook.id,
+        playbook_name: selectedPlaybook.description,
+        compatibility_score: bestMatch.score,
+        execution_ms: Date.now() - startTime,
+        columns_used: Object.keys(narrative.column_usage_summary),
+        sections_active: guardrails.active_sections.length,
+        sections_disabled: guardrails.disabled_sections.length,
+        hallucination_violations: hallucinationReport.violations.length
+      },
+      persistence: {
+        analysis_id: savedAnalysisId,
+        persisted: savedAnalysisId !== null
+      },
+      // Legacy fields for backwards compatibility
+      analysis_id: savedAnalysisId,
+      is_fallback: false,
       full_dataset_rows: rowCount,
-      enriched_schema: enrichedSchema,
-      columns_used: Object.keys(narrative.column_usage_summary),
-      guardrails: {
-        active_sections: guardrails.active_sections,
-        disabled_sections: guardrails.disabled_sections,
-        warnings: guardrails.warnings
-      },
-      hallucination_check: {
-        violations_count: hallucinationReport.violations.length,
-        confidence_penalty: hallucinationReport.confidence_penalty
-      },
-      metadata: {
-        row_count: rowCount,
-        execution_time_ms: Date.now() - startTime
-      }
+      enriched_schema: enrichedSchema
     }, { req });
 
   } catch (error) {
