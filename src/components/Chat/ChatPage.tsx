@@ -1422,20 +1422,50 @@ function ChatPage() {
         setShowDialoguePanel(false);
         setDialogueStateId(null);
 
-        const { result, analysis_id, full_dataset_rows, fallback_reason } = analysisResponse;
-        const summary = result?.summary || 'Análise concluída. Veja os detalhes abaixo.';
+        const { result, analysis_id, full_dataset_rows, fallback_reason, metadata } = analysisResponse;
+
+        // Enhanced summary generation for fallback mode
+        let displaySummary = result?.summary;
+
+        if (!displaySummary || displaySummary.trim() === '' || displaySummary.includes('não pôde ser gerada')) {
+          // Generate a useful fallback summary from metadata
+          const meta = result?.metadata || metadata || {};
+          const schemaOverview = result?.schema_overview || {};
+
+          displaySummary = `## 📊 Análise Exploratória\n\n`;
+          displaySummary += `**Visão Geral:**\n`;
+          displaySummary += `- ${full_dataset_rows || meta.row_count || 0} registros analisados\n`;
+          displaySummary += `- ${meta.column_count || 0} colunas detectadas\n`;
+
+          if (meta.numeric_columns || schemaOverview.numeric_columns?.length) {
+            const numCount = meta.numeric_columns || schemaOverview.numeric_columns?.length || 0;
+            displaySummary += `- ${numCount} colunas numéricas para análise quantitativa\n`;
+          }
+
+          if (meta.date_columns || schemaOverview.date_columns?.length) {
+            const dateCount = meta.date_columns || schemaOverview.date_columns?.length || 0;
+            displaySummary += `- ${dateCount} colunas temporais para análise de tendências\n`;
+          }
+
+          displaySummary += `\n💡 Use as sugestões abaixo para explorar os dados em detalhes.`;
+        }
 
         if (isFallback) {
           console.log(`[ANALYTICS MODE - NEW] ⚠️ Análise em modo fallback: ${fallback_reason}`);
+          // Add fallback badge to summary
+          displaySummary = `🔍 **Modo: Análise Exploratória**\n\n${displaySummary}`;
         } else {
           console.log(`[ANALYTICS MODE - NEW] ✅ Análise concluída em ${full_dataset_rows} linhas completas`);
         }
 
-        // Save analysis data for suggestions
+        // Save analysis data for suggestions (include metadata for richer context)
         setLastAnalysisData({
           ...result,
           recordsAnalyzed: full_dataset_rows,
-          analysis_id: analysis_id
+          analysis_id: analysis_id,
+          is_fallback: isFallback,
+          fallback_reason: fallback_reason,
+          metadata: result?.metadata || metadata
         });
         setShowSuggestions(true);
 
@@ -1443,10 +1473,14 @@ function ChatPage() {
           id: `temp-assistant-${Date.now()}`,
           conversation_id: current.id,
           role: 'assistant',
-          content: summary,
+          content: displaySummary,
           created_at: new Date().toISOString(),
           analysis_id: analysis_id,
-          analysisData: result,
+          analysisData: {
+            ...result,
+            is_fallback: isFallback,
+            fallback_reason: isFallback ? fallback_reason : undefined
+          },
           message_type: 'analysis_result'
         };
 
@@ -1454,7 +1488,7 @@ function ChatPage() {
         await supabase.from('messages').insert({
           conversation_id: current.id,
           role: 'assistant',
-          content: summary,
+          content: displaySummary,
           analysis_id: analysis_id,
           message_type: 'analysis_result',
         });

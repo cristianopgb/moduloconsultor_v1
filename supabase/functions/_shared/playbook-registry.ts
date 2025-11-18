@@ -123,12 +123,12 @@ export function findPlaybooksByDomain(domain: string): Playbook[] {
 /**
  * Find all compatible playbooks above minimum score threshold
  *
- * CRITICAL: Default threshold is 80% (strict)
+ * CRITICAL: Default threshold is 60% (relaxed for type-based matching)
  */
 export async function findCompatiblePlaybooks(
   schema: any[],
   compatibilityResults: Map<string, any>,
-  minScore: number = 80
+  minScore: number = 60
 ): Promise<Playbook[]> {
 
   const playbooks = loadPlaybooks();

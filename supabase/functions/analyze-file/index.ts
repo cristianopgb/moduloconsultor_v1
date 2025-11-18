@@ -340,9 +340,9 @@ Deno.serve(async (req: Request) => {
       })
     );
 
-    // Filter compatible playbooks (score >= 80%)
+    // Filter compatible playbooks (score >= 60% - relaxed for type-based matching)
     const compatiblePlaybooks = validationResults
-      .filter(r => r.compatible && r.score >= 80)
+      .filter(r => r.compatible && r.score >= 60)
       .sort((a, b) => b.score - a.score);
 
     console.log(`[AnalyzeFile] Compatible playbooks: ${compatiblePlaybooks.length}`);
@@ -355,7 +355,7 @@ Deno.serve(async (req: Request) => {
     // FALLBACK: No compatible playbook found (ALWAYS RETURN 200)
     // ===================================================================
     if (compatiblePlaybooks.length === 0) {
-      console.log('[AnalyzeFile] No compatible playbook (all scores < 80%). Using safe fallback.');
+      console.log('[AnalyzeFile] No compatible playbook (all scores < 60%). Using safe fallback.');
 
       const topScores = validationResults
         .sort((a, b) => b.score - a.score)
@@ -363,7 +363,7 @@ Deno.serve(async (req: Request) => {
         .map(v => `${v.playbook.id}: ${v.score}%`)
         .join(', ');
 
-      const fallbackReason = `Nenhum playbook encontrado com score ≥80%. Melhores scores: ${topScores}. ` +
+      const fallbackReason = `Nenhum playbook encontrado com score ≥60%. Melhores scores: ${topScores}. ` +
         `O dataset não corresponde aos requisitos de nenhum playbook específico. ` +
         `Isso geralmente ocorre quando: (1) faltam colunas obrigatórias, (2) os tipos detectados não correspondem aos esperados, ou (3) o dataset é muito pequeno.`;
 
@@ -379,11 +379,44 @@ Deno.serve(async (req: Request) => {
         formattedAnalysis = formatFallbackAnalysis(fallbackResult);
       } catch (fallbackError) {
         console.error('[AnalyzeFile] Error generating fallback analysis:', fallbackError);
-        formattedAnalysis = `Análise exploratória não pôde ser gerada. Dados recebidos: ${rowCount} linhas, ${enrichedSchema.length} colunas.`;
+
+        // Generate minimal but useful summary
+        const numericCols = enrichedSchema.filter(c => c.inferred_type === 'numeric' || c.type === 'numeric').length;
+        const dateCols = enrichedSchema.filter(c => c.inferred_type === 'date' || c.type === 'date').length;
+        const textCols = enrichedSchema.filter(c => c.inferred_type === 'text' || c.type === 'text').length;
+
+        const numericSample = enrichedSchema.filter(c => c.inferred_type === 'numeric' || c.type === 'numeric').slice(0, 3).map(c => c.name).join(', ');
+        const dateSample = enrichedSchema.filter(c => c.inferred_type === 'date' || c.type === 'date').slice(0, 2).map(c => c.name).join(', ');
+
+        formattedAnalysis = `## 📊 Análise Exploratória\n\n`;
+        formattedAnalysis += `**Visão Geral dos Dados:**\n`;
+        formattedAnalysis += `- Total de registros: ${rowCount}\n`;
+        formattedAnalysis += `- Total de colunas: ${enrichedSchema.length}\n`;
+        formattedAnalysis += `- Colunas numéricas: ${numericCols}${numericSample ? ` (ex: ${numericSample})` : ''}\n`;
+        formattedAnalysis += `- Colunas de data: ${dateCols}${dateSample ? ` (ex: ${dateSample})` : ''}\n`;
+        formattedAnalysis += `- Colunas de texto: ${textCols}\n\n`;
+
+        if (numericCols > 0 && dateCols > 0) {
+          formattedAnalysis += `✅ Dataset contém dados temporais e numéricos adequados para análises quantitativas.\n\n`;
+        }
+
+        formattedAnalysis += `💡 Para análises mais profundas, use as sugestões abaixo para explorar os dados.`;
+
         fallbackResult = {
+          playbook_id: 'generic_exploratory_v1',
+          fallback_reason: fallbackReason,
+          analysis: {
+            executive_summary: formattedAnalysis,
+            key_findings: '',
+            recommendations: '',
+            limitations: ''
+          },
           metadata: {
             row_count: rowCount,
             column_count: enrichedSchema.length,
+            numeric_columns: numericCols,
+            date_columns: dateCols,
+            text_columns: textCols,
             error: String(fallbackError)
           }
         };
@@ -430,7 +463,13 @@ Deno.serve(async (req: Request) => {
           analysis_id: savedAnalysisId,
           playbook_id: 'generic_exploratory_v1',
           result: {
-            summary: formattedAnalysis
+            summary: formattedAnalysis,
+            metadata: fallbackResult.metadata,
+            schema_overview: {
+              numeric_columns: enrichedSchema.filter(c => c.inferred_type === 'numeric' || c.type === 'numeric').map(c => c.name),
+              date_columns: enrichedSchema.filter(c => c.inferred_type === 'date' || c.type === 'date').map(c => c.name),
+              text_columns: enrichedSchema.filter(c => c.inferred_type === 'text' || c.type === 'text').slice(0, 5).map(c => c.name)
+            }
           },
           full_dataset_rows: rowCount,
           metadata: fallbackResult.metadata,

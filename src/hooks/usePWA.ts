@@ -42,12 +42,18 @@ export function usePWA() {
     const registerSW = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          // Skip service worker registration in StackBlitz
-          if (window.location.hostname.includes('webcontainer')) {
-            console.log('Skipping SW registration in StackBlitz environment')
-            return
+          // Skip service worker registration in development and WebContainer environments
+          const hostname = window.location.hostname;
+          const isDev = import.meta.env.DEV;
+          const isWebContainer = hostname.includes('webcontainer') ||
+                                  hostname.includes('local-credentialless') ||
+                                  hostname.includes('webcontainer-api.io');
+
+          if (isDev || isWebContainer) {
+            console.log('Skipping SW registration in development/WebContainer environment');
+            return;
           }
-          
+
           const registration = await navigator.serviceWorker.register('/sw.js')
           console.log('SW registered:', registration)
         } catch (error) {
