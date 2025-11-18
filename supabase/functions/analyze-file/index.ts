@@ -36,7 +36,8 @@ import {
   sanitizeForJson,
   buildDiagnostics,
   safeConversationId,
-  checkPayloadSize
+  checkPayloadSize,
+  corsHeaders
 } from '../_shared/response-helpers.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;

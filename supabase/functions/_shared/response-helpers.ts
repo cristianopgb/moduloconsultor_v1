@@ -16,6 +16,8 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
+export const corsHeaders = CORS_HEADERS;
+
 export interface ResponseOptions {
   status?: number;
   headers?: Record<string, string>;
