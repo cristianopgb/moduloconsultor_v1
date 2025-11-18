@@ -7,37 +7,65 @@
  * Implements graceful degradation policy:
  * - 400: Only for invalid input (no data provided)
  * - 200: For all processing results (success or fallback)
+ *
+ * CORS STRATEGY:
+ * - Dynamically echoes Access-Control-Request-Headers from preflight
+ * - Ensures all responses (2xx, 4xx, 5xx) include CORS headers
+ * - Prevents browser from blocking responses due to missing headers
  * ===================================================================
  */
 
-const CORS_HEADERS = {
+const BASE_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET, PUT, DELETE, PATCH',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Requested-With, Accept, Accept-Language, Content-Language, X-Supabase-Api-Version, Prefer',
+  'Access-Control-Max-Age': '86400',
 };
 
-export const corsHeaders = CORS_HEADERS;
+export const corsHeaders = BASE_CORS_HEADERS;
+
+/**
+ * Build CORS headers dynamically based on the request
+ * Echoes Access-Control-Request-Headers if present (more permissive)
+ */
+export function buildCorsHeaders(req?: Request): Record<string, string> {
+  if (!req) return BASE_CORS_HEADERS;
+
+  const requestedHeaders = req.headers.get('Access-Control-Request-Headers');
+
+  if (requestedHeaders) {
+    return {
+      ...BASE_CORS_HEADERS,
+      'Access-Control-Allow-Headers': requestedHeaders,
+    };
+  }
+
+  return BASE_CORS_HEADERS;
+}
 
 export interface ResponseOptions {
   status?: number;
   headers?: Record<string, string>;
   includeTimestamp?: boolean;
+  req?: Request;
 }
 
 /**
  * Return successful JSON response (200)
  */
 export function jsonOk(data: unknown, options: ResponseOptions = {}): Response {
-  const { status = 200, headers = {}, includeTimestamp = true } = options;
+  const { status = 200, headers = {}, includeTimestamp = true, req } = options;
 
   const responseData = includeTimestamp
     ? { ...data, timestamp: new Date().toISOString() }
     : data;
 
+  const corsHeaders = buildCorsHeaders(req);
+
   return new Response(JSON.stringify(responseData), {
     status,
     headers: {
-      ...CORS_HEADERS,
+      ...corsHeaders,
       'Content-Type': 'application/json',
       ...headers,
     },
@@ -47,12 +75,16 @@ export function jsonOk(data: unknown, options: ResponseOptions = {}): Response {
 /**
  * Return error response (use only for client errors)
  * CRITICAL: Only use for 400 (bad request) - not for processing failures
+ * ALWAYS includes CORS headers to prevent browser blocking
  */
 export function jsonError(
   code: number,
   message: string,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
+  req?: Request
 ): Response {
+  const corsHeaders = buildCorsHeaders(req);
+
   return new Response(
     JSON.stringify({
       success: false,
@@ -64,7 +96,7 @@ export function jsonError(
     {
       status: code,
       headers: {
-        ...CORS_HEADERS,
+        ...corsHeaders,
         'Content-Type': 'application/json',
       },
     }
@@ -78,7 +110,8 @@ export function jsonError(
 export function jsonFallback(
   data: unknown,
   reason: string,
-  diagnostics: Record<string, unknown> = {}
+  diagnostics: Record<string, unknown> = {},
+  req?: Request
 ): Response {
   return jsonOk({
     success: true,
@@ -89,16 +122,18 @@ export function jsonFallback(
       timestamp: new Date().toISOString(),
       ...diagnostics,
     },
-  });
+  }, { req });
 }
 
 /**
- * Return OPTIONS preflight response
+ * Return OPTIONS preflight response with dynamic header echoing
  */
-export function corsPreflightResponse(): Response {
+export function corsPreflightResponse(req?: Request): Response {
+  const corsHeaders = buildCorsHeaders(req);
+
   return new Response(null, {
     status: 204,
-    headers: CORS_HEADERS,
+    headers: corsHeaders,
   });
 }
 

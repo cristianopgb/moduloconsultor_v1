@@ -37,7 +37,8 @@ import {
   buildDiagnostics,
   safeConversationId,
   checkPayloadSize,
-  corsHeaders
+  corsHeaders,
+  buildCorsHeaders
 } from '../_shared/response-helpers.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -87,7 +88,7 @@ interface AnalyzeFileRequest {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return corsPreflightResponse();
+    return corsPreflightResponse(req);
   }
 
   const startTime = Date.now();
@@ -140,7 +141,7 @@ Deno.serve(async (req: Request) => {
         hint: 'Provide either parsed_rows (frontend parsed), parts (chunked data), file_data (base64), or dataset_id (UUID)',
         received_keys: Object.keys(body || {}),
         diagnostics: initialDiagnostics
-      });
+      }, req);
     }
 
     // Get user from JWT if not provided
@@ -252,17 +253,9 @@ Deno.serve(async (req: Request) => {
           warnings: ingestTelemetry.ingest_warnings.length
         });
       } catch (error) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: error.message,
-            hint: 'Verifique se o arquivo está em um formato suportado (CSV, Excel, JSON, TXT)'
-          }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          }
-        );
+        return jsonError(400, error.message, {
+          hint: 'Verifique se o arquivo está em um formato suportado (CSV, Excel, JSON, TXT)'
+        }, req);
       }
 
     } else if (dataset_id) {
@@ -272,17 +265,9 @@ Deno.serve(async (req: Request) => {
       // Validate UUID format
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(dataset_id)) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: 'Invalid dataset_id format',
-            hint: 'dataset_id must be a valid UUID'
-          }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          }
-        );
+        return jsonError(400, 'Invalid dataset_id format', {
+          hint: 'dataset_id must be a valid UUID'
+        }, req);
       }
 
       // Load from database
@@ -293,16 +278,7 @@ Deno.serve(async (req: Request) => {
         .limit(1000);
 
       if (rowsError) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: `Failed to load dataset rows: ${rowsError.message}`
-          }),
-          {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          }
-        );
+        return jsonError(500, `Failed to load dataset rows: ${rowsError.message}`, {}, req);
       }
 
       rowData = rows?.map(r => r.row_data) || [];
@@ -312,17 +288,9 @@ Deno.serve(async (req: Request) => {
     const rowCount = rowData.length;
 
     if (rowCount === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Dataset is empty',
-          hint: 'No rows found in the provided data'
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
+      return jsonError(400, 'Dataset is empty', {
+        hint: 'No rows found in the provided data'
+      }, req);
     }
 
     // 3. Detect basic schema
@@ -478,7 +446,8 @@ Deno.serve(async (req: Request) => {
             }))
         },
         fallbackReason,
-        initialDiagnostics
+        initialDiagnostics,
+        req
       );
     }
 
@@ -597,19 +566,11 @@ Deno.serve(async (req: Request) => {
 
       const blockedMessage = generateBlockedResultMessage(hallucinationReport);
 
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Analysis blocked due to hallucinations',
-          blocked_reason: blockedMessage,
-          violations: hallucinationReport.violations.length,
-          details: hallucinationReport.violations
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
+      return jsonError(400, 'Analysis blocked due to hallucinations', {
+        blocked_reason: blockedMessage,
+        violations: hallucinationReport.violations.length,
+        details: hallucinationReport.violations
+      }, req);
     }
 
     // ===================================================================
@@ -783,7 +744,7 @@ Deno.serve(async (req: Request) => {
         row_count: rowCount,
         execution_time_ms: Date.now() - startTime
       }
-    });
+    }, { req });
 
   } catch (error) {
     console.error('[AnalyzeFile] Critical error:', error);
@@ -801,7 +762,8 @@ Deno.serve(async (req: Request) => {
         error_type: error.name,
         error_message: error.message,
         error_stack: error.stack?.split('\n').slice(0, 5).join('\n')
-      }
+      },
+      req
     );
   }
 });
