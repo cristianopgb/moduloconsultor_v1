@@ -195,21 +195,29 @@ Deno.serve(async (req: Request) => {
         .from('data_analyses')
         .insert({
           user_id: effectiveUserId,
-          dataset_id: dataset_id || null,
-          conversation_id: conversation_id || null,
-          prompt: user_question,
-          result_json: {
+          file_hash: dataset_id || 'inline',
+          file_metadata: {
+            filename: filename || 'inline-data.xlsx',
+            size: parsed_rows ? parsed_rows.length : 0,
+          },
+          parsed_schema: {
+            columns: parse_metadata?.headers || [],
+            types: {},
+          },
+          sample_data: parsed_rows ? parsed_rows.slice(0, 5) : [],
+          user_question: user_question,
+          llm_reasoning: analysisResult.sql_queries?.map(q => q.purpose).join('; ') || '',
+          generated_sql: analysisResult.sql_queries?.map(q => q.sql).join(';\n') || '',
+          full_dataset_rows: parsed_rows ? parsed_rows.length : 0,
+          query_results: analysisResult.sql_queries?.map(q => ({ sql: q.sql, results: q.results })) || [],
+          ai_response: {
             summary: analysisResult.summary,
             insights: analysisResult.insights,
             calculations: analysisResult.calculations,
-            charts: analysisResult.charts,
             recommendations: analysisResult.recommendations,
           },
-          charts_config: analysisResult.charts || [],
-          sql_queries_log: analysisResult.sql_queries || [],
-          validation_passed: analysisResult.validation_passed,
+          visualizations: analysisResult.charts || [],
           status: 'completed',
-          execution_time_ms: Date.now() - startTime,
         })
         .select('id')
         .single();

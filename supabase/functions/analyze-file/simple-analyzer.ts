@@ -142,11 +142,30 @@ export async function analyzeSimple(
     const sqlPlan = await generateSQLPlan(profile, userQuestion);
     console.log(`[SimpleAnalyzer] Generated ${sqlPlan.queries.length} queries`);
 
+    // Step 2.5: Validate SQL queries before execution
+    console.log('[SimpleAnalyzer] Step 2.5: Validating SQL queries...');
+    const validatedQueries = [];
+    for (const query of sqlPlan.queries) {
+      const validation = validateSQLQuery(query.sql);
+      if (!validation.valid) {
+        console.warn(`[SimpleAnalyzer] Invalid SQL rejected: ${query.sql}`);
+        console.warn(`[SimpleAnalyzer] Reason: ${validation.error}`);
+        continue;
+      }
+      validatedQueries.push(query);
+    }
+
+    if (validatedQueries.length === 0) {
+      throw new Error('All generated SQL queries were invalid. LLM failed to follow GROUP BY rules.');
+    }
+
+    console.log(`[SimpleAnalyzer] ${validatedQueries.length} queries validated successfully`);
+
     // Step 3: Execute SQL queries
     console.log('[SimpleAnalyzer] Step 3: Executing SQL queries...');
     const queryResults: Array<{ purpose: string; sql: string; results: any[] }> = [];
 
-    for (const query of sqlPlan.queries) {
+    for (const query of validatedQueries) {
       console.log(`[SimpleAnalyzer] Executing: ${query.purpose}`);
       const result = executeSQL(data, query.sql, profile.columnTypes);
 
@@ -195,6 +214,35 @@ export async function analyzeSimple(
 }
 
 /**
+ * Validate SQL query before execution
+ */
+function validateSQLQuery(sql: string): { valid: boolean; error?: string } {
+  const normalized = sql.toUpperCase().replace(/\s+/g, ' ').trim();
+
+  const hasAggregation = /\b(SUM|AVG|MIN|MAX|COUNT)\s*\(/i.test(sql);
+  const hasGroupBy = /\bGROUP\s+BY\b/i.test(sql);
+
+  const isCountStar = /COUNT\s*\(\s*\*\s*\)/i.test(sql);
+  const isSimpleCount = normalized.match(/SELECT\s+COUNT\s*\(\s*\*?\s*\)\s+FROM\s+DATA\s*$/i);
+
+  if (hasAggregation && !hasGroupBy && !isSimpleCount) {
+    return {
+      valid: false,
+      error: 'Query has aggregation (SUM/AVG/MIN/MAX/COUNT) but missing GROUP BY clause'
+    };
+  }
+
+  if (!normalized.includes('FROM DATA')) {
+    return {
+      valid: false,
+      error: 'Query must use "FROM data" as table name'
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
  * Generate SQL plan using LLM
  */
 async function generateSQLPlan(profile: DataProfile, userQuestion: string): Promise<any> {
@@ -223,13 +271,30 @@ Retorne um objeto JSON com:
   ]
 }
 
-REGRAS:
-1. Use SELECT, WHERE, GROUP BY, ORDER BY, LIMIT
-2. Suporte a agregações: SUM, AVG, COUNT, MIN, MAX
-3. NÃO use JOINs, subqueries complexas, CTEs, ou funções avançadas
-4. Sempre use "FROM data" (não outro nome de tabela)
-5. Crie 2-5 queries que respondam diferentes aspectos da pergunta
-6. Ordene resultados (ORDER BY) e limite a 10 linhas (LIMIT 10) para queries com muitos resultados`;
+REGRAS CRÍTICAS - LEIA COM ATENÇÃO:
+1. SEMPRE use GROUP BY quando usar agregações (SUM, AVG, COUNT, MIN, MAX)
+2. Se você usar SUM, AVG, MIN, MAX ou COUNT, você DEVE incluir GROUP BY
+3. Agregações SEM GROUP BY vão FALHAR - isso é obrigatório
+
+EXEMPLOS CORRETOS:
+✅ SELECT categoria, SUM(entrada) FROM data GROUP BY categoria
+✅ SELECT rua, AVG(qnt_atual) FROM data GROUP BY rua
+✅ SELECT andar, COUNT(*) FROM data GROUP BY andar
+✅ SELECT categoria, andar, MAX(saida) FROM data GROUP BY categoria, andar
+
+EXEMPLOS ERRADOS (VÃO FALHAR):
+❌ SELECT SUM(entrada) FROM data (falta GROUP BY)
+❌ SELECT categoria, AVG(qnt_atual) FROM data (falta GROUP BY)
+❌ SELECT MAX(saida) FROM data WHERE categoria = 'Laticínios' (falta GROUP BY)
+
+OUTRAS REGRAS:
+4. NÃO use JOINs, subqueries complexas, CTEs, ou funções avançadas
+5. Sempre use "FROM data" (não outro nome de tabela)
+6. Crie 2-5 queries que respondam diferentes aspectos da pergunta
+7. Ordene resultados (ORDER BY) e limite a 10 linhas (LIMIT 10) para queries com muitos resultados
+8. Se precisar de um total geral sem agrupamento, use COUNT(*) que não precisa de GROUP BY
+
+LEMBRE-SE: Todo SUM, AVG, MIN, MAX precisa de GROUP BY. Sem exceções!`;
 
   return await callOpenAI([{ role: 'system', content: prompt }]);
 }
