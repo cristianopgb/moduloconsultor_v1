@@ -1,11 +1,10 @@
 /**
- * ANALYZE FILE - SMART ENABLED
+ * ANALYZE FILE - INTELLIGENT PIPELINE
  *
- * LLM + SQL Pipeline (Fallback: Simple) - Funciona com qualquer dataset
+ * LLM + SQL Pipeline with Reflection and Retry
  */ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { ingestFile } from '../_shared/ingest-orchestrator.ts';
 import { analyzeSimple } from './simple-analyzer.ts';
-import { analyzeSmart } from './smart-analyzer.ts'; // 🆕 Importação nova
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
@@ -136,12 +135,28 @@ Deno.serve(async (req)=>{
     }
     console.log(`[AnalyzeFile] Dataset ready: ${rowData.length} rows`);
     // ===================================================================
-    // STEP 2: ANALYZE
+    // STEP 2: ANALYZE (Intelligent Pipeline with Reflection & Retry)
     // ===================================================================
-    console.log('[AnalyzeFile] Starting analysis pipeline...');
-    // 🔁 Troque para false se quiser voltar à versão antiga
-    const useSmart = true;
-    const analysisResult = useSmart ? await analyzeSmart(rowData, user_question) : await analyzeSimple(rowData, user_question);
+    console.log('[AnalyzeFile] Starting intelligent analysis pipeline...');
+
+    let analysisResult;
+    try {
+      analysisResult = await analyzeSimple(rowData, user_question);
+    } catch (error) {
+      console.error('[AnalyzeFile] Analysis pipeline crashed:', error);
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Analysis pipeline error: ' + error.message,
+        stack: error.stack
+      }), {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+
     if (!analysisResult.success) {
       return new Response(JSON.stringify({
         success: false,

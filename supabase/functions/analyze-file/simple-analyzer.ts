@@ -153,6 +153,22 @@ Corrija e retorne:
 /**
  * ✅ Validação simples de SQL
  */ function validateSQLQuery(sql, availableColumns) {
+  if (!sql || typeof sql !== 'string') {
+    return {
+      valid: false,
+      error: 'SQL inválido ou vazio',
+      details: ['SQL deve ser uma string não vazia']
+    };
+  }
+
+  if (!Array.isArray(availableColumns)) {
+    return {
+      valid: false,
+      error: 'availableColumns inválido',
+      details: ['availableColumns deve ser um array de strings']
+    };
+  }
+
   const normalized = sql.toUpperCase().replace(/\s+/g, ' ').trim();
   const details = [];
   if (!normalized.includes('FROM DATA')) {
@@ -203,9 +219,19 @@ Corrija e retorne:
  */ export async function analyzeSimple(data, userQuestion) {
   const profile = profileData(data);
   let sqlPlan = await generateSQLPlan(profile, userQuestion);
+
+  if (!sqlPlan || !Array.isArray(sqlPlan.queries)) {
+    console.warn('[analyzeSimple] LLM returned invalid plan format:', sqlPlan);
+    sqlPlan = { queries: [] };
+  }
+
   let validatedQueries = [];
   const validationErrors = [];
   for (const q of sqlPlan.queries || []){
+    if (!q || !q.sql) {
+      console.warn('[analyzeSimple] Skipping invalid query object:', q);
+      continue;
+    }
     const val = validateSQLQuery(q.sql, profile.columns);
     if (val.valid) {
       validatedQueries.push(q);
@@ -214,10 +240,20 @@ Corrija e retorne:
     }
   }
   if (validatedQueries.length === 0 && validationErrors.length > 0) {
+    console.log('[analyzeSimple] All queries failed validation. Attempting retry...');
     const retryPlan = await retryGenerateSQLPlan(profile, userQuestion, validationErrors);
-    for (const q of retryPlan.queries || []){
-      const val = validateSQLQuery(q.sql, profile.columns);
-      if (val.valid) validatedQueries.push(q);
+
+    if (!retryPlan || !Array.isArray(retryPlan.queries)) {
+      console.warn('[analyzeSimple] Retry returned invalid plan format:', retryPlan);
+    } else {
+      for (const q of retryPlan.queries){
+        if (!q || !q.sql) {
+          console.warn('[analyzeSimple] Skipping invalid retry query:', q);
+          continue;
+        }
+        const val = validateSQLQuery(q.sql, profile.columns);
+        if (val.valid) validatedQueries.push(q);
+      }
     }
   }
   if (validatedQueries.length === 0) {
