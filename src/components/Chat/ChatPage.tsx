@@ -31,8 +31,59 @@ import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
 import { ValidateScopeButton } from './ValidateScopeButton'
 import { callConsultorRAG, getOrCreateSessao } from '../../lib/consultor/rag-adapter'
 import { GeniusChat } from './GeniusChat'
+import { AnalysisPlanValidation } from './AnalysisPlanValidation'
+import { ExecutiveReport } from './ExecutiveReport'
 // NOTE: Refactored - executeRAGActions and updateSessaoContext removed
 // Actions are no longer used in the simplified architecture
+
+// Professional Analysis Flow Helpers
+export async function handleProfessionalAnalysis(
+  datasetId: string,
+  userQuestion: string,
+  onPlanReceived: (plan: any) => void,
+  onError: (error: string) => void
+) {
+  try {
+    const { data, error } = await supabase.functions.invoke('analyze-file', {
+      body: {
+        dataset_id: datasetId,
+        user_question: userQuestion,
+        mode: 'plan_only'
+      }
+    });
+
+    if (error) throw error;
+
+    if (data.needs_validation) {
+      onPlanReceived(data);
+    }
+  } catch (error: any) {
+    onError(error.message || 'Failed to generate analysis plan');
+  }
+}
+
+export async function handleExecutePlan(
+  planId: string,
+  onComplete: (narrative: any) => void,
+  onError: (error: string) => void
+) {
+  try {
+    const { data, error } = await supabase.functions.invoke('analyze-file', {
+      body: {
+        plan_id: planId,
+        mode: 'execute'
+      }
+    });
+
+    if (error) throw error;
+
+    if (data.success) {
+      onComplete(data);
+    }
+  } catch (error: any) {
+    onError(error.message || 'Failed to execute analysis plan');
+  }
+}
 
 async function loadXLSX() {
   const mod = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm')
@@ -411,6 +462,11 @@ function ChatPage() {
   const [formInitialProcesso, setFormInitialProcesso] = useState<any | null>(null)
   // modalJornadaId removed (we only keep modalProcessos)
   const [modalProcessos, setModalProcessos] = useState<any[] | null>(null)
+
+  // Professional flow states
+  const [analysisPlan, setAnalysisPlan] = useState<any>(null)
+  const [executingPlan, setExecutingPlan] = useState(false)
+  const [narrativeResult, setNarrativeResult] = useState<any>(null)
   const [modalJornadaId, setModalJornadaId] = useState<string | null>(null)
 
   // Gamificação - Popup de XP
@@ -2072,6 +2128,64 @@ function ChatPage() {
                   <div className="mb-4">
                     <AnalysisStateIndicator
                       state={analysisState}
+                    />
+                  </div>
+                )}
+
+                {/* Professional Flow - Analysis Plan Validation */}
+                {analysisPlan && (
+                  <div className="mb-4">
+                    <AnalysisPlanValidation
+                      plan={analysisPlan}
+                      onApprove={(planId) => {
+                        setExecutingPlan(true);
+                        setAnalysisPlan(null);
+                        handleExecutePlan(
+                          planId,
+                          (narrative) => {
+                            setExecutingPlan(false);
+                            setNarrativeResult(narrative);
+                          },
+                          (error) => {
+                            setExecutingPlan(false);
+                            setErr(error);
+                          }
+                        );
+                      }}
+                      onReject={(planId, feedback) => {
+                        setAnalysisPlan(null);
+                        setInput(feedback);
+                      }}
+                      onAnswer={(planId, answers) => {
+                        setAnalysisPlan(null);
+                        setInput(answers);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Professional Flow - Executing Plan Animation */}
+                {executingPlan && (
+                  <div className="mb-4 flex justify-center items-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+                    <span className="ml-3 text-gray-400">Analisando seus dados...</span>
+                  </div>
+                )}
+
+                {/* Professional Flow - Executive Report */}
+                {narrativeResult && (
+                  <div className="mb-4">
+                    <ExecutiveReport
+                      narrative={narrativeResult}
+                      onAskMore={(question) => {
+                        setNarrativeResult(null);
+                        if (question) {
+                          setInput(question);
+                        }
+                      }}
+                      onExport={() => {
+                        console.log('Export report');
+                      }}
                     />
                   </div>
                 )}
