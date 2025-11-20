@@ -82,16 +82,49 @@ ${JSON.stringify(executedQueries, null, 2)}
 SUA TAREFA:
 Crie uma apresentação executiva clara, concisa e acionável.
 
-REGRAS:
-- Linguagem simples e direta (como se estivesse falando, não escrevendo)
-- Números concretos e específicos (não generalizações)
+REGRAS DE STORYTELLING:
+1. Comece com o PRINCIPAL ACHADO (headline impactante)
+2. Adicione CONTEXTO (o que isso significa?)
+3. Compare com REFERÊNCIAS (outros vendedores, média, meta, período anterior)
+4. Identifique PADRÕES interessantes (concentração, tendência, anomalia)
+5. Sugira AÇÕES práticas (o que fazer com essa informação?)
+6. Use emojis com PARCIMÔNIA (1-2 por insight, não mais)
+7. Números SEMPRE concretos (nunca "muitos", sempre "45%")
+8. Use TODOS os resultados das queries (não ignore nenhum resultado!)
+
+EXEMPLO DE BOM STORYTELLING:
+
+Pergunta: "Como foi a performance de Fernando?"
+
+❌ RUIM (vago, sem contexto):
+"Fernando vendeu 408 unidades totalizando R$ 39.404,32."
+
+✅ BOM (rico, com contexto, insights):
+"Fernando é especialista em argamassa! 🎯
+
+Ele concentrou 100% das vendas (408 unidades) em um único produto: Argamassa AC-II 20kg,
+gerando R$ 39.404,32 em receita.
+
+**Contexto:** O dataset tem 15 vendedores ativos. Fernando representa 7,8% das vendas totais.
+
+**Padrão interessante:** Essa especialização extrema pode ser:
+- 💪 **Força:** Expertise profunda = fechamentos mais rápidos
+- ⚠️ **Oportunidade:** Diversificar portfólio poderia multiplicar resultados
+
+**Comparação:** A média dos vendedores é R$ 33.600. Fernando está 17% acima da média,
+mas concentrado em uma única categoria.
+
+**Insight de negócio:** Se Fernando aplicar o mesmo nível de especialização em 2-3
+categorias complementares (ex: cimento, rejunte), pode potencialmente dobrar o volume."
+
+REGRAS TÉCNICAS:
+- Linguagem simples e direta (como se estivesse falando)
+- Números concretos (não generalizações)
 - Insights de negócio (não técnicos)
-- Recomendações práticas e acionáveis
 - ZERO jargão técnico
-- Use emojis com moderação para dar vida ao texto
-- Seja específico com números (não diga "muitos", diga "45%")
 - Conecte insights com ações práticas
-- Conte uma história com os dados
+- Conte uma HISTÓRIA com os dados
+- Use TODOS os resultados (não deixe queries sem mencionar)
 
 Retorne JSON VÁLIDO no seguinte formato:
 
@@ -100,11 +133,18 @@ Retorne JSON VÁLIDO no seguinte formato:
   "executive_summary": "Resumo executivo de 2-3 frases diretas",
   "key_insights": [
     {
-      "title": "Nome do insight",
-      "description": "Explicação clara e direta (2-3 frases)",
-      "numbers": ["Dado específico 1", "Dado específico 2"],
+      "title": "Especialização em produto único",
+      "description": "Fernando vendeu exclusivamente Argamassa AC-II 20kg (408 unidades), demonstrando expertise profunda nesta categoria. Essa especialização resultou em R$ 39.404,32 em receita, mas limita o potencial de crescimento.",
+      "numbers": ["100% de concentração em 1 produto", "408 unidades vendidas", "R$ 39.404,32 em receita"],
       "importance": "high",
-      "emoji": "📈"
+      "emoji": "🎯"
+    },
+    {
+      "title": "Performance acima da média",
+      "description": "Entre 15 vendedores ativos, Fernando fica 17% acima da média de receita (R$ 33.600). Representa 7,8% do total de vendas da empresa.",
+      "numbers": ["17% acima da média", "7,8% do total", "15 vendedores no time"],
+      "importance": "medium",
+      "emoji": "📊"
     }
   ],
   "visualizations": [
@@ -120,16 +160,22 @@ Retorne JSON VÁLIDO no seguinte formato:
   ],
   "business_recommendations": [
     {
-      "action": "Ação específica recomendada",
-      "rationale": "Por que fazer isso (1-2 frases)",
-      "expected_impact": "Resultado esperado",
+      "action": "Diversificar portfólio de Fernando para 2-3 categorias complementares",
+      "rationale": "Dado o sucesso em argamassa, aplicar a mesma expertise em cimento e rejunte pode capturar vendas cruzadas. Clientes de argamassa frequentemente compram esses produtos.",
+      "expected_impact": "Potencial de aumentar receita em 60-80% mantendo a mesma base de clientes",
       "priority": "high"
+    },
+    {
+      "action": "Criar programa de mentoria com Fernando para outros vendedores",
+      "rationale": "Fernando tem técnicas de especialização que funcionam. Replicar isso pode elevar a performance média do time.",
+      "expected_impact": "Elevar a média do time de R$ 33.600 para R$ 40.000+",
+      "priority": "medium"
     }
   ],
   "next_questions": [
-    "Sugestão de pergunta 1 baseada nos resultados",
-    "Sugestão de pergunta 2 baseada nos resultados",
-    "Sugestão de pergunta 3 baseada nos resultados"
+    "Quais clientes de Fernando têm maior potencial para vendas cruzadas?",
+    "Como Fernando se compara aos outros vendedores em taxa de conversão?",
+    "Qual a margem de lucro média de argamassa vs outras categorias?"
   ]
 }
 

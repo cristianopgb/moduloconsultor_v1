@@ -138,9 +138,39 @@ Siga o processo profissional de análise de dados:
    - Como vou apresentar os resultados?
    - Que visualizações fazem sentido?
 
-4. CLARIFICAÇÃO (se necessário)
-   - Preciso de mais informações do usuário?
-   - O que não ficou claro?
+4. CLARIFICAÇÃO (AVALIE COM RIGOR!)
+   - Se a pergunta é VAGA ("analise o vendedor", "mostre o desempenho"), SEMPRE pergunte
+   - Se faltam dimensões TEMPORAIS ("compare", "tendência"), pergunte o período
+   - Se menciona "comparar", pergunte: "comparar com quem/o quê?"
+   - Se menciona "melhor/pior", pergunte: "melhor em qual métrica?"
+
+   REGRAS DE CLARIFICAÇÃO:
+   ✅ PERGUNTE quando:
+   - Pergunta ambígua: "como foi X?" → pergunte "comparado com quê?"
+   - Período ausente: "tendência de vendas" → pergunte "qual período?"
+   - Métrica não especificada: "melhor vendedor" → pergunte "melhor em receita ou volume?"
+   - Comparação implícita: "Fernando vendeu bem?" → pergunte "comparado com outros vendedores?"
+
+   ❌ NÃO PERGUNTE quando:
+   - Pergunta clara e específica: "total de vendas de Fernando"
+   - Período explícito: "vendas em janeiro de 2024"
+   - Métrica especificada: "receita do vendedor X"
+
+5. PLANEJAMENTO DE QUERIES
+   - Mínimo 1 query, máximo 5 queries
+   - Sempre inclua query de CONTEXTO primeiro (totais gerais, médias globais)
+   - Depois queries ESPECÍFICAS para a pergunta
+   - Cada query deve construir uma NARRATIVA
+
+   EXEMPLO BOM de sequência:
+   Query 1: "Total de vendedores únicos" (contexto)
+   Query 2: "Total de vendas de Fernando por produto" (específico)
+   Query 3: "Comparação de Fernando vs outros vendedores" (insight)
+
+   DISTINÇÃO CRÍTICA - Totais vs Subtotais:
+   - Total GERAL: "Quantos vendedores existem?" → COUNT(DISTINCT salesperson)
+   - Subtotal FILTRADO: "Quantos produtos Fernando vendeu?" → WHERE salesperson = 'Fernando'
+   - Sempre deixe claro no purpose_user_friendly: "Total geral" vs "Total de Fernando"
 
 Retorne JSON VÁLIDO no seguinte formato:
 
@@ -161,14 +191,28 @@ Retorne JSON VÁLIDO no seguinte formato:
   "queries_planned": [
     {
       "purpose_technical": "Documentação interna",
-      "purpose_user_friendly": "O que usuário vai entender",
-      "sql": "SELECT ... FROM data ...",
+      "purpose_user_friendly": "Contexto geral: total de vendedores no dataset",
+      "sql": "SELECT COUNT(DISTINCT salesperson) as total_vendedores FROM data",
       "will_process_rows": ${profile.totalRows},
-      "expected_result_type": "ranking | distribution | total | comparison"
+      "expected_result_type": "total"
+    },
+    {
+      "purpose_technical": "Análise específica",
+      "purpose_user_friendly": "Total de vendas de Fernando (filtrado)",
+      "sql": "SELECT SUM(total_value) as vendas_fernando FROM data WHERE salesperson = 'Fernando'",
+      "will_process_rows": ${profile.totalRows},
+      "expected_result_type": "total"
+    },
+    {
+      "purpose_technical": "Comparação",
+      "purpose_user_friendly": "Fernando comparado com outros vendedores",
+      "sql": "SELECT salesperson, SUM(total_value) as total FROM data GROUP BY salesperson ORDER BY total DESC",
+      "will_process_rows": ${profile.totalRows},
+      "expected_result_type": "ranking"
     }
   ],
   "visualizations_planned": [
-    {"type": "bar", "title": "Título do gráfico", "rationale": "Por que este gráfico"}
+    {"type": "bar", "title": "Ranking de vendedores por receita", "rationale": "Facilita comparação visual de performance"}
   ],
   "needs_clarification": false,
   "clarification_questions": []

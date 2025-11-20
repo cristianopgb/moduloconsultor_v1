@@ -1416,13 +1416,60 @@ function ChatPage() {
           throw new Error(`Erro ao processar arquivo: ${parseError.message}`);
         }
 
-        // 🎯 STEP 2: Call analyze-file with parsed data
+        // 🎯 STEP 2: Garantir dataset_id disponível para modo profissional
+        let datasetIdForPlan = dataFileRef?.id;
+
+        if (!datasetIdForPlan && frontendParsed && parsedRows && parsedRows.length > 0) {
+          console.log('[PROFESSIONAL FLOW] Salvando dataset temporário para permitir reload no execute...');
+
+          try {
+            const tempHash = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+            const { data: savedDataset, error: saveError } = await supabase
+              .from('datasets')
+              .insert({
+                user_id: user.id,
+                name: dataFileRef.title || 'Análise Temporária',
+                file_hash: tempHash,
+                queryable: true
+              })
+              .select()
+              .single();
+
+            if (saveError) {
+              console.error('[PROFESSIONAL FLOW] Erro ao salvar dataset:', saveError);
+            } else if (savedDataset) {
+              // Salvar rows em batch
+              const rowsToInsert = parsedRows.map((row: any) => ({
+                dataset_id: savedDataset.id,
+                row_data: row
+              }));
+
+              const { error: rowsError } = await supabase
+                .from('dataset_rows')
+                .insert(rowsToInsert);
+
+              if (rowsError) {
+                console.error('[PROFESSIONAL FLOW] Erro ao salvar rows:', rowsError);
+              } else {
+                datasetIdForPlan = savedDataset.id;
+                console.log(`[PROFESSIONAL FLOW] ✅ Dataset temporário salvo: ${datasetIdForPlan}`);
+              }
+            }
+          } catch (tempError: any) {
+            console.error('[PROFESSIONAL FLOW] Erro ao criar dataset temporário:', tempError);
+          }
+        }
+
+        // 🎯 STEP 3: Call analyze-file with parsed data
         const requestBody: any = {
           user_question: text,
           conversation_id: current.id,
           user_id: user?.id,
           filename: dataFileRef.title || 'arquivo.xlsx',
-          force_analysis: true
+          force_analysis: true,
+          mode: 'plan_only', // 🔥 ATIVAR FLUXO PROFISSIONAL
+          dataset_id: datasetIdForPlan // 🔥 GARANTIR dataset_id disponível
         };
 
         if (frontendParsed && parsedRows) {
@@ -1462,6 +1509,35 @@ function ChatPage() {
         if (analysisError) {
           console.error('[ANALYTICS MODE - NEW] Erro na chamada:', analysisError);
           throw analysisError;
+        }
+
+        // 🔥 CORREÇÃO 1.2: Tratar resposta do modo profissional (needs_validation)
+        if (analysisResponse?.needs_validation) {
+          console.log('[PROFESSIONAL FLOW] 📋 Plan received, awaiting user validation');
+
+          setAnalysisPlan({
+            id: analysisResponse.plan_id,
+            understanding: analysisResponse.understanding || '',
+            summary: analysisResponse.summary || 'Plano de análise gerado',
+            needs_clarification: analysisResponse.needs_clarification || false,
+            questions: analysisResponse.questions || [],
+            queries_count: analysisResponse.queries_count || 0,
+            estimated_time: analysisResponse.estimated_time || 'menos de 1 minuto'
+          });
+
+          setLoading(false);
+          setAnalysisState('awaiting_plan_validation');
+
+          // Adicionar mensagem informativa ao chat
+          const planMessage: Message = {
+            id: `temp-plan-${Date.now()}`,
+            role: 'assistant',
+            content: `📋 **Plano de Análise Preparado**\n\n${analysisResponse.understanding || 'Preparei um plano de análise para você revisar.'}\n\n✅ Use o card abaixo para aprovar ou ajustar o plano.`,
+            timestamp: new Date().toISOString()
+          };
+
+          setMessages(prev => [...prev, planMessage]);
+          return; // 🛑 Parar aqui e esperar validação do usuário
         }
 
         // Handle both success and fallback responses (both are valid 200 responses)
@@ -2138,17 +2214,42 @@ function ChatPage() {
                     <AnalysisPlanValidation
                       plan={analysisPlan}
                       onApprove={(planId) => {
+                        console.log('[PROFESSIONAL FLOW] ✅ Plan approved, executing...');
                         setExecutingPlan(true);
                         setAnalysisPlan(null);
+                        setAnalysisState('analyzing');
+
+                        // Adicionar mensagem de confirmação
+                        const confirmMessage: Message = {
+                          id: `temp-confirm-${Date.now()}`,
+                          role: 'user',
+                          content: '✅ Plano aprovado! Pode executar a análise.',
+                          timestamp: new Date().toISOString()
+                        };
+                        setMessages(prev => [...prev, confirmMessage]);
+
                         handleExecutePlan(
                           planId,
                           (narrative) => {
+                            console.log('[PROFESSIONAL FLOW] 🎉 Analysis completed!');
                             setExecutingPlan(false);
                             setNarrativeResult(narrative);
+                            setAnalysisState('ready_to_answer');
+
+                            // Adicionar mensagem com resultado narrativo
+                            const resultMessage: Message = {
+                              id: `temp-result-${Date.now()}`,
+                              role: 'assistant',
+                              content: narrative.executive_summary || '✅ Análise concluída! Veja os resultados abaixo.',
+                              timestamp: new Date().toISOString()
+                            };
+                            setMessages(prev => [...prev, resultMessage]);
                           },
                           (error) => {
+                            console.error('[PROFESSIONAL FLOW] ❌ Execution failed:', error);
                             setExecutingPlan(false);
                             setErr(error);
+                            setAnalysisState('idle');
                           }
                         );
                       }}

@@ -24,6 +24,11 @@ interface Props {
       priority: 'high' | 'medium' | 'low';
     }>;
     next_questions: string[];
+    executed_queries?: Array<{
+      purpose_user_friendly: string;
+      results: any[];
+      success: boolean;
+    }>;
   };
   onAskMore: (question?: string) => void;
   onExport: () => void;
@@ -82,6 +87,54 @@ export function ExecutiveReport({ narrative, onAskMore, onExport }: Props) {
           <p className="text-sm text-gray-600 italic">{viz.interpretation}</p>
         </div>
       ))}
+
+      {narrative.executed_queries && narrative.executed_queries.length > 0 && (
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-blue-500" />
+            📊 Dados Analisados
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Todas as análises que executei para chegar nos insights acima:
+          </p>
+          <div className="space-y-4">
+            {narrative.executed_queries.filter(q => q.success && q.results && q.results.length > 0).map((query, i) => (
+              <div key={i} className="border-l-4 border-blue-500 pl-4">
+                <h4 className="font-medium text-gray-900 mb-2">{query.purpose_user_friendly}</h4>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm border border-gray-200 rounded">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {query.results[0] && Object.keys(query.results[0]).map(col => (
+                          <th key={col} className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">
+                            {col}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {query.results.slice(0, 10).map((row, j) => (
+                        <tr key={j} className={j % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          {Object.values(row).map((val, k) => (
+                            <td key={k} className="px-3 py-2 text-gray-700 border-b border-gray-100">
+                              {typeof val === 'number' ? val.toLocaleString('pt-BR') : String(val || '-')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {query.results.length > 10 && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Mostrando 10 de {query.results.length} resultados
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {narrative.business_recommendations && narrative.business_recommendations.length > 0 && (
         <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">

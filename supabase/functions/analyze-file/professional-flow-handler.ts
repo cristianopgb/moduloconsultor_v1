@@ -188,10 +188,11 @@ export async function handleProfessionalFlowExecute(
 
   console.log('[ProfessionalFlow] Analysis complete');
 
-  // Return executive narrative
+  // Return executive narrative with executed queries for transparency
   return {
     success: true,
     analysis_id: analysis?.id,
-    ...narrative
+    ...narrative,
+    executed_queries: executionResults.executed_queries // Include raw query results for detailed view
   };
 }
