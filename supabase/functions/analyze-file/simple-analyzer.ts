@@ -56,6 +56,81 @@ const OPENAI_MODEL = 'gpt-4o-mini';
     stats
   };
 }
+
+/**
+ * 📊 ENRICHED PROFILE - Com cardinalidade e amostra maior
+ */ export function profileDataEnriched(data) {
+  if (!data || data.length === 0) {
+    throw new Error('Dataset está vazio');
+  }
+  const columns = Object.keys(data[0]);
+  const columnTypes = {};
+  const stats = {};
+  const cardinality = {};
+
+  for (const col of columns){
+    const values = data.map((row)=>row[col]).filter((v)=>v != null && v !== '');
+
+    if (values.length === 0) {
+      columnTypes[col] = 'unknown';
+      cardinality[col] = 0;
+      continue;
+    }
+
+    // Calculate cardinality
+    const uniqueValues = new Set(values);
+    cardinality[col] = uniqueValues.size;
+
+    const numericCount = values.filter((v)=>!isNaN(Number(v))).length;
+    const dateCount = values.filter((v)=>!isNaN(Date.parse(String(v)))).length;
+
+    if (numericCount / values.length > 0.8) {
+      columnTypes[col] = 'numeric';
+      const nums = values.map(Number);
+      const sorted = [...nums].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      stats[col] = {
+        min: Math.min(...nums),
+        max: Math.max(...nums),
+        avg: nums.reduce((a, b)=>a + b, 0) / nums.length,
+        median: median
+      };
+    } else if (dateCount / values.length > 0.8) {
+      columnTypes[col] = 'date';
+      stats[col] = {
+        earliest: values.reduce((a, b) => (new Date(a) < new Date(b) ? a : b)),
+        latest: values.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
+      };
+    } else {
+      columnTypes[col] = 'text';
+      stats[col] = {
+        uniqueCount: uniqueValues.size,
+        sampleValues: Array.from(uniqueValues).slice(0, 10),
+        mostCommon: findMostCommonValues(values, 5)
+      };
+    }
+  }
+
+  return {
+    columns,
+    columnTypes,
+    cardinality,
+    totalRows: data.length,
+    sampleRows: data.slice(0, 50),
+    stats
+  };
+}
+
+function findMostCommonValues(values, limit) {
+  const counts = {};
+  for (const val of values) {
+    counts[val] = (counts[val] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([value, count]) => ({ value, count }));
+}
 /**
  * 🔗 Chamada única para OpenAI (resposta esperada em JSON)
  */ async function callOpenAI(messages, options) {

@@ -14,6 +14,7 @@ import { ingestFile } from '../_shared/ingest-orchestrator.ts';
 import { profileData } from './simple-analyzer.ts';
 import { evaluateReadinessIntelligent } from './intelligent-dialogue-manager.ts';
 import { analyzeWithSemanticReflection } from './semantic-reflection-analyzer.ts';
+import { handleProfessionalFlowPlanOnly, handleProfessionalFlowExecute } from './professional-flow-handler.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -50,7 +51,10 @@ Deno.serve(async (req) => {
       user_question = 'Analise este dataset e me dê insights relevantes',
       conversation_id,
       dialogue_state_id, // ID do estado de diálogo persistido
-      is_followup = false // Se é resposta a perguntas do sistema
+      is_followup = false, // Se é resposta a perguntas do sistema
+      mode, // NEW: 'plan_only' or 'execute' for professional flow
+      plan_id, // NEW: For execute mode
+      user_corrections // NEW: User feedback on plan
     } = body;
 
     console.log('[AnalyzeFile] Request received:', {
@@ -59,7 +63,9 @@ Deno.serve(async (req) => {
       has_dataset_id: !!dataset_id,
       user_question,
       is_followup,
-      dialogue_state_id
+      dialogue_state_id,
+      mode,
+      plan_id
     });
 
     // ===================================================================
@@ -92,6 +98,36 @@ Deno.serve(async (req) => {
     const effectiveUserId = user_id || user.id;
 
     // ===================================================================
+    // PROFESSIONAL FLOW - EXECUTE MODE (no need to load full data again)
+    // ===================================================================
+    if (mode === 'execute' && plan_id) {
+      console.log('[AnalyzeFile] Professional flow: EXECUTE mode');
+
+      try {
+        const result = await handleProfessionalFlowExecute(
+          plan_id,
+          user_corrections,
+          OPENAI_API_KEY,
+          OPENAI_MODEL
+        );
+
+        return new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error: any) {
+        console.error('[AnalyzeFile] Execute failed:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ===================================================================
     // STEP 1: GET DATA
     // ===================================================================
     let rowData: any[] = [];
@@ -120,8 +156,8 @@ Deno.serve(async (req) => {
       const { data: rows, error: rowsError } = await supabase
         .from('dataset_rows')
         .select('row_data')
-        .eq('dataset_id', dataset_id)
-        .limit(10000);
+        .eq('dataset_id', dataset_id);
+        // REMOVED .limit(10000) - now loads ALL rows
 
       if (rowsError) {
         return new Response(JSON.stringify({
@@ -157,6 +193,39 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[AnalyzeFile] Dataset ready: ${rowData.length} rows`);
+
+    // ===================================================================
+    // PROFESSIONAL FLOW - PLAN_ONLY MODE
+    // ===================================================================
+    if (mode === 'plan_only') {
+      console.log('[AnalyzeFile] Professional flow: PLAN_ONLY mode');
+
+      try {
+        const result = await handleProfessionalFlowPlanOnly(
+          rowData,
+          user_question,
+          effectiveUserId,
+          dataset_id,
+          conversation_id,
+          OPENAI_API_KEY,
+          OPENAI_MODEL
+        );
+
+        return new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error: any) {
+        console.error('[AnalyzeFile] Plan generation failed:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
     // ===================================================================
     // STEP 2: PROFILE DATA (get schema + statistics)
