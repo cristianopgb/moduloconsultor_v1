@@ -11,6 +11,7 @@ export type AnalysisState =
   | 'idle'
   | 'collecting_context'
   | 'analyzing'
+  | 'awaiting_plan_validation'
   | 'ready_to_answer'
   | 'error';
 
@@ -48,6 +49,13 @@ export function AnalysisStateIndicator({
       color: 'text-blue-400',
       bg: 'bg-gray-800/70',
       description: message || 'Processando análise completa'
+    },
+    awaiting_plan_validation: {
+      icon: CheckCircle,
+      label: 'Aguardando sua aprovação',
+      color: 'text-yellow-500',
+      bg: 'bg-yellow-900/20',
+      description: message || 'Revise o plano de análise abaixo e aprove para continuar'
     },
     ready_to_answer: {
       icon: CheckCircle,
@@ -100,6 +108,14 @@ export function AnalysisStateIndicator({
             <div className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }} />
             <div className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
             <div className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+        )}
+
+        {/* Pulsing indicator for awaiting validation */}
+        {state === 'awaiting_plan_validation' && (
+          <div className="flex items-center gap-2 mt-2">
+            <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+            <span className="text-xs text-yellow-400">Aguardando sua ação</span>
           </div>
         )}
       </div>
