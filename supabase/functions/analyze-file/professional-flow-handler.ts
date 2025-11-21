@@ -27,7 +27,10 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
  */
 async function persistDatasetRows(
   datasetId: string,
-  rowData: any[]
+  rowData: any[],
+  userId: string,
+  filename: string,
+  conversationId?: string
 ): Promise<void> {
   console.log(`[ProfessionalFlow] Persisting ${rowData.length} rows to dataset_rows...`);
 
@@ -39,6 +42,35 @@ async function persistDatasetRows(
     throw new Error('Cannot persist empty dataset');
   }
 
+  // Step 1: Ensure dataset record exists in datasets table
+  console.log(`[ProfessionalFlow] Creating/verifying dataset record: ${datasetId}`);
+
+  const { error: datasetError } = await supabase
+    .from('datasets')
+    .upsert({
+      id: datasetId,
+      user_id: userId,
+      conversation_id: conversationId || null,
+      original_filename: filename,
+      file_size: 0,
+      mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      storage_path: `memory://${datasetId}`,
+      row_count: rowData.length,
+      column_count: Object.keys(rowData[0] || {}).length,
+      processing_status: 'completed',
+      has_queryable_data: true
+    }, {
+      onConflict: 'id',
+      ignoreDuplicates: false
+    });
+
+  if (datasetError) {
+    throw new Error(`Failed to create dataset record: ${datasetError.message}`);
+  }
+
+  console.log(`[ProfessionalFlow] ✅ Dataset record created/verified: ${datasetId}`);
+
+  // Step 2: Insert rows
   const rowsToInsert = rowData.map((data, index) => ({
     dataset_id: datasetId,
     row_number: index + 1,
@@ -79,12 +111,13 @@ export async function handleProfessionalFlowPlanOnly(
   datasetId: string,
   conversationId: string | undefined,
   openaiApiKey: string,
-  openaiModel: string
+  openaiModel: string,
+  filename: string
 ): Promise<any> {
   console.log('[ProfessionalFlow] PLAN_ONLY mode - generating analysis plan');
 
   // 🔥 CRITICAL: Persist data to database BEFORE generating plan
-  await persistDatasetRows(datasetId, rowData);
+  await persistDatasetRows(datasetId, rowData, effectiveUserId, filename, conversationId);
 
   // Generate enriched profile (50 rows sample + cardinality)
   const enrichedProfile = profileDataEnriched(rowData);

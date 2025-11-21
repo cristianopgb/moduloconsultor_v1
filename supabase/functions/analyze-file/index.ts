@@ -201,6 +201,8 @@ Deno.serve(async (req) => {
       console.log('[AnalyzeFile] Professional flow: PLAN_ONLY mode');
 
       try {
+        const filenameToUse = filename || 'uploaded_data.xlsx';
+
         const result = await handleProfessionalFlowPlanOnly(
           rowData,
           user_question,
@@ -208,7 +210,8 @@ Deno.serve(async (req) => {
           dataset_id,
           conversation_id,
           OPENAI_API_KEY,
-          OPENAI_MODEL
+          OPENAI_MODEL,
+          filenameToUse
         );
 
         return new Response(JSON.stringify(result), {
