@@ -48,7 +48,7 @@ export async function handleProfessionalAnalysis(
       body: {
         dataset_id: datasetId,
         user_question: userQuestion,
-        mode: 'plan_only'
+        // mode: 'plan_only' // 🔥 DESATIVADO - usando semantic reflection
       }
     });
 
@@ -1468,7 +1468,7 @@ function ChatPage() {
           user_id: user?.id,
           filename: dataFileRef.title || 'arquivo.xlsx',
           force_analysis: true,
-          mode: 'plan_only', // 🔥 ATIVAR FLUXO PROFISSIONAL
+          // mode: 'plan_only', // 🔥 DESATIVADO - usando semantic reflection
           dataset_id: datasetIdForPlan // 🔥 GARANTIR dataset_id disponível
         };
 

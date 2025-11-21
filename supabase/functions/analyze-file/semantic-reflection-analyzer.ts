@@ -63,6 +63,9 @@ export async function analyzeWithSemanticReflection(
       columns: reflection.relevant_columns,
       confidence: reflection.confidence
     });
+    console.log('[SemanticReflection] User question:', userQuestion);
+    console.log('[SemanticReflection] Available columns:', profile.columns);
+    console.log('[SemanticReflection] Strategy:', reflection.analysis_strategy);
   } catch (error: any) {
     console.error('[SemanticReflection] Reflection failed:', error);
     return {
@@ -109,6 +112,10 @@ export async function analyzeWithSemanticReflection(
 
     console.log('[SemanticReflection] SQL plan generated:', {
       queries: sqlPlan.queries?.length || 0
+    });
+    console.log('[SemanticReflection] Generated SQLs:');
+    sqlPlan.queries?.forEach((q: any, i: number) => {
+      console.log(`  [${i+1}] ${q.purpose}: ${q.sql}`);
     });
   } catch (error: any) {
     console.error('[SemanticReflection] SQL generation failed:', error);
@@ -175,6 +182,9 @@ export async function analyzeWithSemanticReflection(
         } else if (!result.success) {
           lastError = result.error;
           console.warn(`[SemanticReflection] Query failed (attempt ${attempts}): ${result.error}`);
+          console.log('[SemanticReflection] Failed SQL:', query.sql);
+          console.log('[SemanticReflection] Error details:', result.error);
+          console.log('[SemanticReflection] Available columns:', profile.columns);
 
           // Try to fix query if possible
           if (attempts < maxRetries) {
@@ -317,6 +327,17 @@ Reflita sobre a pergunta e responda em JSON:
 3. Se não tiver certeza de qual coluna usar, marque baixa confiança
 4. Seja honesto sobre sua confiança - é melhor pedir clarificação do que adivinhar errado
 
+## IMPORTANTE - Cálculos permitidos:
+5. Se o usuário pedir métrica que NÃO existe como coluna, você PODE calculá-la:
+   - Divergência/Diferença/Gap: (coluna1 - coluna2)
+   - Total combinado: (coluna1 + coluna2)
+   - Proporção: (coluna1 / coluna2)
+   - Percentual: ((coluna1 / coluna2) * 100)
+   - Variação: ((atual - anterior) / anterior * 100)
+6. Exemplo: Se usuário pede "divergência" mas só existem colunas "qnt_atual" e "contagem_fisica",
+   você deve identificar: relevant_columns: ["qnt_atual", "contagem_fisica"]
+   e na estratégia mencionar: "Calcular (qnt_atual - contagem_fisica) como divergência"
+
 ## Exemplos:
 
 EXEMPLO 1 - Alta confiança:
@@ -360,6 +381,18 @@ Resposta:
     "Não existe coluna 'loja' ou similar nos dados",
     "Dados disponíveis não permitem essa análise"
   ]
+}
+
+EXEMPLO 4 - Métrica calculável:
+Pergunta: "divergência entre estoque e contagem por rua"
+Colunas: [rua, qnt_atual, contagem_fisica, produto]
+Resposta:
+{
+  "user_intent": "Calcular a diferença entre quantidade atual e contagem física, agrupado por rua",
+  "relevant_columns": ["rua", "qnt_atual", "contagem_fisica"],
+  "analysis_strategy": "Calcular (qnt_atual - contagem_fisica) como divergência, agrupar por rua e somar",
+  "confidence": 90,
+  "potential_issues": []
 }`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -434,7 +467,24 @@ Responda em JSON:
 7. Se a coluna for text, use para agrupar
 8. Se a coluna for numeric, use para agregar
 
-## Exemplo:
+## CÁLCULOS PERMITIDOS:
+9. Você PODE fazer operações matemáticas no SELECT:
+   - Diferença: (coluna1 - coluna2) as divergencia
+   - Soma: (coluna1 + coluna2) as total
+   - Razão: (CAST(coluna1 AS FLOAT) / NULLIF(coluna2, 0)) as proporcao
+   - Percentual: ((CAST(coluna1 AS FLOAT) / NULLIF(coluna2, 0)) * 100) as percentual
+10. Use alias descritivo para resultados calculados
+11. NUNCA tente selecionar coluna que não existe - sempre CALCULE
+12. Se a estratégia menciona cálculo, IMPLEMENTE o cálculo no SQL
+
+## VALIDAÇÃO ANTES DE GERAR:
+- Revise a estratégia: "${reflection.analysis_strategy}"
+- Se menciona "calcular", "diferença", "divergência", "variação": USE operação matemática
+- Se menciona coluna que não existe em ${reflection.relevant_columns.join(', ')}: CALCULE usando colunas disponíveis
+
+## Exemplos:
+
+EXEMPLO 1 - Agregação simples:
 Intenção: "Total de vendas por produto"
 Colunas relevantes: ["produto", "quantidade"]
 Query:
@@ -443,6 +493,19 @@ Query:
     {
       "purpose": "Total de vendas por produto ordenado por maior volume",
       "sql": "SELECT produto, SUM(quantidade) as total FROM data GROUP BY produto ORDER BY total DESC LIMIT 10"
+    }
+  ]
+}
+
+EXEMPLO 2 - Cálculo de divergência:
+Intenção: "Calcular (qnt_atual - contagem_fisica) como divergência, agrupar por rua"
+Colunas relevantes: ["rua", "qnt_atual", "contagem_fisica"]
+Query:
+{
+  "queries": [
+    {
+      "purpose": "Divergência entre estoque e contagem física por rua",
+      "sql": "SELECT rua, SUM(qnt_atual - contagem_fisica) as divergencia FROM data GROUP BY rua ORDER BY divergencia DESC LIMIT 20"
     }
   ]
 }`;

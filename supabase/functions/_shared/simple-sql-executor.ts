@@ -127,7 +127,7 @@ function parseSQL(sql: string): any {
 
   // Extract GROUP BY
   let groupBy: string[] = [];
-  const groupByMatch = normalized.match(/GROUP BY\s+([^ORDER\s]+)/i);
+  const groupByMatch = normalized.match(/GROUP BY\s+(.+?)(?:\s+ORDER BY|\s+LIMIT|$)/i);
   if (groupByMatch) {
     groupBy = groupByMatch[1].split(',').map(c => c.trim());
   }
