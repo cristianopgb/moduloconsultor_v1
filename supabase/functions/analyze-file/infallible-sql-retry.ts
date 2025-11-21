@@ -48,11 +48,7 @@ interface ExecutionResult {
 const MAX_ATTEMPTS_PER_QUERY = 5;
 
 const ERROR_HINTS: Record<string, string> = {
-  "Aggregation SUM requires GROUP BY": "Você usou SUM sem GROUP BY. Adicione GROUP BY com as colunas não-agregadas.",
-  "Aggregation AVG requires GROUP BY": "Você usou AVG sem GROUP BY. Adicione GROUP BY com as colunas não-agregadas.",
-  "Aggregation COUNT requires GROUP BY": "Você usou COUNT(coluna) sem GROUP BY. Adicione GROUP BY ou use COUNT(*).",
-  "Aggregation MIN requires GROUP BY": "Você usou MIN sem GROUP BY. Adicione GROUP BY com as colunas não-agregadas.",
-  "Aggregation MAX requires GROUP BY": "Você usou MAX sem GROUP BY. Adicione GROUP BY com as colunas não-agregadas.",
+  "Aggregation requires GROUP BY": "Você misturou colunas agregadas (SUM, AVG, etc) com colunas normais. Adicione GROUP BY com as colunas não-agregadas, ou use apenas agregações.",
   "Invalid SELECT syntax": "Sintaxe do SELECT está errada. Use: SELECT coluna FROM data",
   "Column not found": "Você usou uma coluna que não existe. Verifique os nomes disponíveis."
 };
@@ -126,18 +122,23 @@ function preValidateQuery(sql: string, profile: any): ValidationResult {
 
   const hasAggregation = sql.match(/(SUM|AVG|COUNT|MIN|MAX)\s*\(/i);
   const hasGroupBy = sql.match(/GROUP BY/i);
-  const isCountStar = sql.match(/COUNT\s*\(\s*\*\s*\)/i);
+  const isOnlyAggregations = sql.match(/SELECT\s+((?:(?:SUM|AVG|COUNT|MIN|MAX)\s*\([^)]+\)\s*(?:AS\s+\w+)?\s*,?\s*)+)\s+FROM/i);
 
-  if (hasAggregation && !hasGroupBy && !isCountStar) {
+  if (hasAggregation && !hasGroupBy) {
     const nonAggCols = extractNonAggregatedColumns(sql);
+
+    // If there are non-aggregated columns mixed with aggregations, GROUP BY is needed
     if (nonAggCols.length > 0) {
       const fixedSQL = sql.trim() + ` GROUP BY ${nonAggCols.join(', ')}`;
       return {
         valid: false,
-        issues: [{ error: "Missing GROUP BY" }],
+        issues: [{ error: "Missing GROUP BY for mixed aggregated/non-aggregated columns" }],
         auto_fix_suggestion: fixedSQL
       };
     }
+
+    // If only aggregations (no non-aggregated columns), it's valid - will compute totals
+    // This is now allowed in the executor
   }
 
   const usedColumns = extractAllColumns(sql);

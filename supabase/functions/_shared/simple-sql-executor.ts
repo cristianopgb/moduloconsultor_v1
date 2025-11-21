@@ -42,18 +42,26 @@ export function executeSQL(data: any[], sql: string, columnTypes: Record<string,
       result = result.filter(row => evaluateWhere(row, query.where!, columnTypes));
     }
 
+    // Check if query has aggregations
+    const hasAggregations = query.select.some((col: any) => col.aggregation);
+    const hasNonAggregations = query.select.some((col: any) => !col.aggregation);
+
     // GROUP BY
     if (query.groupBy && query.groupBy.length > 0) {
       result = executeGroupBy(result, query.groupBy, query.select, columnTypes);
+    } else if (hasAggregations && !hasNonAggregations) {
+      // Aggregation without GROUP BY - calculate totals across entire dataset
+      result = [executeTotalAggregations(result, query.select, columnTypes)];
+    } else if (hasAggregations && hasNonAggregations) {
+      // Mix of aggregated and non-aggregated columns without GROUP BY
+      // This is invalid SQL - the non-aggregated columns should be in GROUP BY
+      const nonAggCols = query.select.filter((col: any) => !col.aggregation).map((col: any) => col.column);
+      throw new Error(`Aggregation requires GROUP BY. Add: GROUP BY ${nonAggCols.join(', ')}`);
     } else {
-      // Simple SELECT
+      // Simple SELECT without aggregations
       result = result.map(row => {
         const newRow: any = {};
         query.select.forEach(col => {
-          if (col.aggregation) {
-            // Aggregation without GROUP BY
-            throw new Error(`Aggregation ${col.aggregation} requires GROUP BY`);
-          }
           newRow[col.alias || col.column] = row[col.column];
         });
         return newRow;
@@ -307,9 +315,46 @@ function executeGroupBy(
 }
 
 /**
+ * Execute total aggregations (without GROUP BY)
+ * Returns a single row with all aggregated values
+ */
+function executeTotalAggregations(
+  data: any[],
+  selectColumns: any[],
+  columnTypes: Record<string, string>
+): any {
+  const result: any = {};
+
+  for (const selectCol of selectColumns) {
+    if (selectCol.aggregation) {
+      const alias = selectCol.alias || selectCol.column;
+
+      // Handle COUNT(*) specially
+      if (selectCol.aggregation === 'COUNT' && selectCol.column === '*') {
+        result[alias] = data.length;
+      } else {
+        result[alias] = calculateAggregation(
+          data,
+          selectCol.column,
+          selectCol.aggregation,
+          columnTypes[selectCol.column] || 'numeric'
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Calculate aggregation for a group
  */
 function calculateAggregation(rows: any[], column: string, aggregation: string, columnType: string): any {
+  // Handle COUNT(*) - just count all rows
+  if (aggregation === 'COUNT' && column === '*') {
+    return rows.length;
+  }
+
   const values = rows.map(r => r[column]).filter(v => v != null && v !== '');
 
   if (values.length === 0) return null;
