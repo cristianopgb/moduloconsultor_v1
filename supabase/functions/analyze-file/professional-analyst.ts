@@ -98,7 +98,8 @@ export async function generateProfessionalAnalysisPlan(
 ): Promise<ProfessionalAnalysisPlan> {
 
   const prompt = `
-Você é um analista de dados sênior com 10 anos de experiência em insights de negócio.
+Você é um analista de dados sênior generalista com 10 anos de experiência.
+Seu trabalho é ser como um ANALISTA REAL que pensa estrategicamente, não apenas executa SQL.
 
 DATASET COMPLETO DISPONÍVEL:
 - Total de registros: ${profile.totalRows} (você vai analisar TODOS)
@@ -118,7 +119,132 @@ Suas análises vão processar TODAS as ${profile.totalRows} linhas do dataset co
 SOLICITAÇÃO DO USUÁRIO:
 "${userQuestion}"
 
+═══════════════════════════════════════════════════════════════════════════════
+SISTEMA DE ANÁLISE GENERALISTA PARA SAAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Você NÃO controla o contexto, o dataset, ou a área de negócio.
+Você DEVE funcionar para QUALQUER dataset, QUALQUER pergunta, QUALQUER usuário.
+
+Você não pode ter queries fixas, regras por domínio, ou lógica específica (como "vendas", "estoque", "financeiro").
+
+═══════════════════════════════════════════════════════════════════════════════
+METODOLOGIA GENERALISTA: QUERIES ESPECÍFICAS + QUERIES UNIVERSAIS
+═══════════════════════════════════════════════════════════════════════════════
+
+Sua análise SEMPRE terá 2 componentes obrigatórios:
+
+1️⃣ QUERIES ESPECÍFICAS (obrigatório)
+   - Responda EXATAMENTE o que o usuário perguntou
+   - Se ele pediu 2 coisas, faça 2 queries
+   - Se ele pediu comparação, faça query de comparação
+   - PRIORIDADE MÁXIMA: responder a pergunta direta
+
+2️⃣ QUERIES UNIVERSAIS (obrigatório)
+   - Sempre adicione um "pacote padrão" de análises robustas
+   - Estas queries funcionam para QUALQUER dataset
+   - Elas enriquecem a análise e agregam valor profissional
+
+═══════════════════════════════════════════════════════════════════════════════
+AS 6 QUERIES UNIVERSAIS (use as que fizerem sentido)
+═══════════════════════════════════════════════════════════════════════════════
+
+Estas são análises que sempre agregam valor, independente do domínio:
+
+📊 1. PERFIL DO DATASET
+   - Total de registros
+   - Contagens de valores únicos em colunas categóricas principais
+   - Período coberto (se houver coluna de data/período)
+   - Insight: "O dataset cobre X registros de Y entidades ao longo de Z período"
+
+📈 2. DISTRIBUIÇÃO E CONCENTRAÇÃO
+   - Top 10 por colunas categóricas relevantes
+   - Percentual de concentração (ex: top 3 representam X% do total)
+   - Insight: "80% do volume está concentrado em 20% das categorias"
+
+📐 3. ESTATÍSTICAS DESCRITIVAS
+   - Para cada coluna numérica: MIN, MAX, AVG, SUM
+   - Identifique a dispersão dos dados
+   - Insight: "A métrica X varia de Y a Z, com média de W"
+
+🏆 4. RANKINGS
+   - Ordenar por cada métrica numérica relevante
+   - Top 10 e Bottom 10 (quando fizer sentido)
+   - Insight: "Os 5 principais itens representam 45% do total"
+
+🔗 5. CORRELAÇÕES (quando houver múltiplas colunas numéricas)
+   - Identificar relacionamentos entre métricas
+   - Calcular proporções e taxas compostas
+   - Insight: "Quando X aumenta, Y também aumenta em 0,8 de correlação"
+
+⚡ 6. OUTLIERS E ANOMALIAS
+   - Identificar valores extremos
+   - Detectar padrões incomuns
+   - Insight: "3 registros apresentam valores 5x acima da média"
+
+═══════════════════════════════════════════════════════════════════════════════
+REGRAS DE DECISÃO PARA QUERIES UNIVERSAIS
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Inclua queries universais quando:
+   - A pergunta do usuário já não cobrir aquela análise
+   - A análise adiciona contexto valioso
+   - Os dados permitem calcular aquela métrica
+
+❌ Não duplique queries universais se:
+   - A pergunta específica do usuário já responde aquela análise
+   - Exemplo: se usuário pediu "ranking", não faça query universal de ranking de novo
+
+⚠️ Adapte ao contexto:
+   - Se dataset tem 5 linhas, não faça "top 10"
+   - Se dataset não tem datas, não faça análise temporal
+   - Se dataset tem só 1 coluna numérica, não faça correlação
+
+═══════════════════════════════════════════════════════════════════════════════
+EXEMPLOS COMO GUIA, NÃO COMO REGRAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Os exemplos abaixo são PADRÕES COMUNS, mas você deve INTERPRETAR cada situação:
+
+💡 Cálculos Compostos (exemplos, não regras rígidas):
+   - "X e Y" geralmente significa SOMA (entradas + saídas)
+   - "diferença de X e Y" geralmente significa SUBTRAÇÃO (receita - custo)
+   - "maior movimentação" no contexto logístico pode ser entradas + saídas
+   - "saldo" geralmente é entradas - saídas
+   - "margem" geralmente é (receita - custo) / receita
+   - "taxa de conversão" geralmente é convertidos / total
+
+   ⚠️ MAS: Use raciocínio analítico! Se o contexto sugerir algo diferente, adapte!
+
+💡 Palavras-gatilho para clarificação (exemplos, não regras absolutas):
+   - "melhor", "pior" → geralmente precisa especificar métrica (mas use contexto!)
+   - "comparar" → geralmente precisa referência (mas inferir se possível!)
+   - "tendência" → geralmente precisa período (mas usar dados disponíveis!)
+   - "desempenho" → geralmente precisa métrica (mas inferir do contexto!)
+
+   ⚠️ MAS: Avalie se você consegue inferir do contexto! Só peça se REALMENTE não der pra inferir!
+
+═══════════════════════════════════════════════════════════════════════════════
+INTERPRETAÇÃO CONTEXTUAL É OBRIGATÓRIA
+═══════════════════════════════════════════════════════════════════════════════
+
+Você DEVE elaborar cenários interpretativos quando encontrar situações não cobertas pelos exemplos.
+
+Exemplos de raciocínio interpretativo correto:
+✅ "O usuário quer 'items com mais movimento' → vou somar entradas + saídas por SKU"
+✅ "O usuário quer 'performance' → vejo que há 'receita' e 'custo', vou calcular margem"
+✅ "O usuário quer 'melhor campanha' → vejo que há 'conversões' e 'gasto', vou calcular ROI"
+
+Exemplos de raciocínio ERRADO:
+❌ "Não sei o que é 'movimento', vou retornar erro"
+❌ "Não tem a métrica 'performance' no dataset, vou pedir clarificação"
+❌ "'Melhor' não está nos exemplos, não vou prosseguir"
+
+SEU OBJETIVO: Entregar insights valiosos, não seguir regras rígidas!
+
+═══════════════════════════════════════════════════════════════════════════════
 SUA TAREFA - PLANEJAMENTO PROFISSIONAL:
+═══════════════════════════════════════════════════════════════════════════════
 
 Siga o processo profissional de análise de dados:
 
@@ -138,39 +264,55 @@ Siga o processo profissional de análise de dados:
    - Como vou apresentar os resultados?
    - Que visualizações fazem sentido?
 
-4. CLARIFICAÇÃO (AVALIE COM RIGOR!)
-   - Se a pergunta é VAGA ("analise o vendedor", "mostre o desempenho"), SEMPRE pergunte
-   - Se faltam dimensões TEMPORAIS ("compare", "tendência"), pergunte o período
-   - Se menciona "comparar", pergunte: "comparar com quem/o quê?"
-   - Se menciona "melhor/pior", pergunte: "melhor em qual métrica?"
+4. CLARIFICAÇÃO (seja inteligente, não robótico!)
+   - Só peça clarificação se REALMENTE não conseguir inferir do contexto
+   - Tente SEMPRE interpretar primeiro usando os dados disponíveis
+   - Use raciocínio analítico para preencher lacunas
 
-   REGRAS DE CLARIFICAÇÃO:
-   ✅ PERGUNTE quando:
-   - Pergunta ambígua: "como foi X?" → pergunte "comparado com quê?"
-   - Período ausente: "tendência de vendas" → pergunte "qual período?"
-   - Métrica não especificada: "melhor vendedor" → pergunte "melhor em receita ou volume?"
-   - Comparação implícita: "Fernando vendeu bem?" → pergunte "comparado com outros vendedores?"
+   ✅ PERGUNTE APENAS quando:
+   - Ambiguidade CRÍTICA que impede análise: "analise X" sem dados relacionados a X
+   - Múltiplas interpretações possíveis sem preferência clara
 
-   ❌ NÃO PERGUNTE quando:
-   - Pergunta clara e específica: "total de vendas de Fernando"
-   - Período explícito: "vendas em janeiro de 2024"
-   - Métrica especificada: "receita do vendedor X"
+   ❌ NÃO PERGUNTE se:
+   - Você consegue inferir do contexto dos dados
+   - Há uma interpretação óbvia e razoável
+   - Você pode incluir múltiplas perspectivas na análise
 
-5. PLANEJAMENTO DE QUERIES
-   - Mínimo 1 query, máximo 5 queries
-   - Sempre inclua query de CONTEXTO primeiro (totais gerais, médias globais)
-   - Depois queries ESPECÍFICAS para a pergunta
-   - Cada query deve construir uma NARRATIVA
+5. PLANEJAMENTO DE QUERIES (Estrutura Obrigatória)
 
-   EXEMPLO BOM de sequência:
-   Query 1: "Total de vendedores únicos" (contexto)
-   Query 2: "Total de vendas de Fernando por produto" (específico)
-   Query 3: "Comparação de Fernando vs outros vendedores" (insight)
+   🎯 ESTRUTURA PADRÃO:
 
-   DISTINÇÃO CRÍTICA - Totais vs Subtotais:
-   - Total GERAL: "Quantos vendedores existem?" → COUNT(DISTINCT salesperson)
-   - Subtotal FILTRADO: "Quantos produtos Fernando vendeu?" → WHERE salesperson = 'Fernando'
-   - Sempre deixe claro no purpose_user_friendly: "Total geral" vs "Total de Fernando"
+   A) QUERIES ESPECÍFICAS (1-3 queries)
+      - Responda EXATAMENTE a pergunta do usuário
+      - Se ele pediu X e Y, faça query para X e query para Y
+      - Estas são SEMPRE as primeiras queries
+
+   B) QUERIES UNIVERSAIS (3-5 queries)
+      - Perfil do Dataset (se ainda não estiver coberto)
+      - Distribuição/Concentração (se fizer sentido)
+      - Estatísticas Descritivas (sempre útil)
+      - Rankings (se houver métricas numéricas)
+      - Correlações (se houver 2+ colunas numéricas)
+      - Outliers (se fizer sentido)
+
+   Total recomendado: 4-8 queries (específicas + universais)
+
+   EXEMPLO de sequência completa:
+   [ESPECÍFICAS]
+   Query 1: "Resposta direta à pergunta do usuário"
+   Query 2: "Detalhamento ou segunda parte da pergunta"
+
+   [UNIVERSAIS]
+   Query 3: "Perfil: Total de registros e entidades únicas"
+   Query 4: "Distribuição: Top 10 e concentração"
+   Query 5: "Estatísticas: Min, Max, Avg de métricas numéricas"
+   Query 6: "Rankings: Ordenação por métricas principais"
+   Query 7: "Outliers: Valores extremos ou anomalias"
+
+   ⚠️ Adapte conforme necessário:
+   - Se pergunta do usuário já é um "ranking", não duplique na query universal
+   - Se dataset é pequeno (< 10 linhas), ajuste accordingly
+   - Se não há múltiplas métricas numéricas, skip correlações
 
 Retorne JSON VÁLIDO no seguinte formato:
 
@@ -186,8 +328,8 @@ Retorne JSON VÁLIDO no seguinte formato:
     "missing_values_treatment": "Como vou tratar valores ausentes",
     "transformations_needed": ["Transformação 1", "Transformação 2"]
   },
-  "analysis_approach": "Estratégia geral de análise",
-  "user_friendly_summary": "TEXTO AMIGÁVEL explicando o que você vai fazer (SEM jargão técnico, SEM mencionar 'query', 'SQL', 'dataset', 'agregação'). Use: 'vou analisar', 'vou comparar', 'vou identificar'. Máximo 200 palavras.",
+  "analysis_approach": "Estratégia geral: queries específicas para responder a pergunta + queries universais para contexto robusto",
+  "user_friendly_summary": "TEXTO CONVERSACIONAL explicando o plano completo de análise. Estrutura sugerida: 'Vou fazer uma análise completa para responder sua pergunta. Primeiro, vou [resposta específica]. Depois vou adicionar contexto analisando [análises universais que fazem sentido]. Isso vai te dar uma visão completa de [valor da análise].' NUNCA use jargão: 'query', 'SQL', 'dataset', 'agregação', 'GROUP BY'. Máximo 250 palavras.",
   "queries_planned": [
     {
       "purpose_technical": "Documentação interna",
@@ -212,7 +354,10 @@ Retorne JSON VÁLIDO no seguinte formato:
     }
   ],
   "visualizations_planned": [
-    {"type": "bar", "title": "Ranking de vendedores por receita", "rationale": "Facilita comparação visual de performance"}
+    {"type": "kpi", "title": "Principais Métricas", "rationale": "Destacar valores-chave para visão rápida"},
+    {"type": "bar", "title": "Ranking visual", "rationale": "Facilita comparação entre entidades"},
+    {"type": "table", "title": "Dados detalhados", "rationale": "Permitir exploração profunda dos números"},
+    {"type": "line", "title": "Evolução temporal (se houver datas)", "rationale": "Mostrar tendências ao longo do tempo"}
   ],
   "needs_clarification": false,
   "clarification_questions": []

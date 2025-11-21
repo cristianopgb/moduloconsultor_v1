@@ -1,20 +1,41 @@
 /**
- * EXECUTIVE NARRATIVE GENERATOR
+ * EXECUTIVE NARRATIVE GENERATOR WITH INTELLIGENT VISUALIZATIONS
  *
- * Transforms technical results into business-friendly narratives.
- * Think: Senior analyst presenting to CEO.
+ * Transforms technical results into business-friendly narratives with professional visualizations.
+ * Think: Senior analyst presenting to CEO with charts, tables, and KPIs.
  *
  * Core principles:
  * - Simple, direct language (as if speaking, not writing)
  * - Concrete numbers (not generalizations)
  * - Business insights (not technical details)
+ * - Professional visualizations (charts, tables, KPIs)
  * - Actionable recommendations
  * - ZERO technical jargon
  */
 
+import { formatCurrency, formatPercentage, formatNumber, detectColumnType } from '../_shared/data-formatters.ts';
+
+export interface ChartVisualization {
+  type: 'bar' | 'line' | 'pie' | 'scatter' | 'table' | 'kpi' | 'heatmap';
+  title: string;
+  data: any;
+  config?: any;
+  interpretation: string;
+  insights?: string[];
+}
+
+export interface KPICard {
+  label: string;
+  value: string;
+  trend?: string;
+  comparison?: string;
+  icon?: string;
+}
+
 export interface ExecutiveNarrative {
   headline: string;
   executive_summary: string;
+  kpi_cards: KPICard[];
   key_insights: Array<{
     title: string;
     description: string;
@@ -22,12 +43,7 @@ export interface ExecutiveNarrative {
     importance: 'high' | 'medium' | 'low';
     emoji: string;
   }>;
-  visualizations: Array<{
-    type: string;
-    title: string;
-    data: any;
-    interpretation: string;
-  }>;
+  visualizations: ChartVisualization[];
   business_recommendations: Array<{
     action: string;
     rationale: string;
@@ -35,6 +51,57 @@ export interface ExecutiveNarrative {
     priority: 'high' | 'medium' | 'low';
   }>;
   next_questions: string[];
+}
+
+/**
+ * Analyze query results and recommend appropriate visualizations
+ */
+function analyzeResultsForVisualizations(executedQueries: any[]): string {
+  const recommendations: string[] = [];
+
+  for (const query of executedQueries) {
+    const results = query.results || [];
+    const purpose = query.purpose_user_friendly || query.purpose || '';
+
+    if (results.length === 0) continue;
+
+    const firstRow = results[0];
+    const columns = Object.keys(firstRow);
+    const numericColumns = columns.filter(col => typeof firstRow[col] === 'number');
+    const textColumns = columns.filter(col => typeof firstRow[col] === 'string');
+
+    // KPI Cards - for single aggregate values
+    if (results.length === 1 && numericColumns.length >= 1) {
+      recommendations.push(`📊 KPI Cards para "${purpose}": Destacar métricas principais (${numericColumns.join(', ')})`);
+    }
+
+    // Bar Chart - for rankings and comparisons (up to 20 items)
+    if (results.length >= 2 && results.length <= 20 && numericColumns.length >= 1 && textColumns.length >= 1) {
+      recommendations.push(`📊 Gráfico de Barras para "${purpose}": Comparar ${textColumns[0]} por ${numericColumns[0]}`);
+    }
+
+    // Pie Chart - for distributions (up to 8 categories)
+    if (results.length >= 2 && results.length <= 8 && numericColumns.length >= 1 && purpose.match(/distribuição|concentração|participação/i)) {
+      recommendations.push(`🥧 Gráfico de Pizza para "${purpose}": Mostrar proporção de ${textColumns[0]}`);
+    }
+
+    // Line Chart - for temporal data
+    if (results.length >= 3 && columns.some(c => c.match(/data|date|periodo|mes|month|ano|year/i))) {
+      recommendations.push(`📈 Gráfico de Linha para "${purpose}": Mostrar evolução temporal`);
+    }
+
+    // Table - for detailed data (always useful)
+    if (results.length >= 3) {
+      recommendations.push(`📋 Tabela para "${purpose}": Dados detalhados para exploração (${results.length} linhas)`);
+    }
+
+    // Scatter Plot - for correlations
+    if (numericColumns.length >= 2 && results.length >= 5 && purpose.match(/correlação|relação|comparação/i)) {
+      recommendations.push(`🔗 Gráfico de Dispersão para "${purpose}": Visualizar relação entre ${numericColumns[0]} e ${numericColumns[1]}`);
+    }
+  }
+
+  return recommendations.join('\n');
 }
 
 async function callOpenAI(prompt: string, apiKey: string, model: string): Promise<string> {
@@ -67,8 +134,11 @@ export async function generateExecutiveNarrative(
   openaiModel: string
 ): Promise<ExecutiveNarrative> {
 
+  // Analyze results to recommend visualizations
+  const vizRecommendations = analyzeResultsForVisualizations(executedQueries);
+
   const prompt = `
-Você é um analista de dados apresentando resultados ao CEO de uma empresa.
+Você é um analista de dados sênior apresentando resultados ao CEO com relatório profissional completo.
 
 SOLICITAÇÃO ORIGINAL:
 "${userQuestion}"
@@ -76,21 +146,46 @@ SOLICITAÇÃO ORIGINAL:
 CONTEXTO DE NEGÓCIO:
 ${JSON.stringify(businessUnderstanding, null, 2)}
 
-RESULTADOS DA ANÁLISE:
+RESULTADOS DA ANÁLISE (${executedQueries.length} queries executadas):
 ${JSON.stringify(executedQueries, null, 2)}
 
-SUA TAREFA:
-Crie uma apresentação executiva clara, concisa e acionável.
+RECOMENDAÇÕES DE VISUALIZAÇÕES:
+${vizRecommendations}
+
+═══════════════════════════════════════════════════════════════════════════════
+SUA TAREFA: Criar Relatório Executivo Profissional Completo
+═══════════════════════════════════════════════════════════════════════════════
+
+COMPONENTES OBRIGATÓRIOS DO RELATÓRIO:
+
+1️⃣ KPI CARDS (3-5 cards)
+   - Métricas-chave destacadas visualmente
+   - Valor formatado + contexto (vs média, vs meta, tendência)
+   - Exemplo: "R$ 128.400 | +23% vs mês anterior | Receita Total"
+
+2️⃣ VISUALIZAÇÕES (3-5 gráficos/tabelas)
+   - Use as recomendações acima como guia
+   - Cada visualização DEVE ter interpretação clara
+   - Dados formatados apropriadamente (moeda, percentual, número)
+
+3️⃣ INSIGHTS (2-4 insights)
+   - Conectar todos os resultados das queries
+   - Identificar padrões, concentrações, outliers, correlações
+   - Números concretos sempre
+
+4️⃣ RECOMENDAÇÕES (2-3 ações)
+   - Práticas e acionáveis
+   - Com impacto esperado quantificado
 
 REGRAS DE STORYTELLING:
 1. Comece com o PRINCIPAL ACHADO (headline impactante)
-2. Adicione CONTEXTO (o que isso significa?)
-3. Compare com REFERÊNCIAS (outros vendedores, média, meta, período anterior)
-4. Identifique PADRÕES interessantes (concentração, tendência, anomalia)
-5. Sugira AÇÕES práticas (o que fazer com essa informação?)
-6. Use emojis com PARCIMÔNIA (1-2 por insight, não mais)
+2. Adicione CONTEXTO usando TODOS os resultados das queries
+3. Compare com REFERÊNCIAS (outros, média, benchmark)
+4. Identifique PADRÕES (concentração, tendência, anomalia, correlação)
+5. Sugira AÇÕES práticas e quantifique impacto
+6. Use emojis com PARCIMÔNIA (1-2 por insight)
 7. Números SEMPRE concretos (nunca "muitos", sempre "45%")
-8. Use TODOS os resultados das queries (não ignore nenhum resultado!)
+8. OBRIGATÓRIO: Use TODAS as ${executedQueries.length} queries executadas na narrativa
 
 EXEMPLO DE BOM STORYTELLING:
 
@@ -130,7 +225,30 @@ Retorne JSON VÁLIDO no seguinte formato:
 
 {
   "headline": "Título chamativo do principal achado (máximo 10 palavras)",
-  "executive_summary": "Resumo executivo de 2-3 frases diretas",
+  "executive_summary": "Resumo executivo de 2-3 frases diretas integrando TODOS os resultados",
+  "kpi_cards": [
+    {
+      "label": "Receita Total",
+      "value": "R$ 128.400",
+      "trend": "+23%",
+      "comparison": "vs mês anterior",
+      "icon": "💰"
+    },
+    {
+      "label": "ROI Médio",
+      "value": "6,8x",
+      "trend": "+2,1x",
+      "comparison": "vs benchmark",
+      "icon": "📈"
+    },
+    {
+      "label": "Top Performer",
+      "value": "Black Friday",
+      "trend": "R$ 52k",
+      "comparison": "40% do total",
+      "icon": "🏆"
+    }
+  ],
   "key_insights": [
     {
       "title": "Especialização em produto único",
@@ -150,12 +268,33 @@ Retorne JSON VÁLIDO no seguinte formato:
   "visualizations": [
     {
       "type": "bar",
-      "title": "Título do gráfico",
+      "title": "Ranking de Campanhas por ROI",
       "data": {
-        "labels": ["Label 1", "Label 2"],
-        "values": [100, 200]
+        "labels": ["Black Friday", "Promo Outubro", "Lookalike 1%", "Remarketing"],
+        "datasets": [{
+          "label": "ROI",
+          "data": [6.8, 4.2, 3.9, 2.1]
+        }]
       },
-      "interpretation": "O que este gráfico mostra (1-2 frases)"
+      "config": {
+        "horizontal": false,
+        "showValues": true
+      },
+      "interpretation": "Black Friday lidera com ROI de 6,8x, seguida por Promo Outubro com 4,2x. Existe uma clara diferenciação entre as top 2 campanhas e as demais.",
+      "insights": ["Top 2 campanhas geram 70% do retorno total", "ROI cai drasticamente após a 4ª posição"]
+    },
+    {
+      "type": "table",
+      "title": "Dados Detalhados por Campanha",
+      "data": {
+        "columns": ["Campanha", "Investimento", "Receita", "ROI", "Conversões"],
+        "rows": [
+          ["Black Friday", "R$ 18.900", "R$ 128.000", "6,8x", 147],
+          ["Promo Outubro", "R$ 11.200", "R$ 71.000", "4,2x", 89]
+        ]
+      },
+      "interpretation": "Tabela completa com todas as métricas para análise detalhada",
+      "insights": []
     }
   ],
   "business_recommendations": [
@@ -179,12 +318,18 @@ Retorne JSON VÁLIDO no seguinte formato:
   ]
 }
 
-IMPORTANTE:
-- Seja honesto se os dados não responderam completamente a pergunta
-- Sempre inclua pelo menos 2-3 insights
-- Sempre inclua pelo menos 1 visualização
-- Sempre inclua pelo menos 1 recomendação
-- As sugestões de próximas perguntas devem ser relevantes e específicas
+IMPORTANTE - REQUISITOS OBRIGATÓRIOS:
+✅ Inclua 3-5 KPI Cards com métricas destacadas
+✅ Inclua 3-5 Visualizações (mix de gráficos e tabelas conforme recomendações)
+✅ Inclua 2-4 Insights conectando TODOS os ${executedQueries.length} resultados
+✅ Inclua 2-3 Recomendações com impacto quantificado
+✅ Formate valores apropriadamente:
+   - Moeda: "R$ 1.234,56"
+   - Percentual: "23,5%"
+   - Número: "1.234"
+✅ Seja honesto se dados não responderam completamente
+✅ Use linguagem conversacional (como apresentação oral, não escrita)
+✅ ZERO jargão técnico (sem "query", "SQL", "dataset", "agregação")
 
 Retorne APENAS o JSON (sem markdown, sem explicação adicional).
 `;

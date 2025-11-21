@@ -250,7 +250,7 @@ export async function handleProfessionalFlowExecute(
 
   console.log('[ProfessionalFlow] Executive narrative generated');
 
-  // Save complete analysis
+  // Save complete analysis with enhanced fields
   const { data: analysis, error: analysisError } = await supabase
     .from('data_analyses')
     .insert({
@@ -259,7 +259,15 @@ export async function handleProfessionalFlowExecute(
       file_hash: plan.dataset_id,
       user_question: plan.user_question,
       business_understanding: plan.business_understanding,
-      ai_response: narrative,
+      executive_headline: narrative.headline,
+      executive_summary_text: narrative.executive_summary,
+      ai_response: {
+        ...narrative,
+        key_insights: narrative.key_insights,
+        visualizations: narrative.visualizations
+      },
+      business_recommendations: narrative.business_recommendations || [],
+      next_questions: narrative.next_questions || [],
       visualizations: narrative.visualizations,
       status: 'completed',
       retry_count: executionResults.total_retries,
@@ -270,6 +278,64 @@ export async function handleProfessionalFlowExecute(
 
   if (analysisError) {
     console.error('[ProfessionalFlow] Failed to save analysis:', analysisError);
+  }
+
+  const analysisId = analysis?.id;
+
+  if (analysisId) {
+    // Persist KPI cards to database
+    if (narrative.kpi_cards && narrative.kpi_cards.length > 0) {
+      console.log(`[ProfessionalFlow] Persisting ${narrative.kpi_cards.length} KPI cards...`);
+
+      const kpiRecords = narrative.kpi_cards.map((kpi, index) => ({
+        analysis_id: analysisId,
+        user_id: plan.user_id,
+        label: kpi.label,
+        value: kpi.value,
+        trend: kpi.trend || null,
+        comparison: kpi.comparison || null,
+        icon: kpi.icon || null,
+        position: index
+      }));
+
+      const { error: kpiError } = await supabase
+        .from('analysis_kpis')
+        .insert(kpiRecords);
+
+      if (kpiError) {
+        console.error('[ProfessionalFlow] Failed to save KPI cards:', kpiError);
+      } else {
+        console.log('[ProfessionalFlow] ✅ KPI cards saved successfully');
+      }
+    }
+
+    // Persist visualizations to database
+    if (narrative.visualizations && narrative.visualizations.length > 0) {
+      console.log(`[ProfessionalFlow] Persisting ${narrative.visualizations.length} visualizations...`);
+
+      const vizRecords = narrative.visualizations.map((viz, index) => ({
+        analysis_id: analysisId,
+        user_id: plan.user_id,
+        viz_type: viz.type,
+        title: viz.title,
+        description: viz.interpretation || null,
+        data: viz.data || {},
+        config: viz.config || {},
+        interpretation: viz.interpretation || null,
+        insights: viz.insights || [],
+        position: index
+      }));
+
+      const { error: vizError } = await supabase
+        .from('analysis_visualizations')
+        .insert(vizRecords);
+
+      if (vizError) {
+        console.error('[ProfessionalFlow] Failed to save visualizations:', vizError);
+      } else {
+        console.log('[ProfessionalFlow] ✅ Visualizations saved successfully');
+      }
+    }
   }
 
   // Update plan status

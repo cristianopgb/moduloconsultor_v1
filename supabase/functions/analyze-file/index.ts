@@ -1,12 +1,14 @@
 /**
- * ANALYZE FILE - INTELLIGENT DIALOGUE-DRIVEN PIPELINE
+ * ANALYZE FILE - PROFESSIONAL ANALYST PIPELINE
  *
- * Architecture:
- * 1. Profile data (schema + sample)
- * 2. Intelligent dialogue evaluation (should we ask questions?)
- * 3. If ready: semantic reflection + SQL generation
- * 4. Iterative execution with validation
- * 5. Narrative generation from real results
+ * Default Architecture (Professional Flow):
+ * 1. PLAN Mode: Profile data → Generate universal + specific queries → Return plan for validation
+ * 2. EXECUTE Mode: Execute approved plan → Generate visualizations → Create executive narrative
+ *
+ * Legacy Flow (semantic-reflection): Used as fallback only
+ * - Dialogue evaluation → Semantic reflection → SQL generation → Execution
+ *
+ * The professional flow is now the DEFAULT behavior for all new analysis requests.
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
@@ -195,10 +197,13 @@ Deno.serve(async (req) => {
     console.log(`[AnalyzeFile] Dataset ready: ${rowData.length} rows`);
 
     // ===================================================================
-    // PROFESSIONAL FLOW - PLAN_ONLY MODE
+    // PROFESSIONAL FLOW - PLAN_ONLY MODE (DEFAULT BEHAVIOR)
     // ===================================================================
-    if (mode === 'plan_only') {
-      console.log('[AnalyzeFile] Professional flow: PLAN_ONLY mode');
+    // If no mode specified or mode is 'plan_only', use professional flow
+    const effectiveMode = mode || 'plan_only';
+
+    if (effectiveMode === 'plan_only') {
+      console.log('[AnalyzeFile] Professional flow: PLAN_ONLY mode (default)');
 
       try {
         const filenameToUse = filename || 'uploaded_data.xlsx';
@@ -252,9 +257,15 @@ Deno.serve(async (req) => {
     });
 
     // ===================================================================
+    // LEGACY FLOW: SEMANTIC REFLECTION (fallback only)
+    // ===================================================================
+    // This section is only reached if mode is explicitly 'semantic' or for backward compatibility
+    // The professional flow above is the new default behavior
+
+    // ===================================================================
     // STEP 3: INTELLIGENT DIALOGUE EVALUATION
     // ===================================================================
-    console.log('[AnalyzeFile] Evaluating readiness for analysis...');
+    console.log('[AnalyzeFile] Evaluating readiness for analysis (legacy flow)...');
 
     // Load existing dialogue context if this is a follow-up
     let existingContext = undefined;
