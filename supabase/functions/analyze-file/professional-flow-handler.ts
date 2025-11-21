@@ -22,6 +22,56 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   global: { fetch }
 });
 
+/**
+ * Persist dataset rows to database for later execution
+ */
+async function persistDatasetRows(
+  datasetId: string,
+  rowData: any[]
+): Promise<void> {
+  console.log(`[ProfessionalFlow] Persisting ${rowData.length} rows to dataset_rows...`);
+
+  if (!datasetId) {
+    throw new Error('dataset_id is required to persist rows');
+  }
+
+  if (rowData.length === 0) {
+    throw new Error('Cannot persist empty dataset');
+  }
+
+  const rowsToInsert = rowData.map((data, index) => ({
+    dataset_id: datasetId,
+    row_number: index + 1,
+    data: data
+  }));
+
+  // Delete existing rows for this dataset (idempotent)
+  const { error: deleteError } = await supabase
+    .from('dataset_rows')
+    .delete()
+    .eq('dataset_id', datasetId);
+
+  if (deleteError) {
+    console.warn('[ProfessionalFlow] Could not delete existing rows:', deleteError.message);
+  }
+
+  // Insert new rows in batches of 1000
+  for (let i = 0; i < rowsToInsert.length; i += 1000) {
+    const batch = rowsToInsert.slice(i, i + 1000);
+    const { error: insertError } = await supabase
+      .from('dataset_rows')
+      .insert(batch);
+
+    if (insertError) {
+      throw new Error(`Failed to persist dataset rows (batch ${Math.floor(i / 1000) + 1}): ${insertError.message}`);
+    }
+
+    console.log(`[ProfessionalFlow] Persisted batch ${Math.floor(i / 1000) + 1}: ${batch.length} rows`);
+  }
+
+  console.log(`[ProfessionalFlow] ✅ Successfully persisted ${rowData.length} total rows`);
+}
+
 export async function handleProfessionalFlowPlanOnly(
   rowData: any[],
   userQuestion: string,
@@ -32,6 +82,9 @@ export async function handleProfessionalFlowPlanOnly(
   openaiModel: string
 ): Promise<any> {
   console.log('[ProfessionalFlow] PLAN_ONLY mode - generating analysis plan');
+
+  // 🔥 CRITICAL: Persist data to database BEFORE generating plan
+  await persistDatasetRows(datasetId, rowData);
 
   // Generate enriched profile (50 rows sample + cardinality)
   const enrichedProfile = profileDataEnriched(rowData);
@@ -116,6 +169,7 @@ export async function handleProfessionalFlowExecute(
   console.log('[ProfessionalFlow] Plan loaded successfully');
 
   // Reload full dataset
+  console.log(`[ProfessionalFlow] Loading dataset with ID: ${plan.dataset_id}`);
   const { data: rows, error: rowsError } = await supabase
     .from('dataset_rows')
     .select('row_data')
@@ -128,6 +182,14 @@ export async function handleProfessionalFlowExecute(
   const rowData = rows?.map((r) => r.row_data) || [];
 
   console.log(`[ProfessionalFlow] Dataset loaded: ${rowData.length} rows`);
+
+  // 🔥 CRITICAL: Validate that data was actually loaded
+  if (rowData.length === 0) {
+    throw new Error(
+      `No data found in dataset_rows for dataset_id: ${plan.dataset_id}. ` +
+      `Data may not have been persisted during plan generation.`
+    );
+  }
 
   // Execute queries with infallible retry
   const executionResults = await executeWithInfallibleRetry(
