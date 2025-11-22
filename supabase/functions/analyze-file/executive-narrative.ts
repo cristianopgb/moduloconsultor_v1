@@ -104,6 +104,100 @@ function analyzeResultsForVisualizations(executedQueries: any[]): string {
   return recommendations.join('\n');
 }
 
+/**
+ * Validate and fix visualization data to ensure it's compatible with ChartRenderer
+ * This prevents empty/broken charts in the frontend
+ */
+function validateAndFixVisualizationData(viz: ChartVisualization): ChartVisualization {
+  const { type, data } = viz;
+
+  // Ensure data exists
+  if (!data || typeof data !== 'object') {
+    console.warn('[ValidateViz] Missing or invalid data, using empty structure');
+    viz.data = { labels: [], datasets: [] };
+    return viz;
+  }
+
+  // For chart types (bar, line, pie, scatter), ensure Chart.js format
+  if (['bar', 'line', 'pie', 'scatter'].includes(type)) {
+    // Ensure labels array exists
+    if (!Array.isArray(data.labels)) {
+      console.warn('[ValidateViz] Missing labels array, extracting from data');
+      data.labels = [];
+    }
+
+    // Ensure datasets array exists
+    if (!Array.isArray(data.datasets)) {
+      console.warn('[ValidateViz] Missing datasets array, creating from data');
+      data.datasets = [];
+    }
+
+    // Fix datasets structure
+    if (data.datasets.length === 0 && data.labels.length > 0) {
+      // Try to extract data from other fields
+      if (Array.isArray(data.data)) {
+        data.datasets = [{
+          label: viz.title || 'Valores',
+          data: data.data
+        }];
+      } else if (Array.isArray(data.values)) {
+        data.datasets = [{
+          label: viz.title || 'Valores',
+          data: data.values
+        }];
+      }
+    }
+
+    // Validate datasets have data arrays
+    data.datasets = data.datasets.map((dataset: any) => {
+      if (!Array.isArray(dataset.data)) {
+        console.warn('[ValidateViz] Dataset missing data array, using empty array');
+        dataset.data = [];
+      }
+      if (!dataset.label) {
+        dataset.label = 'Valores';
+      }
+      return dataset;
+    });
+
+    // Ensure labels and data arrays have same length
+    if (data.datasets.length > 0) {
+      const maxLength = Math.max(data.labels.length, data.datasets[0].data.length);
+      while (data.labels.length < maxLength) {
+        data.labels.push(`Item ${data.labels.length + 1}`);
+      }
+    }
+  }
+
+  // For table type, ensure columns and rows exist
+  if (type === 'table') {
+    if (!Array.isArray(data.columns)) {
+      console.warn('[ValidateViz] Table missing columns, using empty array');
+      data.columns = [];
+    }
+    if (!Array.isArray(data.rows)) {
+      console.warn('[ValidateViz] Table missing rows, using empty array');
+      data.rows = [];
+    }
+  }
+
+  // For KPI type, ensure value exists
+  if (type === 'kpi') {
+    if (!data.value) {
+      console.warn('[ValidateViz] KPI missing value');
+      data.value = 'N/A';
+    }
+  }
+
+  console.log('[ValidateViz] ✅ Validation complete:', {
+    type: viz.type,
+    hasLabels: Array.isArray(data.labels) ? data.labels.length : 0,
+    hasDatasets: Array.isArray(data.datasets) ? data.datasets.length : 0
+  });
+
+  return viz;
+}
+
 async function callOpenAI(prompt: string, apiKey: string, model: string): Promise<string> {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -342,6 +436,22 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
 
   try {
     const narrative = JSON.parse(cleanResponse);
+
+    // 🔥 CRITICAL: Validate and fix all visualizations
+    if (narrative.visualizations && Array.isArray(narrative.visualizations)) {
+      console.log(`[ExecutiveNarrative] Validating ${narrative.visualizations.length} visualizations...`);
+      narrative.visualizations = narrative.visualizations.map(validateAndFixVisualizationData);
+    } else {
+      console.warn('[ExecutiveNarrative] No visualizations found in narrative');
+      narrative.visualizations = [];
+    }
+
+    // Ensure KPI cards exist
+    if (!narrative.kpi_cards || !Array.isArray(narrative.kpi_cards)) {
+      console.warn('[ExecutiveNarrative] No KPI cards found');
+      narrative.kpi_cards = [];
+    }
+
     console.log('[ExecutiveNarrative] Narrative generated successfully');
     return narrative;
   } catch (error: any) {

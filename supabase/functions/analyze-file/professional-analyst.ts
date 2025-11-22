@@ -297,6 +297,9 @@ Siga o processo profissional de análise de dados:
 
    Total recomendado: 4-8 queries (específicas + universais)
 
+   ⚠️ REGRA OBRIGATÓRIA: MÍNIMO 4 QUERIES, MÁXIMO 8 QUERIES
+   Você DEVE gerar pelo menos 4 queries. Se sua análise tem menos, adicione queries universais.
+
    EXEMPLO de sequência completa:
    [ESPECÍFICAS]
    Query 1: "Resposta direta à pergunta do usuário"
@@ -370,14 +373,51 @@ REGRAS CRÍTICAS:
 - Se algo não ficou claro, seja ESPECÍFICO nas perguntas
 - Pense como analista de negócio, não como programador
 
-REGRAS TÉCNICAS (para o SQL funcionar):
-- Sempre use "FROM data" (nome da tabela é "data")
-- Se usar SUM/AVG/COUNT/MIN/MAX, SEMPRE adicione GROUP BY
-- Exceção: COUNT(*) sozinho não precisa GROUP BY
-- Use apenas colunas que existem: ${profile.columns.join(', ')}
-- Colunas no SELECT que não têm agregação DEVEM estar no GROUP BY
-- Exemplo correto: SELECT coluna, SUM(valor) as total FROM data GROUP BY coluna
-- Exemplo errado: SELECT coluna, SUM(valor) FROM data (falta GROUP BY)
+═══════════════════════════════════════════════════════════════════════════════
+REGRAS TÉCNICAS SQL (PARA O SQL FUNCIONAR CORRETAMENTE)
+═══════════════════════════════════════════════════════════════════════════════
+
+🔴 CRÍTICO - REGRAS OBRIGATÓRIAS:
+
+1. SEMPRE use "FROM data" (nome da tabela é "data")
+
+2. GROUP BY é OBRIGATÓRIO quando você mistura:
+   - Colunas agregadas (SUM, AVG, COUNT, MIN, MAX)
+   - Colunas não-agregadas (colunas normais)
+
+3. CÁLCULOS COMPOSTOS (exemplos corretos):
+   ✅ Diferença/divergência: SELECT coluna_a - coluna_b AS divergencia FROM data
+   ✅ Soma de múltiplas colunas: SELECT (coluna_a + coluna_b) AS total FROM data
+   ✅ Com agregação: SELECT categoria, SUM(coluna_a - coluna_b) AS total_divergencia FROM data GROUP BY categoria
+   ✅ Valor absoluto de diferença: SELECT ABS(coluna_a - coluna_b) AS divergencia FROM data
+
+4. REGRAS DE GROUP BY:
+   ✅ CORRETO: SELECT categoria, SUM(valor) as total FROM data GROUP BY categoria
+   ❌ ERRADO: SELECT categoria, SUM(valor) FROM data (falta GROUP BY)
+   ✅ CORRETO: SELECT COUNT(*) as total FROM data (COUNT sozinho não precisa GROUP BY)
+   ❌ ERRADO: SELECT categoria, COUNT(*) FROM data (falta GROUP BY categoria)
+
+5. COLUNAS DISPONÍVEIS:
+   Use APENAS estas colunas: ${profile.columns.join(', ')}
+
+6. FILTROS E CONDIÇÕES:
+   ✅ WHERE antes de GROUP BY: SELECT categoria, SUM(valor) FROM data WHERE ativo = true GROUP BY categoria
+   ✅ HAVING depois de GROUP BY: SELECT categoria, SUM(valor) as total FROM data GROUP BY categoria HAVING total > 1000
+
+7. ORDENAÇÃO E LIMITES:
+   ✅ ORDER BY com alias: SELECT categoria, SUM(valor) as total FROM data GROUP BY categoria ORDER BY total DESC
+   ✅ LIMIT: SELECT * FROM data LIMIT 10
+
+8. ERROS COMUNS E COMO EVITAR:
+   ❌ "Aggregation requires GROUP BY" → Você misturou SUM/AVG/etc com coluna normal. Adicione GROUP BY.
+   ❌ "Column not found" → Você usou coluna que não existe. Confira lista acima.
+   ❌ Valores zerados → Verifique se o cálculo está correto (ex: SUM(a - b), não SUM(a) - SUM(b))
+
+9. EXEMPLOS DE QUERIES CORRETAS PARA DIVERGÊNCIAS:
+   ✅ Simples: SELECT produto, (quantidade_total - contagem_fisica) AS divergencia FROM data
+   ✅ Com filtro: SELECT produto, (quantidade_total - contagem_fisica) AS divergencia FROM data WHERE divergencia != 0
+   ✅ Agregada: SELECT categoria, SUM(quantidade_total - contagem_fisica) AS total_divergencia FROM data GROUP BY categoria
+   ✅ Com ranking: SELECT produto, (quantidade_total - contagem_fisica) AS divergencia FROM data ORDER BY ABS(quantidade_total - contagem_fisica) DESC LIMIT 10
 
 Retorne APENAS o JSON (sem markdown, sem explicação adicional).
 `;
@@ -391,6 +431,74 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
 
   try {
     const plan = JSON.parse(cleanResponse);
+
+    // 🔥 VALIDATION: Ensure minimum 4 queries
+    if (!plan.queries_planned || plan.queries_planned.length < 4) {
+      console.warn(`[ProfessionalAnalyst] ⚠️ Only ${plan.queries_planned?.length || 0} queries generated. Minimum is 4. Regenerating...`);
+
+      // Add universal queries as fallback
+      const existingQueries = plan.queries_planned || [];
+      const universalQueries = [];
+
+      // Add profile query if missing
+      if (existingQueries.length < 4) {
+        universalQueries.push({
+          purpose_technical: "Universal - Dataset profile",
+          purpose_user_friendly: "Contexto: Total de registros no dataset",
+          sql: `SELECT COUNT(*) as total_registros FROM data`,
+          will_process_rows: profile.totalRows,
+          expected_result_type: "total"
+        });
+      }
+
+      // Add distribution query if missing
+      if (existingQueries.length + universalQueries.length < 4 && profile.columns.length > 0) {
+        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 50 && profile.cardinality[col] > 1);
+        if (categoricalColumn) {
+          universalQueries.push({
+            purpose_technical: "Universal - Distribution",
+            purpose_user_friendly: `Distribuição por ${categoricalColumn}`,
+            sql: `SELECT ${categoricalColumn}, COUNT(*) as total FROM data GROUP BY ${categoricalColumn} ORDER BY total DESC LIMIT 10`,
+            will_process_rows: profile.totalRows,
+            expected_result_type: "ranking"
+          });
+        }
+      }
+
+      // Add statistics query if missing
+      const numericColumns = Object.entries(profile.columnTypes)
+        .filter(([_, type]) => type === 'number')
+        .map(([col, _]) => col);
+
+      if (existingQueries.length + universalQueries.length < 4 && numericColumns.length > 0) {
+        const col = numericColumns[0];
+        universalQueries.push({
+          purpose_technical: "Universal - Statistics",
+          purpose_user_friendly: `Estatísticas de ${col}`,
+          sql: `SELECT MIN(${col}) as minimo, MAX(${col}) as maximo, AVG(${col}) as media, SUM(${col}) as total FROM data`,
+          will_process_rows: profile.totalRows,
+          expected_result_type: "total"
+        });
+      }
+
+      // Add ranking query if still missing
+      if (existingQueries.length + universalQueries.length < 4 && numericColumns.length > 0) {
+        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 50 && profile.cardinality[col] > 1);
+        if (categoricalColumn && numericColumns[0]) {
+          universalQueries.push({
+            purpose_technical: "Universal - Ranking",
+            purpose_user_friendly: `Ranking de ${categoricalColumn} por ${numericColumns[0]}`,
+            sql: `SELECT ${categoricalColumn}, SUM(${numericColumns[0]}) as total FROM data GROUP BY ${categoricalColumn} ORDER BY total DESC LIMIT 10`,
+            will_process_rows: profile.totalRows,
+            expected_result_type: "ranking"
+          });
+        }
+      }
+
+      plan.queries_planned = [...existingQueries, ...universalQueries];
+      console.log(`[ProfessionalAnalyst] ✅ Queries expanded to ${plan.queries_planned.length} (added ${universalQueries.length} universal queries)`);
+    }
+
     console.log('[ProfessionalAnalyst] Plan generated successfully');
     return plan;
   } catch (error: any) {

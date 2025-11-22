@@ -168,6 +168,23 @@ export async function handleProfessionalFlowPlanOnly(
 
   console.log('[ProfessionalFlow] Plan saved with ID:', savedPlan.id);
 
+  // 🔥 NEW: Persist plan summary as assistant message for dialogue history
+  if (conversationId) {
+    try {
+      await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        user_id: effectiveUserId,
+        role: 'assistant',
+        content: professionalPlan.user_friendly_summary,
+        message_type: 'analysis_plan',
+        analysis_id: null // Will be linked after execution
+      });
+      console.log('[ProfessionalFlow] ✅ Plan message persisted to conversation');
+    } catch (error: any) {
+      console.warn('[ProfessionalFlow] Could not persist plan message:', error.message);
+    }
+  }
+
   // Return plan for user validation
   return {
     success: true,
@@ -348,6 +365,23 @@ export async function handleProfessionalFlowExecute(
     .eq('id', planId);
 
   console.log('[ProfessionalFlow] Analysis complete');
+
+  // 🔥 NEW: Persist executive summary as assistant message for dialogue history
+  if (plan.conversation_id && analysis?.id) {
+    try {
+      await supabase.from('messages').insert({
+        conversation_id: plan.conversation_id,
+        user_id: plan.user_id,
+        role: 'assistant',
+        content: narrative.executive_summary,
+        message_type: 'analysis_result',
+        analysis_id: analysis.id
+      });
+      console.log('[ProfessionalFlow] ✅ Executive summary persisted to conversation');
+    } catch (error: any) {
+      console.warn('[ProfessionalFlow] Could not persist executive summary:', error.message);
+    }
+  }
 
   // Return executive narrative with executed queries for transparency
   return {

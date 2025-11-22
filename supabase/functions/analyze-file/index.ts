@@ -208,6 +208,22 @@ Deno.serve(async (req) => {
       try {
         const filenameToUse = filename || 'uploaded_data.xlsx';
 
+        // 🔥 NEW: Persist user question as message for dialogue history
+        if (conversation_id) {
+          try {
+            await supabase.from('messages').insert({
+              conversation_id,
+              user_id: effectiveUserId,
+              role: 'user',
+              content: user_question,
+              message_type: 'analysis_request'
+            });
+            console.log('[AnalyzeFile] ✅ User question persisted to conversation');
+          } catch (error: any) {
+            console.warn('[AnalyzeFile] Could not persist user message:', error.message);
+          }
+        }
+
         const result = await handleProfessionalFlowPlanOnly(
           rowData,
           user_question,
