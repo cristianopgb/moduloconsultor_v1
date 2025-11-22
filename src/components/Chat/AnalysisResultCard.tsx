@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { BarChart3, Table, TrendingUp, Info, Loader2, AlertCircle, CheckCircle, Lightbulb, Target } from 'lucide-react'
+import { BarChart3, Table, TrendingUp, Info, Loader2, AlertCircle, CheckCircle, Lightbulb, Target, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { ChartRenderer } from '../Datasets/ChartRenderer'
 import { KPIGrid } from '../Analytics/KPICard'
+import { uploadHtmlAndOpenPreview } from '../../lib/storagePreview'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface AnalysisData {
   id: string
@@ -64,10 +66,12 @@ interface AnalysisResultCardProps {
 }
 
 export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
+  const { user } = useAuth()
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [generatingDoc, setGeneratingDoc] = useState(false)
 
   useEffect(() => {
     loadAnalysis()
@@ -78,21 +82,438 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
       setLoading(true)
       setError(null)
 
-      const { data, error: fetchError } = await supabase
+      // 1. Carregar análise principal
+      const { data: analysisData, error: fetchError } = await supabase
         .from('data_analyses')
         .select('*')
         .eq('id', analysisId)
         .maybeSingle()
 
       if (fetchError) throw fetchError
-      if (!data) throw new Error('Análise não encontrada')
+      if (!analysisData) throw new Error('Análise não encontrada')
 
-      setAnalysis(data as AnalysisData)
+      // 2. Carregar KPIs separadamente
+      const { data: kpis } = await supabase
+        .from('analysis_kpis')
+        .select('*')
+        .eq('analysis_id', analysisId)
+        .order('position', { ascending: true })
+
+      // 3. Carregar Visualizações separadamente
+      const { data: vizs } = await supabase
+        .from('analysis_visualizations')
+        .select('*')
+        .eq('analysis_id', analysisId)
+        .order('position', { ascending: true })
+
+      // 4. Reconstruir ai_response com dados completos
+      const reconstructedResponse = {
+        ...(analysisData.ai_response || {}),
+        kpi_cards: kpis?.map(k => ({
+          label: k.kpi_label,
+          value: k.kpi_value,
+          trend: k.trend,
+          comparison: k.comparison,
+          icon: k.icon_name
+        })) || (analysisData.ai_response?.kpi_cards || []),
+        visualizations: vizs?.map(v => ({
+          type: v.viz_type,
+          title: v.title,
+          data: v.data,
+          interpretation: v.interpretation,
+          insights: v.insights
+        })) || (analysisData.ai_response?.visualizations || analysisData.ai_response?.charts || [])
+      }
+
+      setAnalysis({
+        ...analysisData,
+        ai_response: reconstructedResponse
+      } as AnalysisData)
     } catch (err: any) {
       console.error('Erro ao carregar análise:', err)
       setError(err.message || 'Erro ao carregar análise')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const generateAnalysisHTML = (data: AnalysisData): string => {
+    const aiResponse = data.ai_response || {}
+    const headline = data.executive_headline || aiResponse.headline || 'Análise de Dados'
+    const executiveSummary = data.executive_summary_text || aiResponse.executive_summary || aiResponse.summary || ''
+    const kpiCards = aiResponse.kpi_cards || []
+    const keyInsights = aiResponse.key_insights || []
+    const visualizations = aiResponse.visualizations || aiResponse.charts || []
+    const businessRecs = data.business_recommendations || aiResponse.business_recommendations || []
+    const nextQuestions = data.next_questions || aiResponse.next_questions || []
+
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${headline}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      background: #f9fafb;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      background: white;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+      color: white;
+      padding: 48px 40px;
+    }
+    .header h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .header p {
+      font-size: 18px;
+      opacity: 0.95;
+      line-height: 1.7;
+    }
+    .content {
+      padding: 40px;
+    }
+    section {
+      margin-bottom: 48px;
+    }
+    h2 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      color: #111827;
+      border-left: 4px solid #3b82f6;
+      padding-left: 16px;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+    .kpi-card {
+      background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+      padding: 24px;
+      border-radius: 10px;
+      border-left: 4px solid #3b82f6;
+    }
+    .kpi-card h3 {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1f2937;
+      margin-bottom: 4px;
+    }
+    .kpi-meta {
+      font-size: 13px;
+      color: #059669;
+      font-weight: 500;
+    }
+    .insight-card {
+      background: #fefce8;
+      border-left: 4px solid #eab308;
+      padding: 24px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    .insight-card.high {
+      background: #fef2f2;
+      border-left-color: #ef4444;
+    }
+    .insight-card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #111827;
+    }
+    .insight-card p {
+      color: #374151;
+      margin-bottom: 12px;
+    }
+    .insight-numbers {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .insight-numbers span {
+      background: white;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .rec-card {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border-left: 4px solid #f59e0b;
+      padding: 24px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    .rec-card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #111827;
+    }
+    .rec-card p {
+      color: #374151;
+      margin-bottom: 8px;
+    }
+    .impact-box {
+      background: #dcfce7;
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 12px;
+      font-size: 14px;
+      color: #166534;
+    }
+    .impact-box strong {
+      font-weight: 700;
+    }
+    .viz-section {
+      background: #f9fafb;
+      padding: 24px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    .viz-section h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: #111827;
+    }
+    .viz-placeholder {
+      background: white;
+      border: 2px dashed #d1d5db;
+      padding: 40px;
+      border-radius: 8px;
+      text-align: center;
+      color: #6b7280;
+      margin-bottom: 12px;
+    }
+    .viz-interpretation {
+      font-size: 14px;
+      color: #6b7280;
+      font-style: italic;
+      margin-top: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    th {
+      background: #f3f4f6;
+      font-weight: 700;
+      color: #111827;
+    }
+    tr:hover {
+      background: #f9fafb;
+    }
+    .next-questions {
+      background: #eff6ff;
+      padding: 24px;
+      border-radius: 8px;
+      border: 2px solid #bfdbfe;
+    }
+    .next-questions h2 {
+      border-left-color: #3b82f6;
+      margin-bottom: 16px;
+    }
+    .next-questions ul {
+      list-style: none;
+    }
+    .next-questions li {
+      padding: 10px 0;
+      color: #1e40af;
+      font-weight: 500;
+    }
+    .next-questions li:before {
+      content: "❓ ";
+      margin-right: 8px;
+    }
+    .footer {
+      background: #f3f4f6;
+      padding: 24px 40px;
+      text-align: center;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .__selectable {
+      cursor: text;
+    }
+    .__selectable:hover {
+      outline: 2px dashed rgba(59, 130, 246, 0.3);
+      outline-offset: 4px;
+    }
+    @media print {
+      body { padding: 0; background: white; }
+      .container { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="__selectable">${headline}</h1>
+      ${executiveSummary ? `<p class="__selectable">${executiveSummary}</p>` : ''}
+    </div>
+
+    <div class="content">
+      ${kpiCards.length > 0 ? `
+      <section>
+        <h2>📊 Métricas Principais</h2>
+        <div class="kpi-grid">
+          ${kpiCards.map(kpi => `
+            <div class="kpi-card">
+              <h3>${kpi.label}</h3>
+              <div class="kpi-value __selectable">${kpi.value}</div>
+              ${kpi.trend || kpi.comparison ? `<div class="kpi-meta">${kpi.trend || ''} ${kpi.comparison || ''}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </section>
+      ` : ''}
+
+      ${keyInsights.length > 0 ? `
+      <section>
+        <h2>💡 Principais Descobertas</h2>
+        ${keyInsights.map(insight => `
+          <div class="insight-card ${insight.importance === 'high' ? 'high' : ''}">
+            <h3>${insight.emoji || '📌'} ${insight.title}</h3>
+            <p class="__selectable">${insight.description}</p>
+            ${insight.numbers && insight.numbers.length > 0 ? `
+              <div class="insight-numbers">
+                ${insight.numbers.map(num => `<span class="__selectable">${num}</span>`).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `).join('')}
+      </section>
+      ` : ''}
+
+      ${visualizations.length > 0 ? `
+      <section>
+        <h2>📈 Visualizações</h2>
+        ${visualizations.map(viz => `
+          <div class="viz-section">
+            <h3>${viz.title || 'Gráfico'}</h3>
+            <div class="viz-placeholder">
+              <p>Gráfico ${viz.type || 'bar'}</p>
+              <p style="font-size: 12px; margin-top: 8px;">Dados: ${JSON.stringify(viz.data).substring(0, 100)}...</p>
+            </div>
+            ${viz.interpretation ? `<p class="viz-interpretation __selectable">${viz.interpretation}</p>` : ''}
+          </div>
+        `).join('')}
+      </section>
+      ` : ''}
+
+      ${businessRecs.length > 0 ? `
+      <section>
+        <h2>🎯 Recomendações</h2>
+        ${businessRecs.map(rec => `
+          <div class="rec-card">
+            <h3>${rec.action}</h3>
+            <p class="__selectable">${rec.rationale}</p>
+            ${rec.expected_impact ? `
+              <div class="impact-box">
+                <strong>Impacto Esperado:</strong> <span class="__selectable">${rec.expected_impact}</span>
+              </div>
+            ` : ''}
+          </div>
+        `).join('')}
+      </section>
+      ` : ''}
+
+      ${data.query_results && data.query_results.length > 0 ? `
+      <section>
+        <h2>📋 Dados Analisados</h2>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                ${Object.keys(data.query_results[0]).map(key => `<th>${key}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${data.query_results.slice(0, 20).map(row => `
+                <tr>
+                  ${Object.values(row).map((val: any) => `
+                    <td class="__selectable">${typeof val === 'number' ? val.toLocaleString('pt-BR') : String(val || '-')}</td>
+                  `).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ${data.query_results.length > 20 ? `<p style="text-align: center; color: #6b7280; font-size: 14px;">Mostrando 20 de ${data.query_results.length} resultados</p>` : ''}
+        </div>
+      </section>
+      ` : ''}
+
+      ${nextQuestions.length > 0 ? `
+      <div class="next-questions">
+        <h2>🔍 Próximas Perguntas Sugeridas</h2>
+        <ul>
+          ${nextQuestions.map(q => `<li>${q}</li>`).join('')}
+        </ul>
+      </div>
+      ` : ''}
+    </div>
+
+    <div class="footer">
+      <p>Relatório gerado em ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })} às ${new Date().toLocaleTimeString('pt-BR')}</p>
+      <p style="margin-top: 8px;">Total de registros analisados: ${data.full_dataset_rows.toLocaleString('pt-BR')}</p>
+    </div>
+  </div>
+</body>
+</html>`
+  }
+
+  const handleGenerateDocument = async () => {
+    if (!analysis) return
+
+    setGeneratingDoc(true)
+    try {
+      const html = generateAnalysisHTML(analysis)
+
+      await uploadHtmlAndOpenPreview({
+        html,
+        title: analysis.executive_headline || analysis.ai_response?.headline || 'Análise de Dados',
+        userId: user?.id,
+        conversationId: null,
+        persistToStorage: true
+      })
+    } catch (error: any) {
+      console.error('Erro ao gerar documento:', error)
+      alert('Erro ao gerar documento: ' + (error?.message || 'erro desconhecido'))
+    } finally {
+      setGeneratingDoc(false)
     }
   }
 
@@ -153,13 +574,32 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
               {analysis.full_dataset_rows.toLocaleString()} linhas analisadas
             </p>
           </div>
-          <button
-            onClick={() => setShowDetails(!showDetails)}
-            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-          >
-            <Info className="w-4 h-4" />
-            {showDetails ? 'Ocultar' : 'Detalhes'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenerateDocument}
+              disabled={generatingDoc}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs rounded-lg flex items-center gap-1.5 transition-colors"
+            >
+              {generatingDoc ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Gerando...
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4" />
+                  Gerar Documento
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+            >
+              <Info className="w-4 h-4" />
+              {showDetails ? 'Ocultar' : 'Detalhes'}
+            </button>
+          </div>
         </div>
       </div>
 

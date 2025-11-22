@@ -466,7 +466,6 @@ function ChatPage() {
   // Professional flow states
   const [analysisPlan, setAnalysisPlan] = useState<any>(null)
   const [executingPlan, setExecutingPlan] = useState(false)
-  const [narrativeResult, setNarrativeResult] = useState<any>(null)
   const [modalJornadaId, setModalJornadaId] = useState<string | null>(null)
 
   // Gamificação - Popup de XP
@@ -2272,17 +2271,10 @@ function ChatPage() {
                           (narrative) => {
                             console.log('[PROFESSIONAL FLOW] 🎉 Analysis completed!');
                             setExecutingPlan(false);
-                            setNarrativeResult(narrative);
                             setAnalysisState('ready_to_answer');
 
-                            // Adicionar mensagem com resultado narrativo
-                            const resultMessage: Message = {
-                              id: `temp-result-${Date.now()}`,
-                              role: 'assistant',
-                              content: narrative.executive_summary || '✅ Análise concluída! Veja os resultados abaixo.',
-                              timestamp: new Date().toISOString()
-                            };
-                            setMessages(prev => [...prev, resultMessage]);
+                            // Recarregar mensagens do banco para exibir AnalysisResultCard
+                            loadMessages();
                           },
                           (error) => {
                             console.error('[PROFESSIONAL FLOW] ❌ Execution failed:', error);
@@ -2312,23 +2304,7 @@ function ChatPage() {
                   </div>
                 )}
 
-                {/* Professional Flow - Executive Report */}
-                {narrativeResult && (
-                  <div className="mb-4">
-                    <ExecutiveReport
-                      narrative={narrativeResult}
-                      onAskMore={(question) => {
-                        setNarrativeResult(null);
-                        if (question) {
-                          setInput(question);
-                        }
-                      }}
-                      onExport={() => {
-                        console.log('Export report');
-                      }}
-                    />
-                  </div>
-                )}
+                {/* ExecutiveReport removido - usando apenas AnalysisResultCard */}
 
                 {/* Analysis Suggestions - Show after successful analysis */}
                 {showSuggestions && lastAnalysisData && analysisState === 'ready_to_answer' && (
