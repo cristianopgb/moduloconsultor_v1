@@ -2273,8 +2273,8 @@ function ChatPage() {
                             setExecutingPlan(false);
                             setAnalysisState('ready_to_answer');
 
-                            // Recarregar mensagens do banco para exibir AnalysisResultCard
-                            loadMessages();
+                            // A mensagem com analysis_id já foi salva pelo backend
+                            // O useEffect ou realtime irá atualizar automaticamente
                           },
                           (error) => {
                             console.error('[PROFESSIONAL FLOW] ❌ Execution failed:', error);
