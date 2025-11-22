@@ -108,12 +108,49 @@ function analyzeResultsForVisualizations(executedQueries: any[]): string {
  * Validate and fix visualization data to ensure it's compatible with ChartRenderer
  * This prevents empty/broken charts in the frontend
  */
-function validateAndFixVisualizationData(viz: ChartVisualization): ChartVisualization {
+function validateAndFixVisualizationData(viz: ChartVisualization, queryResults?: any[]): ChartVisualization {
   const { type, data } = viz;
 
   // Ensure data exists
   if (!data || typeof data !== 'object') {
-    console.warn('[ValidateViz] Missing or invalid data, using empty structure');
+    console.warn('[ValidateViz] Missing or invalid data, attempting extraction from query results');
+
+    // Try to extract data from query results
+    if (queryResults && queryResults.length > 0 && queryResults[0].results) {
+      const firstQueryWithResults = queryResults.find(q => q.results && q.results.length > 0);
+      if (firstQueryWithResults) {
+        const results = firstQueryWithResults.results;
+        const firstRow = results[0];
+        const columns = Object.keys(firstRow);
+
+        // Try to build a basic visualization
+        if (type === 'table') {
+          viz.data = {
+            columns: columns,
+            rows: results.slice(0, 10).map(row => columns.map(col => row[col]))
+          };
+          console.log('[ValidateViz] ✅ Extracted table data from query results');
+          return viz;
+        } else if (['bar', 'line', 'pie'].includes(type)) {
+          // Find label column (text) and value column (number)
+          const textCol = columns.find(col => typeof firstRow[col] === 'string');
+          const numCol = columns.find(col => typeof firstRow[col] === 'number');
+
+          if (textCol && numCol) {
+            viz.data = {
+              labels: results.slice(0, 10).map(row => row[textCol]),
+              datasets: [{
+                label: numCol,
+                data: results.slice(0, 10).map(row => row[numCol])
+              }]
+            };
+            console.log('[ValidateViz] ✅ Extracted chart data from query results');
+            return viz;
+          }
+        }
+      }
+    }
+
     viz.data = { labels: [], datasets: [] };
     return viz;
   }
@@ -249,6 +286,10 @@ ${vizRecommendations}
 ═══════════════════════════════════════════════════════════════════════════════
 SUA TAREFA: Criar Relatório Executivo Profissional Completo
 ═══════════════════════════════════════════════════════════════════════════════
+
+🔥 REGRA CRÍTICA: USE TODOS OS RESULTADOS, NÃO APENAS 2-3 EXEMPLOS!
+Se a query retornou TOP 10 produtos, mostre OS 10 (não apenas 2)!
+Se há 113 SKUs com divergência, mencione TODOS ou pelo menos TOP 10 completo!
 
 COMPONENTES OBRIGATÓRIOS DO RELATÓRIO:
 
@@ -391,6 +432,61 @@ Retorne JSON VÁLIDO no seguinte formato:
       "insights": []
     }
   ],
+
+═══════════════════════════════════════════════════════════════════════════════
+🔥 FORMATO OBRIGATÓRIO DE VISUALIZAÇÕES - COPIE EXATAMENTE!
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 GRÁFICO DE BARRAS (use para rankings, comparações):
+{
+  "type": "bar",
+  "title": "TOP 10 Produtos com Maior Divergência",
+  "data": {
+    "labels": ["Produto A", "Produto B", "Produto C", "Produto D", "Produto E", "Produto F", "Produto G", "Produto H", "Produto I", "Produto J"],
+    "datasets": [{
+      "label": "Divergência",
+      "data": [120, 98, 87, 76, 65, 54, 43, 32, 21, 10]
+    }]
+  },
+  "interpretation": "Os 10 produtos com maior divergência representam 45% do total. Produto A lidera com 120 unidades."
+}
+
+📋 TABELA (use para dados detalhados):
+{
+  "type": "table",
+  "title": "Detalhamento Completo",
+  "data": {
+    "columns": ["SKU", "Nome", "Divergência", "Status"],
+    "rows": [
+      ["ABC123", "Margarina 500g", 45, "Crítico"],
+      ["DEF456", "Desinfetante 1L", 32, "Alto"],
+      ["GHI789", "Sabão em pó 1kg", 28, "Médio"]
+    ]
+  },
+  "interpretation": "Tabela com os principais produtos divergentes"
+}
+
+🥧 GRÁFICO DE PIZZA (use para distribuições, proporções):
+{
+  "type": "pie",
+  "title": "Distribuição por Categoria",
+  "data": {
+    "labels": ["Alimentos", "Limpeza", "Higiene", "Outros"],
+    "datasets": [{
+      "label": "Percentual",
+      "data": [45, 30, 20, 5]
+    }]
+  },
+  "interpretation": "Alimentos representam 45% das divergências"
+}
+
+⚠️ REGRAS OBRIGATÓRIAS:
+1. SEMPRE preencha "labels" com array de strings
+2. SEMPRE preencha "datasets" com array contendo objetos {label, data}
+3. Para tabelas: "columns" = array de strings, "rows" = array de arrays
+4. Use TODOS os dados do query result, não apenas 2-3 exemplos
+5. Se query retornou TOP 10, mostre OS 10 no gráfico!
+
   "business_recommendations": [
     {
       "action": "Diversificar portfólio de Fernando para 2-3 categorias complementares",
@@ -440,7 +536,7 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
     // 🔥 CRITICAL: Validate and fix all visualizations
     if (narrative.visualizations && Array.isArray(narrative.visualizations)) {
       console.log(`[ExecutiveNarrative] Validating ${narrative.visualizations.length} visualizations...`);
-      narrative.visualizations = narrative.visualizations.map(validateAndFixVisualizationData);
+      narrative.visualizations = narrative.visualizations.map(viz => validateAndFixVisualizationData(viz, executedQueries));
     } else {
       console.warn('[ExecutiveNarrative] No visualizations found in narrative');
       narrative.visualizations = [];

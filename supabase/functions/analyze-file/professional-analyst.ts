@@ -140,10 +140,11 @@ Sua análise SEMPRE terá 2 componentes obrigatórios:
    - Se ele pediu comparação, faça query de comparação
    - PRIORIDADE MÁXIMA: responder a pergunta direta
 
-2️⃣ QUERIES UNIVERSAIS (obrigatório)
-   - Sempre adicione um "pacote padrão" de análises robustas
-   - Estas queries funcionam para QUALQUER dataset
-   - Elas enriquecem a análise e agregam valor profissional
+2️⃣ QUERIES UNIVERSAIS (OBRIGATÓRIO - NÃO OPCIONAL!)
+   - 🔥 VOCÊ DEVE SEMPRE incluir queries universais
+   - Elas fornecem PANORAMA COMPLETO antes de detalhes específicos
+   - Use TOP 10 (NÃO TOP 2!), distribuições completas, estatísticas gerais
+   - Nunca foque apenas em exemplos específicos
 
 ═══════════════════════════════════════════════════════════════════════════════
 AS 6 QUERIES UNIVERSAIS (use as que fizerem sentido)
@@ -151,36 +152,41 @@ AS 6 QUERIES UNIVERSAIS (use as que fizerem sentido)
 
 Estas são análises que sempre agregam valor, independente do domínio:
 
-📊 1. PERFIL DO DATASET
-   - Total de registros
-   - Contagens de valores únicos em colunas categóricas principais
+📊 1. PERFIL DO DATASET (SEMPRE INCLUA)
+   - Total de registros COMPLETO
+   - Contagens de valores únicos em TODAS as colunas categóricas principais
    - Período coberto (se houver coluna de data/período)
    - Insight: "O dataset cobre X registros de Y entidades ao longo de Z período"
+   - ⚠️ Use COUNT(*), COUNT(DISTINCT coluna) para visão geral
 
-📈 2. DISTRIBUIÇÃO E CONCENTRAÇÃO
-   - Top 10 por colunas categóricas relevantes
+📈 2. DISTRIBUIÇÃO E CONCENTRAÇÃO (SEMPRE INCLUA TOP 10)
+   - 🔥 TOP 10 COMPLETO (NÃO apenas 2-3 exemplos!)
    - Percentual de concentração (ex: top 3 representam X% do total)
    - Insight: "80% do volume está concentrado em 20% das categorias"
+   - ⚠️ Use LIMIT 10 (não LIMIT 2!)
 
-📐 3. ESTATÍSTICAS DESCRITIVAS
-   - Para cada coluna numérica: MIN, MAX, AVG, SUM
-   - Identifique a dispersão dos dados
+📐 3. ESTATÍSTICAS DESCRITIVAS (SEMPRE INCLUA)
+   - Para TODAS as colunas numéricas: MIN, MAX, AVG, SUM, COUNT
+   - Identifique a dispersão COMPLETA dos dados
    - Insight: "A métrica X varia de Y a Z, com média de W"
+   - ⚠️ Use SELECT MIN(), MAX(), AVG(), SUM(), COUNT(*)
 
-🏆 4. RANKINGS
-   - Ordenar por cada métrica numérica relevante
-   - Top 10 e Bottom 10 (quando fizer sentido)
-   - Insight: "Os 5 principais itens representam 45% do total"
+🏆 4. RANKINGS COMPLETOS (SEMPRE TOP 10)
+   - 🔥 TOP 10 para CADA métrica numérica relevante
+   - Bottom 10 quando fizer sentido
+   - Insight: "Os 10 principais itens representam X% do total"
+   - ⚠️ Use ORDER BY ... DESC LIMIT 10 (não LIMIT 2!)
 
-🔗 5. CORRELAÇÕES (quando houver múltiplas colunas numéricas)
-   - Identificar relacionamentos entre métricas
+🔗 5. CORRELAÇÕES (quando houver 2+ colunas numéricas)
+   - Identificar relacionamentos entre TODAS as métricas
    - Calcular proporções e taxas compostas
    - Insight: "Quando X aumenta, Y também aumenta em 0,8 de correlação"
 
-⚡ 6. OUTLIERS E ANOMALIAS
-   - Identificar valores extremos
+⚡ 6. OUTLIERS E ANOMALIAS (quando fizer sentido)
+   - Identificar TODOS os valores extremos (não apenas 1-2)
    - Detectar padrões incomuns
-   - Insight: "3 registros apresentam valores 5x acima da média"
+   - Insight: "15 registros apresentam valores 5x acima da média"
+   - ⚠️ Use WHERE coluna > (SELECT AVG(coluna) * 5 FROM data)
 
 ═══════════════════════════════════════════════════════════════════════════════
 REGRAS DE DECISÃO PARA QUERIES UNIVERSAIS
@@ -295,22 +301,31 @@ Siga o processo profissional de análise de dados:
       - Correlações (se houver 2+ colunas numéricas)
       - Outliers (se fizer sentido)
 
-   Total recomendado: 4-8 queries (específicas + universais)
+   Total recomendado: 6-10 queries (específicas + universais)
 
-   ⚠️ REGRA OBRIGATÓRIA: MÍNIMO 4 QUERIES, MÁXIMO 8 QUERIES
-   Você DEVE gerar pelo menos 4 queries. Se sua análise tem menos, adicione queries universais.
+   ⚠️ REGRA OBRIGATÓRIA: MÍNIMO 6 QUERIES (NÃO 4!)
+   Você DEVE gerar pelo menos 6 queries robustas.
+   Se sua análise tem menos, adicione queries universais obrigatórias:
+   - Perfil completo (COUNT, COUNT DISTINCT)
+   - Distribuição TOP 10 (não TOP 2!)
+   - Estatísticas completas (MIN, MAX, AVG, SUM)
+   - Ranking TOP 10 por métrica principal
+   - Análise de concentração/outliers
 
    EXEMPLO de sequência completa:
    [ESPECÍFICAS]
    Query 1: "Resposta direta à pergunta do usuário"
    Query 2: "Detalhamento ou segunda parte da pergunta"
 
-   [UNIVERSAIS]
-   Query 3: "Perfil: Total de registros e entidades únicas"
-   Query 4: "Distribuição: Top 10 e concentração"
-   Query 5: "Estatísticas: Min, Max, Avg de métricas numéricas"
-   Query 6: "Rankings: Ordenação por métricas principais"
-   Query 7: "Outliers: Valores extremos ou anomalias"
+   [UNIVERSAIS - OBRIGATÓRIAS]
+   Query 3: "Perfil Completo: SELECT COUNT(*) as total, COUNT(DISTINCT categoria) as categorias FROM data"
+   Query 4: "Distribuição TOP 10: SELECT categoria, COUNT(*) FROM data GROUP BY categoria ORDER BY COUNT(*) DESC LIMIT 10"
+   Query 5: "Estatísticas: SELECT MIN(valor), MAX(valor), AVG(valor), SUM(valor) FROM data"
+   Query 6: "Ranking TOP 10: SELECT item, SUM(metrica) as total FROM data GROUP BY item ORDER BY total DESC LIMIT 10"
+   Query 7: "Concentração: WITH totals AS (SELECT categoria, SUM(valor) as total FROM data GROUP BY categoria ORDER BY total DESC) SELECT *, ROUND(100.0 * total / (SELECT SUM(total) FROM totals), 2) as percentual FROM totals LIMIT 10"
+   Query 8: "Outliers: SELECT * FROM data WHERE valor > (SELECT AVG(valor) * 3 FROM data) ORDER BY valor DESC LIMIT 10"
+
+   🔥 IMPORTANTE: Use LIMIT 10 (NÃO LIMIT 2) para rankings e distribuições!
 
    ⚠️ Adapte conforme necessário:
    - Se pergunta do usuário já é um "ranking", não duplique na query universal
@@ -432,32 +447,34 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
   try {
     const plan = JSON.parse(cleanResponse);
 
-    // 🔥 VALIDATION: Ensure minimum 4 queries
-    if (!plan.queries_planned || plan.queries_planned.length < 4) {
-      console.warn(`[ProfessionalAnalyst] ⚠️ Only ${plan.queries_planned?.length || 0} queries generated. Minimum is 4. Regenerating...`);
+    // 🔥 VALIDATION: Ensure minimum 6 queries (not 4!)
+    if (!plan.queries_planned || plan.queries_planned.length < 6) {
+      console.warn(`[ProfessionalAnalyst] ⚠️ Only ${plan.queries_planned?.length || 0} queries generated. Minimum is 6. Adding universal queries...`);
 
       // Add universal queries as fallback
       const existingQueries = plan.queries_planned || [];
       const universalQueries = [];
 
-      // Add profile query if missing
-      if (existingQueries.length < 4) {
+      // 🔥 ALWAYS add comprehensive profile query
+      if (!existingQueries.some(q => q.purpose_technical?.includes('profile'))) {
+        const categoricalCols = profile.columns.filter(col => profile.cardinality[col] < 100 && profile.cardinality[col] > 1);
+        const distinctCounts = categoricalCols.slice(0, 3).map(col => `COUNT(DISTINCT ${col}) as distintos_${col}`).join(', ');
         universalQueries.push({
-          purpose_technical: "Universal - Dataset profile",
-          purpose_user_friendly: "Contexto: Total de registros no dataset",
-          sql: `SELECT COUNT(*) as total_registros FROM data`,
+          purpose_technical: "Universal - Complete Dataset Profile",
+          purpose_user_friendly: "Perfil completo do dataset: total de registros e entidades únicas",
+          sql: `SELECT COUNT(*) as total_registros${distinctCounts ? ', ' + distinctCounts : ''} FROM data`,
           will_process_rows: profile.totalRows,
           expected_result_type: "total"
         });
       }
 
-      // Add distribution query if missing
-      if (existingQueries.length + universalQueries.length < 4 && profile.columns.length > 0) {
-        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 50 && profile.cardinality[col] > 1);
+      // 🔥 ALWAYS add TOP 10 distribution (not TOP 2!)
+      if (existingQueries.length + universalQueries.length < 6 && profile.columns.length > 0) {
+        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 100 && profile.cardinality[col] > 1);
         if (categoricalColumn) {
           universalQueries.push({
-            purpose_technical: "Universal - Distribution",
-            purpose_user_friendly: `Distribuição por ${categoricalColumn}`,
+            purpose_technical: "Universal - TOP 10 Distribution",
+            purpose_user_friendly: `TOP 10 completo por ${categoricalColumn} (visão geral)`,
             sql: `SELECT ${categoricalColumn}, COUNT(*) as total FROM data GROUP BY ${categoricalColumn} ORDER BY total DESC LIMIT 10`,
             will_process_rows: profile.totalRows,
             expected_result_type: "ranking"
@@ -465,29 +482,31 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
         }
       }
 
-      // Add statistics query if missing
+      // 🔥 ALWAYS add complete statistics for ALL numeric columns
       const numericColumns = Object.entries(profile.columnTypes)
         .filter(([_, type]) => type === 'number')
         .map(([col, _]) => col);
 
-      if (existingQueries.length + universalQueries.length < 4 && numericColumns.length > 0) {
-        const col = numericColumns[0];
+      if (existingQueries.length + universalQueries.length < 6 && numericColumns.length > 0) {
+        const statsFields = numericColumns.slice(0, 2).map(col =>
+          `MIN(${col}) as min_${col}, MAX(${col}) as max_${col}, AVG(${col}) as avg_${col}, SUM(${col}) as sum_${col}`
+        ).join(', ');
         universalQueries.push({
-          purpose_technical: "Universal - Statistics",
-          purpose_user_friendly: `Estatísticas de ${col}`,
-          sql: `SELECT MIN(${col}) as minimo, MAX(${col}) as maximo, AVG(${col}) as media, SUM(${col}) as total FROM data`,
+          purpose_technical: "Universal - Complete Statistics",
+          purpose_user_friendly: `Estatísticas completas: mínimo, máximo, média e total de todas as métricas`,
+          sql: `SELECT COUNT(*) as total_registros, ${statsFields} FROM data`,
           will_process_rows: profile.totalRows,
           expected_result_type: "total"
         });
       }
 
-      // Add ranking query if still missing
-      if (existingQueries.length + universalQueries.length < 4 && numericColumns.length > 0) {
-        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 50 && profile.cardinality[col] > 1);
+      // 🔥 ALWAYS add TOP 10 ranking (not TOP 2!)
+      if (existingQueries.length + universalQueries.length < 6 && numericColumns.length > 0) {
+        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 100 && profile.cardinality[col] > 1);
         if (categoricalColumn && numericColumns[0]) {
           universalQueries.push({
-            purpose_technical: "Universal - Ranking",
-            purpose_user_friendly: `Ranking de ${categoricalColumn} por ${numericColumns[0]}`,
+            purpose_technical: "Universal - TOP 10 Ranking",
+            purpose_user_friendly: `TOP 10 ranking completo de ${categoricalColumn} por ${numericColumns[0]}`,
             sql: `SELECT ${categoricalColumn}, SUM(${numericColumns[0]}) as total FROM data GROUP BY ${categoricalColumn} ORDER BY total DESC LIMIT 10`,
             will_process_rows: profile.totalRows,
             expected_result_type: "ranking"
@@ -495,8 +514,39 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
         }
       }
 
+      // 🔥 Add concentration analysis
+      if (existingQueries.length + universalQueries.length < 6 && numericColumns.length > 0) {
+        const categoricalColumn = profile.columns.find(col => profile.cardinality[col] < 100 && profile.cardinality[col] > 1);
+        if (categoricalColumn && numericColumns[0]) {
+          universalQueries.push({
+            purpose_technical: "Universal - Concentration Analysis",
+            purpose_user_friendly: `Análise de concentração: quanto do total está nos TOP 10`,
+            sql: `WITH ranked AS (SELECT ${categoricalColumn}, SUM(${numericColumns[0]}) as total FROM data GROUP BY ${categoricalColumn} ORDER BY total DESC LIMIT 10) SELECT ${categoricalColumn}, total, ROUND(100.0 * total / (SELECT SUM(${numericColumns[0]}) FROM data), 2) as percentual_do_total FROM ranked`,
+            will_process_rows: profile.totalRows,
+            expected_result_type: "ranking"
+          });
+        }
+      }
+
+      // 🔥 Add outliers detection
+      if (existingQueries.length + universalQueries.length < 6 && numericColumns.length > 0) {
+        const col = numericColumns[0];
+        universalQueries.push({
+          purpose_technical: "Universal - Outliers Detection",
+          purpose_user_friendly: `Detecção de outliers: valores extremos acima de 2x a média`,
+          sql: `SELECT * FROM data WHERE ${col} > (SELECT AVG(${col}) * 2 FROM data) ORDER BY ${col} DESC LIMIT 10`,
+          will_process_rows: profile.totalRows,
+          expected_result_type: "ranking"
+        });
+      }
+
       plan.queries_planned = [...existingQueries, ...universalQueries];
       console.log(`[ProfessionalAnalyst] ✅ Queries expanded to ${plan.queries_planned.length} (added ${universalQueries.length} universal queries)`);
+
+      // Final validation: ensure we have at least 6
+      if (plan.queries_planned.length < 6) {
+        console.warn(`[ProfessionalAnalyst] ⚠️ Still only ${plan.queries_planned.length} queries. Analysis may lack depth.`);
+      }
     }
 
     console.log('[ProfessionalAnalyst] Plan generated successfully');
