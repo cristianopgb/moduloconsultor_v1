@@ -695,21 +695,60 @@ function ChatPage() {
       for (const msg of (data || [])) {
         if (msg.analysis_id) {
           try {
-            const { data: rows, error: rpcErr } = await supabase.rpc('get_analysis_safe', { aid: msg.analysis_id })
-            if (rpcErr) throw rpcErr
-            const row = Array.isArray(rows) ? rows[0] : rows
-            if (row) {
+            // 🔥 Load complete analysis with KPIs and visualizations
+            const { data: analysisData, error: analysisError } = await supabase
+              .from('data_analyses')
+              .select('*')
+              .eq('id', msg.analysis_id)
+              .maybeSingle()
+
+            if (analysisError) throw analysisError
+
+            if (analysisData) {
+              // Load KPI cards
+              const { data: kpiCards } = await supabase
+                .from('analysis_kpis')
+                .select('*')
+                .eq('analysis_id', msg.analysis_id)
+                .order('position', { ascending: true })
+
+              // Load visualizations
+              const { data: visualizations } = await supabase
+                .from('analysis_visualizations')
+                .select('*')
+                .eq('analysis_id', msg.analysis_id)
+                .order('position', { ascending: true })
+
+              // Reconstruct executive narrative from persisted data
+              const reconstructedNarrative = {
+                headline: analysisData.executive_headline || '',
+                executive_summary: analysisData.executive_summary_text || '',
+                kpi_cards: kpiCards || [],
+                key_insights: analysisData.ai_response?.key_insights || [],
+                visualizations: (visualizations || []).map(v => ({
+                  type: v.viz_type,
+                  title: v.title,
+                  data: v.data,
+                  config: v.config,
+                  interpretation: v.interpretation,
+                  insights: v.insights
+                })),
+                business_recommendations: analysisData.business_recommendations || [],
+                next_questions: analysisData.next_questions || [],
+                executed_queries: analysisData.ai_response?.executed_queries || []
+              }
+
               messagesWithAnalysis.push({
                 ...msg,
-                analysisData: row.interpretation || row.charts_config,
+                analysisData: reconstructedNarrative,
                 analysis_id: msg.analysis_id
               })
-              // analysis loaded
+              console.log('[ChatPage] ✅ Analysis reconstructed from database:', msg.analysis_id)
             } else {
               messagesWithAnalysis.push({ ...msg, analysis_id: msg.analysis_id })
             }
           } catch (e) {
-            console.warn('[ChatPage] Failed to load analysis via RPC:', e)
+            console.warn('[ChatPage] Failed to load complete analysis:', e)
             messagesWithAnalysis.push(msg)
           }
         } else {

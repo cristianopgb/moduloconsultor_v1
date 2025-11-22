@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { uploadHtmlAndOpenPreview } from '../../lib/storagePreview'
 import { useAuth } from '../../contexts/AuthContext'
 import { AnalysisResultCard } from './AnalysisResultCard'
+import { ExecutiveReport } from './ExecutiveReport'
 
 // ==== Tipos base do seu projeto ====
 interface ChartConfig {
@@ -320,6 +321,27 @@ export function MessageContent({
     } finally {
       setGeneratingPresentation(false)
     }
+  }
+
+  // 🔥 NEW: Check if this is an Executive Report format (from professional flow)
+  const isExecutiveReport = analysisData?.headline && analysisData?.executive_summary && (analysisData?.kpi_cards || analysisData?.visualizations)
+
+  if (isExecutiveReport) {
+    return (
+      <ExecutiveReport
+        narrative={analysisData}
+        onAskMore={(question) => {
+          if (question) {
+            // Trigger new question in chat
+            const event = new CustomEvent('ask-analysis-question', { detail: { question } })
+            window.dispatchEvent(event)
+          }
+        }}
+        onExport={() => {
+          console.log('[MessageContent] Export report requested')
+        }}
+      />
+    )
   }
 
   if (messageType === 'analysis_result' && analysisId) {
