@@ -444,14 +444,53 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
       <section>
         <h2>📈 Visualizações</h2>
         ${visualizations.map((viz, index) => {
-          if (viz.type === 'table' || !viz.data || !viz.data.labels || !viz.data.datasets) {
-            // Fallback para tabela se não for gráfico
+          // Renderizar tabela HTML real se for tipo 'table'
+          if (viz.type === 'table' && Array.isArray(viz.data) && viz.data.length > 0) {
+            const columns = Object.keys(viz.data[0])
             return `
               <div class="viz-section">
-                <h3>${viz.title || 'Dados'}</h3>
+                <h3>${viz.title || 'Tabela de Dados'}</h3>
+                <div style="overflow-x: auto; margin: 20px 0;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <thead>
+                      <tr style="background: #1f2937; border-bottom: 2px solid #3b82f6;">
+                        ${columns.map(col => `
+                          <th style="padding: 12px; text-align: left; color: #e5e7eb; font-weight: 600; text-transform: capitalize;">
+                            ${col}
+                          </th>
+                        `).join('')}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${viz.data.map((row, rowIdx) => `
+                        <tr style="border-bottom: 1px solid #374151; ${rowIdx % 2 === 0 ? 'background: #111827;' : 'background: #1f2937;'}">
+                          ${columns.map(col => `
+                            <td style="padding: 10px; color: #d1d5db;" class="__selectable">
+                              ${row[col] !== null && row[col] !== undefined ? row[col] : '-'}
+                            </td>
+                          `).join('')}
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+                ${viz.interpretation ? `<p class="viz-interpretation __selectable" style="margin-top: 12px; color: #9ca3af; font-size: 14px;">${viz.interpretation}</p>` : ''}
+                ${viz.insights && viz.insights.length > 0 ? `
+                  <ul style="margin-top: 12px; padding-left: 20px; color: #9ca3af;">
+                    ${viz.insights.map(insight => `<li class="__selectable" style="margin-bottom: 6px;">${insight}</li>`).join('')}
+                  </ul>
+                ` : ''}
+              </div>
+            `
+          }
+
+          // Fallback se não for gráfico válido nem tabela
+          if (!viz.data || !viz.data.labels || !viz.data.datasets) {
+            return `
+              <div class="viz-section">
+                <h3>${viz.title || 'Visualização'}</h3>
                 <div class="viz-placeholder">
-                  <p>Tabela de dados</p>
-                  <p style="font-size: 12px; margin-top: 8px;">${viz.interpretation || ''}</p>
+                  <p style="color: #6b7280; font-style: italic;">Dados não disponíveis para visualização</p>
                 </div>
               </div>
             `
