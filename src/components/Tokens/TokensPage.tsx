@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react'
-import { 
+import {
   Zap, TrendingUp, Calendar, CreditCard, RefreshCw,
-  AlertCircle, CheckCircle, MessageSquare, FileText, BarChart3
+  AlertCircle, CheckCircle, MessageSquare, FileText, BarChart3, Sparkles, Plus, Info
 } from 'lucide-react'
 import { useTokens } from '../../hooks/useTokens'
+import { useGeniusCredits } from '../../hooks/useGeniusCredits'
 import { TokenDisplay } from './TokenDisplay'
 import { TokenAlert } from './TokenAlert'
-import { useAuth } from '../../contexts/AuthContext' // ✅ Adicionado aqui
+import { AddGeniusCreditsModal } from './AddGeniusCreditsModal'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface TokenHistory {
   id: string
@@ -17,11 +19,13 @@ interface TokenHistory {
 }
 
 export function TokensPage() {
-  const { user } = useAuth() // ✅ Adicionado aqui
+  const { user } = useAuth()
   const { tokenUsage, loading, resetTokens, refreshTokens, isNearLimit, isAtLimit } = useTokens()
+  const { credits, loading: loadingCredits, addCredits, refreshCredits } = useGeniusCredits(user?.id)
   const [history, setHistory] = useState<TokenHistory[]>([])
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [resetting, setResetting] = useState(false)
+  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false)
 
   useEffect(() => {
     const loadRealHistory = async () => {
@@ -110,19 +114,29 @@ export function TokensPage() {
           <h1 className="text-2xl font-bold text-white mb-2">Tokens & Créditos</h1>
           <p className="text-gray-400">Gerencie seu uso de tokens e créditos</p>
         </div>
-        <button
-          onClick={handleResetTokens}
-          disabled={resetting}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white rounded-lg transition-colors"
-        >
-          <RefreshCw className={`w-5 h-5 ${resetting ? 'animate-spin' : ''}`} />
-          Reset (Dev)
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddCreditsModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-500 hover:to-amber-500 text-white rounded-lg transition-all font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            <Sparkles className="w-5 h-5" />
+            Adicionar Créditos
+          </button>
+          <button
+            onClick={handleResetTokens}
+            disabled={resetting}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white rounded-lg transition-colors"
+          >
+            <RefreshCw className={`w-5 h-5 ${resetting ? 'animate-spin' : ''}`} />
+            Reset (Dev)
+          </button>
+        </div>
       </div>
 
       <TokenAlert />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 bg-gradient-to-r from-green-600 to-green-700 rounded-lg">
@@ -167,6 +181,60 @@ export function TokensPage() {
             <p className="text-2xl font-bold text-white mb-1">{tokenUsage.limit.toLocaleString()}</p>
             <p className="text-sm text-gray-400 mb-2">Limite Mensal</p>
             <p className="text-xs text-gray-500">Renova todo mês</p>
+          </div>
+        </div>
+
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-yellow-500/20 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-3 bg-gradient-to-r from-yellow-600 to-amber-600 rounded-lg">
+              <Sparkles className="w-6 h-6 text-white" />
+            </div>
+            <button
+              onClick={refreshCredits}
+              className="text-yellow-400 hover:text-yellow-300 transition-colors"
+              title="Atualizar créditos"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+          <div>
+            {loadingCredits ? (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin" />
+                <span className="text-gray-400 text-sm">Carregando...</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-white mb-1">{credits?.credits_available || 0}</p>
+                <p className="text-sm text-gray-400 mb-2">Créditos Genius</p>
+                <p className="text-xs text-gray-500">{credits?.credits_used || 0} usos realizados</p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-r from-yellow-900/20 to-amber-900/20 border border-yellow-500/30 rounded-xl p-6">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-gradient-to-r from-yellow-600 to-amber-600 rounded-lg flex-shrink-0">
+            <Info className="w-6 h-6 text-white" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white mb-2">Como Funcionam os Créditos Genius?</h2>
+            <ul className="space-y-2 text-sm text-gray-300">
+              <li className="flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <span><strong>1 crédito = 1 uso</strong> do botão Genius para análises avançadas</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <span>Créditos são <strong>consumidos ao criar</strong> uma análise Genius</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <span>O consumo é <strong>independente do tamanho</strong> da análise</span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
@@ -255,6 +323,13 @@ export function TokensPage() {
           </div>
         </div>
       </div>
+
+      <AddGeniusCreditsModal
+        isOpen={showAddCreditsModal}
+        onClose={() => setShowAddCreditsModal(false)}
+        onAdd={addCredits}
+        currentCredits={credits?.credits_available || 0}
+      />
     </div>
   )
 }
