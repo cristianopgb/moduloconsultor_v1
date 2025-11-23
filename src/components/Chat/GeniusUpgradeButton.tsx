@@ -12,7 +12,7 @@ interface GeniusUpgradeButtonProps {
   userQuestion: string
   conversationId: string
   userId: string
-  onGeniusCreated?: (taskId: string) => void
+  onGeniusCreated?: (taskId: string, message: any) => void
   disabled?: boolean
 }
 
@@ -168,10 +168,12 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
       console.log('[GeniusUpgrade] Task created successfully:', response.task_id)
 
       // 7. Atualizar placeholder com task_id
-      await supabase
+      const { data: updatedMsg } = await supabase
         .from('messages')
         .update({ external_task_id: response.task_id })
         .eq('id', placeholderMsg.id)
+        .select()
+        .single()
 
       // 8. Atualizar estado local
       setExistingGeniusId(placeholderMsg.id)
@@ -183,13 +185,15 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
         credits_used: prev.credits_used + 1
       } : null)
 
-      // 10. Notificar callback
-      onGeniusCreated?.(response.task_id)
+      // 10. Notificar callback COM A MENSAGEM COMPLETA para adicionar ao estado local
+      const messageToAdd = updatedMsg || {
+        ...placeholderMsg,
+        external_task_id: response.task_id
+      }
+      onGeniusCreated?.(response.task_id, messageToAdd)
 
-      // 11. Scroll até a mensagem
-      setTimeout(() => {
-        scrollToGeniusMessage(placeholderMsg.id)
-      }, 500)
+      // 11. Scroll automático será feito pelo ChatPage após adicionar mensagem
+      // Não precisa mais fazer scroll aqui
 
     } catch (err: any) {
       console.error('[GeniusUpgrade] Error:', err)

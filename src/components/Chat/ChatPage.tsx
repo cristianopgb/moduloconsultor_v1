@@ -797,6 +797,41 @@ function ChatPage() {
     }
   }
 
+  // 🔥 Supabase Realtime: Atualizar mensagens Genius automaticamente quando webhook atualizar
+  useEffect(() => {
+    if (!current?.id) return
+
+    console.log('[ChatPage] 🔔 Subscrevendo atualizações Realtime para mensagens Genius')
+
+    const channel = supabase
+      .channel(`messages-genius-${current.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${current.id}`
+        },
+        (payload) => {
+          console.log('[ChatPage] 🔔 Mensagem atualizada via Realtime:', payload.new)
+
+          // Atualizar mensagem específica no estado
+          setMessages(prev => prev.map(m =>
+            m.id === payload.new.id
+              ? { ...m, ...payload.new }
+              : m
+          ))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      console.log('[ChatPage] 🔕 Cancelando subscription Realtime')
+      supabase.removeChannel(channel)
+    }
+  }, [current?.id])
+
   async function createConversation() {
     if (!user?.id) return
     resetForConversation()
@@ -2239,6 +2274,13 @@ function ChatPage() {
                                 analysisId={m.analysis_id}
                                 conversationId={current.id}
                                 messageType={m.message_type}
+                                onGeniusCreated={(taskId, message) => {
+                                  console.log('[ChatPage] Genius criado:', taskId)
+                                  // Adicionar mensagem ao estado local
+                                  setMessages(prev => [...prev, message])
+                                  // Scroll automático
+                                  setTimeout(() => scrollToBottom(), 100)
+                                }}
                               />
                             ) : (
                               <div

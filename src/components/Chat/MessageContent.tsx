@@ -60,6 +60,7 @@ interface MessageContentProps {
   analysisId?: string
   conversationId?: string
   messageType?: 'text' | 'analysis_result' | 'presentation'
+  onGeniusCreated?: (taskId: string, message: any) => void
 }
 
 // ==== Utils de Markdown simples ====
@@ -174,7 +175,8 @@ export function MessageContent({
   onGenerateDocument,
   analysisId,
   conversationId,
-  messageType = 'text'
+  messageType = 'text',
+  onGeniusCreated
 }: MessageContentProps) {
   const { user } = useAuth()
   const [downloadingChart, setDownloadingChart] = React.useState<string | null>(null)
@@ -183,7 +185,7 @@ export function MessageContent({
 
   // RENDERIZAÇÃO CONDICIONAL POR TIPO DE MENSAGEM
   if (messageType === 'analysis_result' && analysisId) {
-    return <AnalysisResultCard analysisId={analysisId} conversationId={conversationId} />
+    return <AnalysisResultCard analysisId={analysisId} conversationId={conversationId} onGeniusCreated={onGeniusCreated} />
   }
 
   if (messageType === 'presentation') {
@@ -324,7 +326,7 @@ export function MessageContent({
 
   // Sempre usar AnalysisResultCard para análises
   if (messageType === 'analysis_result' && analysisId) {
-    return <AnalysisResultCard analysisId={analysisId} />
+    return <AnalysisResultCard analysisId={analysisId} conversationId={conversationId} onGeniusCreated={onGeniusCreated} />
   }
 
   return (

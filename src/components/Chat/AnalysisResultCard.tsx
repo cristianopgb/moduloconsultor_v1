@@ -68,9 +68,10 @@ interface AnalysisData {
 interface AnalysisResultCardProps {
   analysisId: string
   conversationId?: string
+  onGeniusCreated?: (taskId: string, message: any) => void
 }
 
-export function AnalysisResultCard({ analysisId, conversationId }: AnalysisResultCardProps) {
+export function AnalysisResultCard({ analysisId, conversationId, onGeniusCreated }: AnalysisResultCardProps) {
   const { user } = useAuth()
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1018,8 +1019,10 @@ export function AnalysisResultCard({ analysisId, conversationId }: AnalysisResul
                 userQuestion={analysis.user_question}
                 conversationId={conversationId || analysis.conversation_id || ''}
                 userId={user.id}
-                onGeniusCreated={(taskId) => {
-                  console.log('[AnalysisResultCard] Genius task created:', taskId)
+                onGeniusCreated={(taskId, message) => {
+                  console.log('[AnalysisResultCard] Genius task created:', taskId, message)
+                  // Propagar para ChatPage
+                  onGeniusCreated?.(taskId, message)
                 }}
               />
             </div>
