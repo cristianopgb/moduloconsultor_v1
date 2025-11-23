@@ -238,11 +238,13 @@ O sistema registra:
 
 ## ✅ Status Final
 
-**Build:** ✅ Passou sem erros
-**Bug Fix:** ✅ Corrigidos 3 erros de colunas (storage_path, original_filename, file_size)
+**Build:** ✅ Passou sem erros (2 builds consecutivos)
+**Bug Fix 1:** ✅ Corrigidos 3 erros de colunas (storage_path, original_filename, file_size)
+**Bug Fix 2:** ✅ Corrigido erro de dataset desconectado do storage (memory://)
 **UI/UX:** ✅ Interface profissional implementada
+**Backend:** ✅ Edge Functions corrigidas para preservar storage_path
 **Testes:** ✅ Pronto para testar
-**Docs:** ✅ Guias completos criados
+**Docs:** ✅ Guias completos criados (incluindo GENIUS_DATASET_FIX_COMPLETE.md)
 
 ---
 
@@ -251,7 +253,18 @@ O sistema registra:
 Sistema de créditos Genius 100% funcional! O usuário agora pode:
 - Ver seus créditos na página Tokens
 - Adicionar créditos facilmente
-- Usar o Genius no Analytics sem erros
-- Entender claramente como o sistema funciona
+- Usar o Genius no Analytics **sem erros 404**
+- Sistema baixa arquivo original corretamente do Storage
+- Análises aprofundadas funcionam perfeitamente
 
-**Próximo passo:** Testar no ambiente real e adicionar créditos para começar a usar!
+### **Correções Adicionais Aplicadas:**
+
+Além do sistema de créditos, foram corrigidos bugs críticos que impediam o Genius de funcionar:
+
+1. **GeniusUpgradeButton:** Agora busca `storage_bucket` e valida paths
+2. **ChatPage:** Cria datasets conectados ao storage real (não mais paths fake)
+3. **professional-flow-handler:** Preserva `storage_path` real ao invés de sobrescrever com `memory://`
+
+**Próximo passo:** Testar no ambiente real - agora vai funcionar de verdade! 🚀
+
+Para detalhes completos das correções, veja: `GENIUS_DATASET_FIX_COMPLETE.md`

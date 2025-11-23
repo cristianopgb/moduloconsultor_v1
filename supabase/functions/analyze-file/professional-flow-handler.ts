@@ -42,33 +42,41 @@ async function persistDatasetRows(
     throw new Error('Cannot persist empty dataset');
   }
 
-  // Step 1: Ensure dataset record exists in datasets table
-  console.log(`[ProfessionalFlow] Creating/verifying dataset record: ${datasetId}`);
+  // Step 1: Check if dataset record already exists
+  console.log(`[ProfessionalFlow] Checking if dataset record exists: ${datasetId}`);
 
-  const { error: datasetError } = await supabase
+  const { data: existingDataset, error: checkError } = await supabase
     .from('datasets')
-    .upsert({
-      id: datasetId,
-      user_id: userId,
-      conversation_id: conversationId || null,
-      original_filename: filename,
-      file_size: 0,
-      mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      storage_path: `memory://${datasetId}`,
-      row_count: rowData.length,
-      column_count: Object.keys(rowData[0] || {}).length,
-      processing_status: 'completed',
-      has_queryable_data: true
-    }, {
-      onConflict: 'id',
-      ignoreDuplicates: false
-    });
+    .select('id, storage_path, storage_bucket')
+    .eq('id', datasetId)
+    .maybeSingle();
 
-  if (datasetError) {
-    throw new Error(`Failed to create dataset record: ${datasetError.message}`);
+  if (checkError) {
+    throw new Error(`Failed to check dataset: ${checkError.message}`);
   }
 
-  console.log(`[ProfessionalFlow] ✅ Dataset record created/verified: ${datasetId}`);
+  if (existingDataset) {
+    console.log(`[ProfessionalFlow] ✅ Dataset record already exists with storage: ${existingDataset.storage_bucket}/${existingDataset.storage_path}`);
+
+    // Only update row counts, do NOT overwrite storage_path
+    const { error: updateError } = await supabase
+      .from('datasets')
+      .update({
+        row_count: rowData.length,
+        column_count: Object.keys(rowData[0] || {}).length,
+        processing_status: 'completed',
+        has_queryable_data: true
+      })
+      .eq('id', datasetId);
+
+    if (updateError) {
+      console.warn('[ProfessionalFlow] Could not update dataset counts:', updateError.message);
+    }
+  } else {
+    console.warn(`[ProfessionalFlow] ⚠️ Dataset ${datasetId} not found. This should have been created by frontend with correct storage_path!`);
+    // Do NOT create a fake dataset with memory:// path
+    throw new Error('Dataset must be created by frontend with correct storage information before analysis');
+  }
 
   // Step 2: Insert rows
   const rowsToInsert = rowData.map((data, index) => ({

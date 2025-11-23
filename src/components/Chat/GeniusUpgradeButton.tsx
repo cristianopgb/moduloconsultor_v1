@@ -208,7 +208,7 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
       // Buscar dataset
       const { data: dataset, error: datasetError } = await supabase
         .from('datasets')
-        .select('storage_path, original_filename, file_size, mime_type')
+        .select('storage_path, storage_bucket, original_filename, file_size, mime_type')
         .eq('id', datasetId)
         .maybeSingle()
 
@@ -217,15 +217,40 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
         return null
       }
 
+      console.log('[GeniusUpgrade] Dataset found:', {
+        id: datasetId,
+        bucket: dataset.storage_bucket,
+        path: dataset.storage_path,
+        filename: dataset.original_filename
+      })
+
+      // Validar que não é um path "memory://"
+      if (!dataset.storage_path || dataset.storage_path.startsWith('memory://')) {
+        console.error('[GeniusUpgrade] Invalid storage_path (memory://). Dataset was not properly connected to storage.')
+        return null
+      }
+
+      // Determinar bucket correto
+      const bucket = dataset.storage_bucket || 'references'
+
       // Baixar arquivo do storage
       const { data: fileBlob, error: downloadError } = await supabase.storage
-        .from('datasets')
+        .from(bucket)
         .download(dataset.storage_path)
 
       if (downloadError || !fileBlob) {
-        console.error('[GeniusUpgrade] Failed to download file:', downloadError)
+        console.error('[GeniusUpgrade] Failed to download file:', {
+          error: downloadError,
+          bucket,
+          path: dataset.storage_path
+        })
         return null
       }
+
+      console.log('[GeniusUpgrade] File downloaded successfully:', {
+        size: fileBlob.size,
+        type: fileBlob.type
+      })
 
       // Converter para base64
       const base64 = await blobToBase64(fileBlob)

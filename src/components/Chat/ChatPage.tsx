@@ -1469,22 +1469,27 @@ function ChatPage() {
           throw new Error(`Erro ao processar arquivo: ${parseError.message}`);
         }
 
-        // 🎯 STEP 2: Garantir dataset_id disponível para modo profissional
+        // 🎯 STEP 2: Garantir dataset_id disponível e conectar com storage real
         let datasetIdForPlan = dataFileRef?.id;
 
         if (!datasetIdForPlan && frontendParsed && parsedRows && parsedRows.length > 0) {
-          console.log('[PROFESSIONAL FLOW] Salvando dataset temporário para permitir reload no execute...');
+          console.log('[PROFESSIONAL FLOW] Salvando dataset com referência ao storage real...');
 
           try {
-            const tempHash = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
             const { data: savedDataset, error: saveError } = await supabase
               .from('datasets')
               .insert({
                 user_id: user.id,
-                name: dataFileRef.title || 'Análise Temporária',
-                file_hash: tempHash,
-                queryable: true
+                conversation_id: current.id,
+                original_filename: dataFileRef.title || 'arquivo.xlsx',
+                file_size: dataFileRef.metadata?.file_size || 0,
+                mime_type: dataFileRef.metadata?.mime || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                storage_bucket: dataFileRef.storage_bucket || 'references',
+                storage_path: dataFileRef.storage_path,
+                row_count: parsedRows.length,
+                column_count: Object.keys(parsedRows[0] || {}).length,
+                processing_status: 'completed',
+                has_queryable_data: true
               })
               .select()
               .single();
@@ -1493,8 +1498,9 @@ function ChatPage() {
               console.error('[PROFESSIONAL FLOW] Erro ao salvar dataset:', saveError);
             } else if (savedDataset) {
               // Salvar rows em batch
-              const rowsToInsert = parsedRows.map((row: any) => ({
+              const rowsToInsert = parsedRows.map((row: any, index: number) => ({
                 dataset_id: savedDataset.id,
+                row_number: index + 1,
                 row_data: row
               }));
 
@@ -1506,11 +1512,12 @@ function ChatPage() {
                 console.error('[PROFESSIONAL FLOW] Erro ao salvar rows:', rowsError);
               } else {
                 datasetIdForPlan = savedDataset.id;
-                console.log(`[PROFESSIONAL FLOW] ✅ Dataset temporário salvo: ${datasetIdForPlan}`);
+                console.log(`[PROFESSIONAL FLOW] ✅ Dataset salvo com storage correto: ${datasetIdForPlan}`);
+                console.log(`[PROFESSIONAL FLOW] ✅ Storage path: ${dataFileRef.storage_bucket}/${dataFileRef.storage_path}`);
               }
             }
           } catch (tempError: any) {
-            console.error('[PROFESSIONAL FLOW] Erro ao criar dataset temporário:', tempError);
+            console.error('[PROFESSIONAL FLOW] Erro ao criar dataset:', tempError);
           }
         }
 
