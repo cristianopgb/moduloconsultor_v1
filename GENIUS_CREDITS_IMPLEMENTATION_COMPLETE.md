@@ -45,16 +45,26 @@ Sistema de gerenciamento de créditos Genius implementado com sucesso, incluindo
 - Design consistente com tema amarelo/dourado
 
 ### **4. Bug Fix Crítico (`GeniusUpgradeButton.tsx`)**
-🐛 **Problema Corrigido:**
+🐛 **Problemas Corrigidos:**
 ```
 ERROR: column datasets.file_path does not exist
+ERROR: column datasets.name does not exist
+ERROR: column datasets.size does not exist
 ```
 
-**Causa:** Query estava usando coluna errada (`file_path` ao invés de `storage_path`)
+**Causa:** Query estava usando nomes de colunas incorretos
 
-**Correção Aplicada:**
-- Linha 211: `.select('storage_path, ...')` ✅
+**Mapeamento Correto da Tabela `datasets`:**
+- ❌ `file_path` → ✅ `storage_path`
+- ❌ `name` → ✅ `original_filename`
+- ❌ `size` → ✅ `file_size`
+- ✅ `mime_type` → ✅ `mime_type` (já estava correto)
+
+**Correções Aplicadas:**
+- Linha 211: `.select('storage_path, original_filename, file_size, mime_type')` ✅
 - Linha 223: `.download(dataset.storage_path)` ✅
+- Linha 234: `dataset.original_filename` ✅
+- Linha 236: `dataset.file_size` ✅
 
 Agora o botão Genius consegue buscar o arquivo original corretamente!
 
@@ -103,7 +113,7 @@ Agora o botão Genius consegue buscar o arquivo original corretamente!
 
 ### **Arquivos Modificados:**
 - ✅ `src/components/Tokens/TokensPage.tsx` (adicionado card + botão + seção informativa)
-- ✅ `src/components/Chat/GeniusUpgradeButton.tsx` (bug fix: file_path → storage_path)
+- ✅ `src/components/Chat/GeniusUpgradeButton.tsx` (bug fix: corrigidos todos os nomes de colunas)
 
 ---
 
@@ -229,7 +239,7 @@ O sistema registra:
 ## ✅ Status Final
 
 **Build:** ✅ Passou sem erros
-**Bug Fix:** ✅ Corrigido (file_path → storage_path)
+**Bug Fix:** ✅ Corrigidos 3 erros de colunas (storage_path, original_filename, file_size)
 **UI/UX:** ✅ Interface profissional implementada
 **Testes:** ✅ Pronto para testar
 **Docs:** ✅ Guias completos criados

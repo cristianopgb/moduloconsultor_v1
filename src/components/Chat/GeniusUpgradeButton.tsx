@@ -208,7 +208,7 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
       // Buscar dataset
       const { data: dataset, error: datasetError } = await supabase
         .from('datasets')
-        .select('storage_path, name, size, mime_type')
+        .select('storage_path, original_filename, file_size, mime_type')
         .eq('id', datasetId)
         .maybeSingle()
 
@@ -231,9 +231,9 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
       const base64 = await blobToBase64(fileBlob)
 
       return {
-        filename: dataset.name || metadata.name || 'arquivo.csv',
+        filename: dataset.original_filename || metadata.name || 'arquivo.csv',
         content: base64,
-        size_bytes: dataset.size || metadata.size || fileBlob.size,
+        size_bytes: dataset.file_size || metadata.size || fileBlob.size,
         mime_type: dataset.mime_type || metadata.mime_type || 'text/csv'
       }
     } catch (error) {
