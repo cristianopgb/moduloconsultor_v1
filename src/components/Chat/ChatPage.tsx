@@ -1529,7 +1529,13 @@ function ChatPage() {
           filename: dataFileRef.title || 'arquivo.xlsx',
           force_analysis: true,
           // mode: 'plan_only', // 🔥 DESATIVADO - usando semantic reflection
-          dataset_id: datasetIdForPlan // 🔥 GARANTIR dataset_id disponível
+          dataset_id: datasetIdForPlan, // 🔥 GARANTIR dataset_id disponível
+          storage_info: dataFileRef ? {
+            storage_bucket: dataFileRef.storage_bucket || 'references',
+            storage_path: dataFileRef.storage_path,
+            file_size: dataFileRef.metadata?.file_size || fileData.size,
+            mime_type: dataFileRef.metadata?.mime || 'application/octet-stream'
+          } : undefined
         };
 
         if (frontendParsed && parsedRows) {

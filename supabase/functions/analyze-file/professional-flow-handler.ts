@@ -30,7 +30,13 @@ async function persistDatasetRows(
   rowData: any[],
   userId: string,
   filename: string,
-  conversationId?: string
+  conversationId?: string,
+  storageInfo?: {
+    storage_bucket?: string;
+    storage_path?: string;
+    file_size?: number;
+    mime_type?: string;
+  }
 ): Promise<void> {
   console.log(`[ProfessionalFlow] Persisting ${rowData.length} rows to dataset_rows...`);
 
@@ -73,9 +79,36 @@ async function persistDatasetRows(
       console.warn('[ProfessionalFlow] Could not update dataset counts:', updateError.message);
     }
   } else {
-    console.warn(`[ProfessionalFlow] ⚠️ Dataset ${datasetId} not found. This should have been created by frontend with correct storage_path!`);
-    // Do NOT create a fake dataset with memory:// path
-    throw new Error('Dataset must be created by frontend with correct storage information before analysis');
+    console.log(`[ProfessionalFlow] Dataset not found - creating new record...`);
+
+    // Use storage_info if provided, otherwise fallback to memory:// (for backward compatibility)
+    const storage_bucket = storageInfo?.storage_bucket || 'datasets';
+    const storage_path = storageInfo?.storage_path || `memory://${datasetId}`;
+
+    console.log(`[ProfessionalFlow] Storage location: ${storage_bucket}/${storage_path}`);
+
+    const { error: insertError } = await supabase
+      .from('datasets')
+      .insert({
+        id: datasetId,
+        user_id: userId,
+        conversation_id: conversationId,
+        original_filename: filename,
+        file_size: storageInfo?.file_size || 0,
+        mime_type: storageInfo?.mime_type || 'application/octet-stream',
+        storage_bucket: storage_bucket,
+        storage_path: storage_path,
+        row_count: rowData.length,
+        column_count: Object.keys(rowData[0] || {}).length,
+        processing_status: 'completed',
+        has_queryable_data: true
+      });
+
+    if (insertError) {
+      throw new Error(`Failed to create dataset: ${insertError.message}`);
+    }
+
+    console.log('[ProfessionalFlow] ✅ Dataset record created successfully');
   }
 
   // Step 2: Insert rows
@@ -121,12 +154,18 @@ export async function handleProfessionalFlowPlanOnly(
   openaiApiKey: string,
   openaiModel: string,
   filename: string,
-  fileMetadata: any = {}
+  fileMetadata: any = {},
+  storageInfo?: {
+    storage_bucket?: string;
+    storage_path?: string;
+    file_size?: number;
+    mime_type?: string;
+  }
 ): Promise<any> {
   console.log('[ProfessionalFlow] PLAN_ONLY mode - generating analysis plan');
 
   // 🔥 CRITICAL: Persist data to database BEFORE generating plan
-  await persistDatasetRows(datasetId, rowData, effectiveUserId, filename, conversationId);
+  await persistDatasetRows(datasetId, rowData, effectiveUserId, filename, conversationId, storageInfo);
 
   // Generate enriched profile (50 rows sample + cardinality)
   const enrichedProfile = profileDataEnriched(rowData);

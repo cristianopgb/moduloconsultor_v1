@@ -56,7 +56,8 @@ Deno.serve(async (req) => {
       is_followup = false, // Se é resposta a perguntas do sistema
       mode, // NEW: 'plan_only' or 'execute' for professional flow
       plan_id, // NEW: For execute mode
-      user_corrections // NEW: User feedback on plan
+      user_corrections, // NEW: User feedback on plan
+      storage_info // NEW: Storage information from frontend (storage_bucket, storage_path, file_size, mime_type)
     } = body;
 
     console.log('[AnalyzeFile] Request received:', {
@@ -233,7 +234,8 @@ Deno.serve(async (req) => {
           OPENAI_API_KEY,
           OPENAI_MODEL,
           filenameToUse,
-          parse_metadata || {}
+          parse_metadata || {},
+          storage_info // Pass storage_info from request body
         );
 
         return new Response(JSON.stringify(result), {
