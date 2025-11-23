@@ -183,7 +183,7 @@ export function MessageContent({
 
   // RENDERIZAÇÃO CONDICIONAL POR TIPO DE MENSAGEM
   if (messageType === 'analysis_result' && analysisId) {
-    return <AnalysisResultCard analysisId={analysisId} />
+    return <AnalysisResultCard analysisId={analysisId} conversationId={conversationId} />
   }
 
   if (messageType === 'presentation') {

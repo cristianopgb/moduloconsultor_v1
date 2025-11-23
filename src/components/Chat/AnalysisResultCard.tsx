@@ -5,6 +5,7 @@ import { ChartRenderer } from '../Datasets/ChartRenderer'
 import { KPIGrid } from '../Analytics/KPICard'
 import { uploadHtmlAndOpenPreview } from '../../lib/storagePreview'
 import { useAuth } from '../../contexts/AuthContext'
+import { GeniusUpgradeButton } from './GeniusUpgradeButton'
 
 interface AnalysisData {
   id: string
@@ -14,6 +15,9 @@ interface AnalysisData {
   llm_reasoning?: string
   generated_sql?: string
   query_results: any[]
+  dataset_id?: string
+  file_metadata?: any
+  conversation_id?: string
   ai_response: {
     headline?: string
     executive_summary?: string
@@ -63,9 +67,10 @@ interface AnalysisData {
 
 interface AnalysisResultCardProps {
   analysisId: string
+  conversationId?: string
 }
 
-export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
+export function AnalysisResultCard({ analysisId, conversationId }: AnalysisResultCardProps) {
   const { user } = useAuth()
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -972,28 +977,53 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
           </div>
         )}
 
-        {/* Botão Gerar Documento - Ao Final da Análise */}
-        <div className="mt-6 pt-6 border-t border-gray-700/50">
-          <button
-            onClick={handleGenerateDocument}
-            disabled={generatingDoc}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
-          >
-            {generatingDoc ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Gerando Documento...</span>
-              </>
-            ) : (
-              <>
-                <FileText className="w-5 h-5" />
-                <span>Exportar Análise Completa</span>
-              </>
-            )}
-          </button>
-          <p className="text-xs text-gray-400 text-center mt-2">
-            Gere um documento HTML editável com toda a análise, gráficos e métricas
-          </p>
+        {/* Botões de Ação - Ao Final da Análise */}
+        <div className="mt-6 pt-6 border-t border-gray-700/50 space-y-4">
+          {/* Botão Exportar Documento */}
+          <div>
+            <button
+              onClick={handleGenerateDocument}
+              disabled={generatingDoc}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+            >
+              {generatingDoc ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Gerando Documento...</span>
+                </>
+              ) : (
+                <>
+                  <FileText className="w-5 h-5" />
+                  <span>Exportar Análise Completa</span>
+                </>
+              )}
+            </button>
+            <p className="text-xs text-gray-400 text-center mt-2">
+              Gere um documento HTML editável com toda a análise, gráficos e métricas
+            </p>
+          </div>
+
+          {/* Botão Genius - Upgrade para Análise Avançada */}
+          {user?.id && analysis.dataset_id && (conversationId || analysis.conversation_id) && (
+            <div>
+              <div className="mb-2 text-center">
+                <p className="text-xs text-gray-400">
+                  Deseja uma análise ainda mais profunda com documentos executivos prontos?
+                </p>
+              </div>
+              <GeniusUpgradeButton
+                analysisId={analysis.id}
+                datasetId={analysis.dataset_id}
+                fileMetadata={analysis.file_metadata || {}}
+                userQuestion={analysis.user_question}
+                conversationId={conversationId || analysis.conversation_id || ''}
+                userId={user.id}
+                onGeniusCreated={(taskId) => {
+                  console.log('[AnalysisResultCard] Genius task created:', taskId)
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -6,7 +6,7 @@ import {
   ChevronDown, Link as LinkIcon, BarChart3, Wand2
 } from 'lucide-react'
 
-import { supabase, Conversation, Message, Model, ChatMode } from '../../lib/supabase'
+import { supabase, Conversation, Message, Model, ChatMode, GeniusAttachment } from '../../lib/supabase'
 import { callEdgeFunction } from '../../lib/functionsClient'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
@@ -31,6 +31,8 @@ import { XPCelebrationPopup } from '../Consultor/Gamificacao/XPCelebrationPopup'
 import { ValidateScopeButton } from './ValidateScopeButton'
 import { callConsultorRAG, getOrCreateSessao } from '../../lib/consultor/rag-adapter'
 import { GeniusChat } from './GeniusChat'
+import { GeniusMessageRenderer } from './GeniusMessageRenderer'
+import { GeniusAttachmentModal } from '../Genius/GeniusAttachmentModal'
 import { AnalysisPlanValidation } from './AnalysisPlanValidation'
 import { ExecutiveReport } from './ExecutiveReport'
 // NOTE: Refactored - executeRAGActions and updateSessaoContext removed
@@ -475,6 +477,9 @@ function ChatPage() {
 
   // Validação de Escopo - Botão de validação quando aguardando_validacao_escopo = true
   const [showValidateScopeButton, setShowValidateScopeButton] = useState(false)
+
+  // Genius Integration States
+  const [selectedGeniusAttachment, setSelectedGeniusAttachment] = useState<GeniusAttachment | null>(null)
 
   // Note: gamificacao_conversa table removed - gamification now at jornada level only
   // Keeping stub for backward compatibility during transition
@@ -2190,6 +2195,19 @@ function ChatPage() {
                 {messages.map((m, idx) => {
                   const isAssistant = m.role !== 'user'
                   const isLastAssistant = isAssistant && messages.slice(idx+1).every(x => x.role === 'user')
+
+                  // Render Genius messages differently
+                  if (m.message_type === 'genius_result') {
+                    return (
+                      <div key={m.id} data-message-id={m.id} className="mb-4">
+                        <GeniusMessageRenderer
+                          message={m}
+                          onOpenAttachment={(att) => setSelectedGeniusAttachment(att)}
+                        />
+                      </div>
+                    )
+                  }
+
                   return (
                     <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[72%] p-3 rounded-2xl shadow border ${m.role === 'user'
@@ -2665,6 +2683,14 @@ function ChatPage() {
             setShowXPCelebration(false)
             setXPCelebrationData(null)
           }}
+        />
+      )}
+
+      {/* Modal de Anexos Genius */}
+      {selectedGeniusAttachment && (
+        <GeniusAttachmentModal
+          attachment={selectedGeniusAttachment}
+          onClose={() => setSelectedGeniusAttachment(null)}
         />
       )}
     </div>
