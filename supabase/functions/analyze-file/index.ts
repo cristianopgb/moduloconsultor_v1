@@ -232,7 +232,8 @@ Deno.serve(async (req) => {
           conversation_id,
           OPENAI_API_KEY,
           OPENAI_MODEL,
-          filenameToUse
+          filenameToUse,
+          parse_metadata || {}
         );
 
         return new Response(JSON.stringify(result), {

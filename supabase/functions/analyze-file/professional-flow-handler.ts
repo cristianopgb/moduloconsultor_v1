@@ -112,7 +112,8 @@ export async function handleProfessionalFlowPlanOnly(
   conversationId: string | undefined,
   openaiApiKey: string,
   openaiModel: string,
-  filename: string
+  filename: string,
+  fileMetadata: any = {}
 ): Promise<any> {
   console.log('[ProfessionalFlow] PLAN_ONLY mode - generating analysis plan');
 
@@ -156,6 +157,7 @@ export async function handleProfessionalFlowPlanOnly(
       clarification_questions: professionalPlan.clarification_questions,
       profile_data: enrichedProfile,
       sample_rows: enrichedProfile.sampleRows,
+      file_metadata: { filename, ...fileMetadata },
       status: 'pending'
     })
     .select()
@@ -273,7 +275,10 @@ export async function handleProfessionalFlowExecute(
     .insert({
       user_id: plan.user_id,
       analysis_plan_id: plan.id,
+      dataset_id: plan.dataset_id,
       file_hash: plan.dataset_id,
+      conversation_id: plan.conversation_id,
+      file_metadata: plan.file_metadata || {},
       user_question: plan.user_question,
       business_understanding: plan.business_understanding,
       executive_headline: narrative.headline,
