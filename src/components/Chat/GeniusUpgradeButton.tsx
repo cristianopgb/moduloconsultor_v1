@@ -208,7 +208,7 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
       // Buscar dataset
       const { data: dataset, error: datasetError } = await supabase
         .from('datasets')
-        .select('file_path, name, size, mime_type')
+        .select('storage_path, name, size, mime_type')
         .eq('id', datasetId)
         .maybeSingle()
 
@@ -220,7 +220,7 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
       // Baixar arquivo do storage
       const { data: fileBlob, error: downloadError } = await supabase.storage
         .from('datasets')
-        .download(dataset.file_path)
+        .download(dataset.storage_path)
 
       if (downloadError || !fileBlob) {
         console.error('[GeniusUpgrade] Failed to download file:', downloadError)
