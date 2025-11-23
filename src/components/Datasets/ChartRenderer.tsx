@@ -30,7 +30,8 @@ export function ChartRenderer({ chartConfig, type, data, title }: ChartRendererP
     data
   } : null)
 
-  if (!config) {
+  // Validação defensiva: garantir que config tem estrutura mínima
+  if (!config || !config.data || !config.data.datasets || config.data.datasets.length === 0) {
     return (
       <div className="bg-gray-800/50 rounded-lg border border-gray-700 p-4">
         <p className="text-sm text-gray-400">Configuração de gráfico inválida</p>
@@ -122,7 +123,7 @@ export function ChartRenderer({ chartConfig, type, data, title }: ChartRendererP
 
       // Add data-chart-title attribute for export functionality
       if (canvasRef.current) {
-        canvasRef.current.setAttribute('data-chart-title', chartConfig.title)
+        canvasRef.current.setAttribute('data-chart-title', config?.title || 'Gráfico')
       }
 
     } catch (error) {
@@ -138,25 +139,30 @@ export function ChartRenderer({ chartConfig, type, data, title }: ChartRendererP
     const container = canvasRef.current.parentElement
     if (!container) return
 
+    // Validação defensiva para fallback
+    const safeTitle = config?.title || 'Dados'
+    const safeLabels = config?.data?.labels || []
+    const safeDatasets = config?.data?.datasets || []
+
     container.innerHTML = `
       <div class="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-        <h4 class="text-white font-medium mb-3">${chartConfig.title}</h4>
+        <h4 class="text-white font-medium mb-3">${safeTitle}</h4>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-gray-700">
                 <th class="text-left text-gray-300 p-2">Categoria</th>
-                ${chartConfig.data.datasets.map(ds => 
-                  `<th class="text-left text-gray-300 p-2">${ds.label}</th>`
+                ${safeDatasets.map(ds =>
+                  `<th class="text-left text-gray-300 p-2">${ds.label || 'Dados'}</th>`
                 ).join('')}
               </tr>
             </thead>
             <tbody>
-              ${chartConfig.data.labels.map((label, index) => `
+              ${safeLabels.map((label, index) => `
                 <tr class="border-b border-gray-800">
                   <td class="text-white p-2">${label}</td>
-                  ${chartConfig.data.datasets.map(ds => 
-                    `<td class="text-gray-300 p-2">${ds.data[index] || '-'}</td>`
+                  ${safeDatasets.map(ds =>
+                    `<td class="text-gray-300 p-2">${ds.data?.[index] || '-'}</td>`
                   ).join('')}
                 </tr>
               `).join('')}

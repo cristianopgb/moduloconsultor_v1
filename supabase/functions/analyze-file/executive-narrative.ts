@@ -548,6 +548,20 @@ Retorne APENAS o JSON (sem markdown, sem explicação adicional).
       narrative.kpi_cards = [];
     }
 
+    // Filter out invalid KPIs (N/A, undefined, null, empty values)
+    const originalKpiCount = narrative.kpi_cards.length;
+    narrative.kpi_cards = narrative.kpi_cards.filter(kpi =>
+      kpi.value &&
+      kpi.value !== 'N/A' &&
+      kpi.value !== 'undefined' &&
+      kpi.value !== 'null' &&
+      String(kpi.value).trim() !== ''
+    );
+
+    if (originalKpiCount !== narrative.kpi_cards.length) {
+      console.log(`[ExecutiveNarrative] Filtered invalid KPIs: ${originalKpiCount} → ${narrative.kpi_cards.length}`);
+    }
+
     console.log('[ExecutiveNarrative] Narrative generated successfully');
     return narrative;
   } catch (error: any) {

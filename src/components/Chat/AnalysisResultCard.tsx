@@ -107,15 +107,26 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
         .order('position', { ascending: true })
 
       // 4. Reconstruir ai_response com dados completos
+      // Filter invalid KPIs before rendering
+      const rawKpis = kpis?.map(k => ({
+        label: k.kpi_label,
+        value: k.kpi_value,
+        trend: k.trend,
+        comparison: k.comparison,
+        icon: k.icon_name
+      })) || (analysisData.ai_response?.kpi_cards || [])
+
+      const validKpis = rawKpis.filter(kpi =>
+        kpi.value &&
+        kpi.value !== 'N/A' &&
+        kpi.value !== 'undefined' &&
+        kpi.value !== 'null' &&
+        String(kpi.value).trim() !== ''
+      )
+
       const reconstructedResponse = {
         ...(analysisData.ai_response || {}),
-        kpi_cards: kpis?.map(k => ({
-          label: k.kpi_label,
-          value: k.kpi_value,
-          trend: k.trend,
-          comparison: k.comparison,
-          icon: k.icon_name
-        })) || (analysisData.ai_response?.kpi_cards || []),
+        kpi_cards: validKpis,
         visualizations: vizs?.map(v => ({
           type: v.viz_type,
           title: v.title,
@@ -141,7 +152,17 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
     const aiResponse = data.ai_response || {}
     const headline = data.executive_headline || aiResponse.headline || 'Análise de Dados'
     const executiveSummary = data.executive_summary_text || aiResponse.executive_summary || aiResponse.summary || ''
-    const kpiCards = aiResponse.kpi_cards || []
+
+    // Filter invalid KPIs before rendering document
+    const rawKpiCards = aiResponse.kpi_cards || []
+    const kpiCards = rawKpiCards.filter(kpi =>
+      kpi.value &&
+      kpi.value !== 'N/A' &&
+      kpi.value !== 'undefined' &&
+      kpi.value !== 'null' &&
+      String(kpi.value).trim() !== ''
+    )
+
     const keyInsights = aiResponse.key_insights || []
     const visualizations = aiResponse.visualizations || aiResponse.charts || []
     const businessRecs = data.business_recommendations || aiResponse.business_recommendations || []
@@ -153,6 +174,7 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${headline}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -421,16 +443,36 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
       ${visualizations.length > 0 ? `
       <section>
         <h2>📈 Visualizações</h2>
-        ${visualizations.map(viz => `
-          <div class="viz-section">
-            <h3>${viz.title || 'Gráfico'}</h3>
-            <div class="viz-placeholder">
-              <p>Gráfico ${viz.type || 'bar'}</p>
-              <p style="font-size: 12px; margin-top: 8px;">Dados: ${JSON.stringify(viz.data).substring(0, 100)}...</p>
+        ${visualizations.map((viz, index) => {
+          if (viz.type === 'table' || !viz.data || !viz.data.labels || !viz.data.datasets) {
+            // Fallback para tabela se não for gráfico
+            return `
+              <div class="viz-section">
+                <h3>${viz.title || 'Dados'}</h3>
+                <div class="viz-placeholder">
+                  <p>Tabela de dados</p>
+                  <p style="font-size: 12px; margin-top: 8px;">${viz.interpretation || ''}</p>
+                </div>
+              </div>
+            `
+          }
+
+          // Renderizar gráfico real com Chart.js
+          return `
+            <div class="viz-section">
+              <h3>${viz.title || 'Gráfico'}</h3>
+              <div style="position: relative; height: 400px; margin: 20px 0;">
+                <canvas id="chart-${index}"></canvas>
+              </div>
+              ${viz.interpretation ? `<p class="viz-interpretation __selectable">${viz.interpretation}</p>` : ''}
+              ${viz.insights && viz.insights.length > 0 ? `
+                <ul style="margin-top: 12px; padding-left: 20px;">
+                  ${viz.insights.map(insight => `<li class="__selectable" style="margin-bottom: 6px;">${insight}</li>`).join('')}
+                </ul>
+              ` : ''}
             </div>
-            ${viz.interpretation ? `<p class="viz-interpretation __selectable">${viz.interpretation}</p>` : ''}
-          </div>
-        `).join('')}
+          `
+        }).join('')}
       </section>
       ` : ''}
 
@@ -491,6 +533,65 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
       <p style="margin-top: 8px;">Total de registros analisados: ${data.full_dataset_rows.toLocaleString('pt-BR')}</p>
     </div>
   </div>
+
+  <script>
+    // Initialize all Chart.js visualizations
+    ${visualizations.map((viz, index) => {
+      if (viz.type === 'table' || !viz.data || !viz.data.labels || !viz.data.datasets) {
+        return ''
+      }
+
+      const chartType = viz.type === 'histogram' ? 'bar' : viz.type
+      const defaultColors = [
+        '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+        '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6366f1'
+      ]
+
+      return `
+        (function() {
+          try {
+            const ctx = document.getElementById('chart-${index}');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+              type: '${chartType}',
+              data: {
+                labels: ${JSON.stringify(viz.data.labels)},
+                datasets: ${JSON.stringify(viz.data.datasets.map((ds, idx) => ({
+                  ...ds,
+                  backgroundColor: ds.backgroundColor || (viz.type === 'pie' ? defaultColors : defaultColors[idx % defaultColors.length]),
+                  borderColor: ds.borderColor || defaultColors[idx % defaultColors.length],
+                  borderWidth: viz.type === 'line' ? 2 : 1,
+                  fill: viz.type === 'line' ? false : undefined
+                })))}
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  title: {
+                    display: true,
+                    text: '${viz.title || 'Gráfico'}',
+                    font: { size: 16, weight: 'bold' }
+                  },
+                  legend: {
+                    display: true,
+                    position: 'bottom'
+                  }
+                },
+                scales: ${viz.type !== 'pie' ? `{
+                  x: { ticks: { maxRotation: 45, minRotation: 0 } },
+                  y: { beginAtZero: true }
+                }` : 'undefined'}
+              }
+            });
+          } catch (err) {
+            console.error('Failed to render chart ${index}:', err);
+          }
+        })();
+      `
+    }).join('\n')}
+  </script>
 </body>
 </html>`
   }
@@ -574,32 +675,13 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
               {analysis.full_dataset_rows.toLocaleString()} linhas analisadas
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleGenerateDocument}
-              disabled={generatingDoc}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs rounded-lg flex items-center gap-1.5 transition-colors"
-            >
-              {generatingDoc ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Gerando...
-                </>
-              ) : (
-                <>
-                  <FileText className="w-4 h-4" />
-                  Gerar Documento
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-            >
-              <Info className="w-4 h-4" />
-              {showDetails ? 'Ocultar' : 'Detalhes'}
-            </button>
-          </div>
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+          >
+            <Info className="w-4 h-4" />
+            {showDetails ? 'Ocultar' : 'Detalhes'}
+          </button>
         </div>
       </div>
 
@@ -850,6 +932,30 @@ export function AnalysisResultCard({ analysisId }: AnalysisResultCardProps) {
             </div>
           </div>
         )}
+
+        {/* Botão Gerar Documento - Ao Final da Análise */}
+        <div className="mt-6 pt-6 border-t border-gray-700/50">
+          <button
+            onClick={handleGenerateDocument}
+            disabled={generatingDoc}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+          >
+            {generatingDoc ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Gerando Documento...</span>
+              </>
+            ) : (
+              <>
+                <FileText className="w-5 h-5" />
+                <span>Exportar Análise Completa</span>
+              </>
+            )}
+          </button>
+          <p className="text-xs text-gray-400 text-center mt-2">
+            Gere um documento HTML editável com toda a análise, gráficos e métricas
+          </p>
+        </div>
       </div>
     </div>
   )

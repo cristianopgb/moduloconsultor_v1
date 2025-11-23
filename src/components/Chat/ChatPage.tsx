@@ -679,108 +679,118 @@ function ChatPage() {
   useEffect(() => {
     if (!current?.id) { resetForConversation(); return }
     resetForConversation()
-    ;(async () => {
-      // gamificacao_conversa removed - gamification now at jornada level
-      lastKnownXpRef.current = 0
-      setLoadingAnalyses(true)
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*, analysis_id, message_type, template_used_id')
-        .eq('conversation_id', current.id)
-        .order('created_at', { ascending: true })
-      if (error) { setErr('Falha ao carregar mensagens.'); setLoadingAnalyses(false); return }
+    // gamificacao_conversa removed - gamification now at jornada level
+    lastKnownXpRef.current = 0
+    loadMessagesForConversation(current.id)
+  }, [current?.id])
 
-  const messagesWithAnalysis: MessageWithAnalysis[] = []
-      for (const msg of (data || [])) {
-        if (msg.analysis_id) {
-          try {
-            // 🔥 Load complete analysis with KPIs and visualizations
-            const { data: analysisData, error: analysisError } = await supabase
-              .from('data_analyses')
+  // Função reutílizável para carregar mensagens com análises completas
+  const loadMessagesForConversation = async (conversationId: string) => {
+    if (!conversationId) return
+
+    setLoadingAnalyses(true)
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*, analysis_id, message_type, template_used_id')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      setErr('Falha ao carregar mensagens.')
+      setLoadingAnalyses(false)
+      return
+    }
+
+    const messagesWithAnalysis: MessageWithAnalysis[] = []
+    for (const msg of (data || [])) {
+      if (msg.analysis_id) {
+        try {
+          // 🔥 Load complete analysis with KPIs and visualizations
+          const { data: analysisData, error: analysisError } = await supabase
+            .from('data_analyses')
+            .select('*')
+            .eq('id', msg.analysis_id)
+            .maybeSingle()
+
+          if (analysisError) throw analysisError
+
+          if (analysisData) {
+            // Load KPI cards
+            const { data: kpiCards } = await supabase
+              .from('analysis_kpis')
               .select('*')
-              .eq('id', msg.analysis_id)
-              .maybeSingle()
+              .eq('analysis_id', msg.analysis_id)
+              .order('position', { ascending: true })
 
-            if (analysisError) throw analysisError
+            // Load visualizations
+            const { data: visualizations } = await supabase
+              .from('analysis_visualizations')
+              .select('*')
+              .eq('analysis_id', msg.analysis_id)
+              .order('position', { ascending: true })
 
-            if (analysisData) {
-              // Load KPI cards
-              const { data: kpiCards } = await supabase
-                .from('analysis_kpis')
-                .select('*')
-                .eq('analysis_id', msg.analysis_id)
-                .order('position', { ascending: true })
-
-              // Load visualizations
-              const { data: visualizations } = await supabase
-                .from('analysis_visualizations')
-                .select('*')
-                .eq('analysis_id', msg.analysis_id)
-                .order('position', { ascending: true })
-
-              // Reconstruct executive narrative from persisted data
-              const reconstructedNarrative = {
-                headline: analysisData.executive_headline || '',
-                executive_summary: analysisData.executive_summary_text || '',
-                kpi_cards: kpiCards || [],
-                key_insights: analysisData.ai_response?.key_insights || [],
-                visualizations: (visualizations || []).map(v => ({
-                  type: v.viz_type,
-                  title: v.title,
-                  data: v.data,
-                  config: v.config,
-                  interpretation: v.interpretation,
-                  insights: v.insights
-                })),
-                business_recommendations: analysisData.business_recommendations || [],
-                next_questions: analysisData.next_questions || [],
-                executed_queries: analysisData.ai_response?.executed_queries || []
-              }
-
-              messagesWithAnalysis.push({
-                ...msg,
-                analysisData: reconstructedNarrative,
-                analysis_id: msg.analysis_id
-              })
-              console.log('[ChatPage] ✅ Analysis reconstructed from database:', msg.analysis_id)
-            } else {
-              messagesWithAnalysis.push({ ...msg, analysis_id: msg.analysis_id })
+            // Reconstruct executive narrative from persisted data
+            const reconstructedNarrative = {
+              headline: analysisData.executive_headline || '',
+              executive_summary: analysisData.executive_summary_text || '',
+              kpi_cards: kpiCards || [],
+              key_insights: analysisData.ai_response?.key_insights || [],
+              visualizations: (visualizations || []).map(v => ({
+                type: v.viz_type,
+                title: v.title,
+                data: v.data,
+                config: v.config,
+                interpretation: v.interpretation,
+                insights: v.insights
+              })),
+              business_recommendations: analysisData.business_recommendations || [],
+              next_questions: analysisData.next_questions || [],
+              executed_queries: analysisData.ai_response?.executed_queries || []
             }
-          } catch (e) {
-            console.warn('[ChatPage] Failed to load complete analysis:', e)
-            messagesWithAnalysis.push(msg)
+
+            messagesWithAnalysis.push({
+              ...msg,
+              analysisData: reconstructedNarrative,
+              analysis_id: msg.analysis_id
+            })
+            console.log('[ChatPage] ✅ Analysis reconstructed from database:', msg.analysis_id)
+          } else {
+            messagesWithAnalysis.push({ ...msg, analysis_id: msg.analysis_id })
           }
-        } else {
+        } catch (e) {
+          console.warn('[ChatPage] Failed to load complete analysis:', e)
           messagesWithAnalysis.push(msg)
         }
+      } else {
+        messagesWithAnalysis.push(msg)
       }
+    }
 
     setMessages(messagesWithAnalysis)
-      setLoadingAnalyses(false)
-      setTimeout(() => notifyNew(), 80)
+    setLoadingAnalyses(false)
+    setTimeout(() => notifyNew(), 80)
 
-      // Check for active dialogue state
-      const { data: dialogueData } = await supabase
-        .from('dialogue_states')
-        .select('id, state')
-        .eq('conversation_id', current.id)
-        .in('state', ['conversing', 'ready_to_analyze'])
-        .maybeSingle();
+    // Check for active dialogue state
+    const { data: dialogueData } = await supabase
+      .from('dialogue_states')
+      .select('id, state')
+      .eq('conversation_id', conversationId)
+      .in('state', ['conversing', 'ready_to_analyze'])
+      .maybeSingle()
 
-      if (dialogueData) {
-        console.log('[ChatPage] Dialogue ativo encontrado:', dialogueData);
-        setShowDialoguePanel(true);
-        setDialogueStateId(dialogueData.id);
-        setAnalysisState('collecting_context');
-      }
+    if (dialogueData) {
+      console.log('[ChatPage] Dialogue ativo encontrado:', dialogueData)
+      setShowDialoguePanel(true)
+      setDialogueStateId(dialogueData.id)
+      setAnalysisState('collecting_context')
+    }
 
-      const lastAssistant = [...messagesWithAnalysis].reverse().find(m => m.role !== 'user')
-      if (lastAssistant?.content) {
-        const endsLikeDraft = !/[\?\!]\s*$/.test(lastAssistant.content.trim())
-        if (endsLikeDraft) setReadyReason('histórico: draft')
-      }
-    })()
-  }, [current?.id])
+    const lastAssistant = [...messagesWithAnalysis].reverse().find(m => m.role !== 'user')
+    if (lastAssistant?.content) {
+      const endsLikeDraft = !/[\?\!]\s*$/.test(lastAssistant.content.trim())
+      if (endsLikeDraft) setReadyReason('histórico: draft')
+    }
+  }
 
   async function createConversation() {
     if (!user?.id) return
@@ -2273,8 +2283,11 @@ function ChatPage() {
                             setExecutingPlan(false);
                             setAnalysisState('ready_to_answer');
 
-                            // A mensagem com analysis_id já foi salva pelo backend
-                            // O useEffect ou realtime irá atualizar automaticamente
+                            // Recarregar mensagens para exibir análise imediatamente
+                            if (current?.id) {
+                              console.log('[PROFESSIONAL FLOW] Reloading messages to show analysis...');
+                              loadMessagesForConversation(current.id);
+                            }
                           },
                           (error) => {
                             console.error('[PROFESSIONAL FLOW] ❌ Execution failed:', error);
