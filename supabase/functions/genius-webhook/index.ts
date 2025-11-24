@@ -410,6 +410,11 @@ Deno.serve(async (req: Request) => {
           messageUpdate.content = message;
         }
 
+        // Preserve analysis_source_id if exists
+        if (existingMessage.analysis_source_id) {
+          messageUpdate.analysis_source_id = existingMessage.analysis_source_id;
+        }
+
         await supabase
           .from("messages")
           .update(messageUpdate)
