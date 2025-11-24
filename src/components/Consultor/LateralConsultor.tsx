@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Clipboard, FileText, Kanban } from 'lucide-react'
+import { ProgressIndicator } from '../Chat/ProgressIndicator'
 import { JornadaTimeline } from './Timeline/JornadaTimeline'
 import { PainelEntregaveis } from './Entregaveis/PainelEntregaveis'
 import { KanbanMiniDashboard } from './Kanban/KanbanMiniDashboard'
@@ -357,11 +358,12 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
       {/* Conteúdo da lateral */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-gray-400">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2" />
-              <p className="text-sm">Carregando...</p>
-            </div>
+          <div className="flex items-center justify-center h-full">
+            <ProgressIndicator
+              messages={['Carregando jornada...']}
+              icon="spinner"
+              size="md"
+            />
           </div>
         ) : activeTab === 'jornada' ? (
           <JornadaTimeline jornada={jornada} />

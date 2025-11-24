@@ -5,7 +5,7 @@ import { supabase, GeniusTask, GeniusAttachment, Message } from '../../lib/supab
 import { GeniusApiService } from '../../services/geniusApi';
 import { validateGeniusFiles, prepareFilesForUpload, formatFileSize, FileToValidate } from '../../utils/geniusValidation';
 import { GeniusAttachmentModal } from '../Genius/GeniusAttachmentModal';
-import { TaskProgressIndicator } from './TaskProgressIndicator';
+import { GeniusProgressIndicator } from './GeniusProgressIndicator';
 
 interface GeniusChatProps {
   conversationId: string;
@@ -436,7 +436,7 @@ export function GeniusChat({
               {/* Status indicator para tarefas */}
               {msg.genius_status && (
                 <div className="mb-3">
-                  <TaskProgressIndicator
+                  <GeniusProgressIndicator
                     status={msg.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
                     createdAt={msg.created_at}
                     hasFiles={msg.genius_attachments ? msg.genius_attachments.length > 0 : false}

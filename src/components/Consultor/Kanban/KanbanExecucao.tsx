@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronRight, GripVertical, Clock, User, AlertCircle } from 'lucide-react';
+import { ProgressIndicator } from '../../Chat/ProgressIndicator';
 import { supabase } from '../../../lib/supabase';
 
 interface KanbanCard {
@@ -164,7 +165,11 @@ export function KanbanExecucao({ jornadaId, sessaoId }: KanbanExecucaoProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        <ProgressIndicator
+          messages={['Carregando ações...']}
+          icon="spinner"
+          size="md"
+        />
       </div>
     );
   }

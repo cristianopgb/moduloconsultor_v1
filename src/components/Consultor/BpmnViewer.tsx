@@ -4,6 +4,7 @@ import Viewer from 'bpmn-js/lib/Viewer';
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { ProgressIndicator } from '../Chat/ProgressIndicator';
 
 interface BpmnViewerProps {
   xml: string;
@@ -186,10 +187,11 @@ export function BpmnViewer({
 
       {isLoading && (
         <div className="flex items-center justify-center h-96">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-            <p className="text-sm text-gray-400">Carregando diagrama...</p>
-          </div>
+          <ProgressIndicator
+            messages={['Carregando diagrama...']}
+            icon="spinner"
+            size="md"
+          />
         </div>
       )}
 

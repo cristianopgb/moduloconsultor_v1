@@ -20,29 +20,27 @@ export function AnalysisPlanValidation({ plan, onApprove, onReject, onAnswer }: 
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
 
   return (
-    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6 shadow-sm border border-blue-200">
+    <div className="bg-gray-800/70 border-l-4 border-blue-500 rounded-lg p-6">
       <div className="flex items-start gap-3 mb-4">
-        <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
-          <Sparkles className="w-5 h-5 text-white" />
-        </div>
+        <Sparkles className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900">Entendi sua solicitação</h3>
-          <p className="text-sm text-gray-600 mt-1">{plan.understanding}</p>
+          <h3 className="text-lg font-semibold text-gray-100">Entendi sua solicitação</h3>
+          <p className="text-sm text-gray-400 mt-1">{plan.understanding}</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg p-4 mb-4">
-        <h4 className="text-sm font-medium text-gray-700 mb-2">Vou fazer esta análise:</h4>
-        <div className="text-gray-800 whitespace-pre-line">{plan.summary}</div>
+      <div className="bg-gray-900/50 rounded-lg p-4 mb-4 border border-gray-700">
+        <h4 className="text-sm font-medium text-gray-300 mb-2">Vou fazer esta análise:</h4>
+        <div className="text-gray-200 whitespace-pre-line">{plan.summary}</div>
       </div>
 
       {plan.needs_clarification && plan.questions && plan.questions.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+        <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4 mb-4">
           <div className="flex items-start gap-2 mb-3">
-            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="text-sm font-medium text-yellow-900 mb-1">Preciso de esclarecimentos:</h4>
-              <ul className="text-sm text-yellow-800 space-y-1">
+              <h4 className="text-sm font-medium text-yellow-300 mb-1">Preciso de esclarecimentos:</h4>
+              <ul className="text-sm text-yellow-200/90 space-y-1">
                 {plan.questions.map((q, i) => (
                   <li key={i}>• {q}</li>
                 ))}
@@ -50,7 +48,7 @@ export function AnalysisPlanValidation({ plan, onApprove, onReject, onAnswer }: 
             </div>
           </div>
           <textarea
-            className="w-full px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent resize-none"
+            className="w-full px-3 py-2 bg-gray-900 border border-yellow-700/50 text-gray-200 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent resize-none"
             rows={3}
             placeholder="Me conte mais..."
             value={answers}
@@ -78,7 +76,7 @@ export function AnalysisPlanValidation({ plan, onApprove, onReject, onAnswer }: 
           </button>
           <button
             onClick={() => setShowFeedbackForm(true)}
-            className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
+            className="px-4 py-2.5 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition-colors flex items-center gap-2"
           >
             <Pencil className="w-4 h-4" />
             Não, quero outra coisa
@@ -87,12 +85,12 @@ export function AnalysisPlanValidation({ plan, onApprove, onReject, onAnswer }: 
       )}
 
       {showFeedbackForm && (
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="mt-4 pt-4 border-t border-gray-700">
+          <label className="block text-sm font-medium text-gray-300 mb-2">
             Me conte: o que exatamente você gostaria de ver?
           </label>
           <textarea
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            className="w-full px-3 py-2 bg-gray-900 border border-gray-700 text-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
             rows={3}
             placeholder="Descreva o que você quer ver..."
             value={feedback}
@@ -114,7 +112,7 @@ export function AnalysisPlanValidation({ plan, onApprove, onReject, onAnswer }: 
                 setShowFeedbackForm(false);
                 setFeedback('');
               }}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              className="px-4 py-2 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600"
             >
               Cancelar
             </button>

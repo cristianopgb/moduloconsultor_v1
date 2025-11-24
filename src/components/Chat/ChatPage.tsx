@@ -11,8 +11,8 @@ import { callEdgeFunction } from '../../lib/functionsClient'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { detectAndParseCSV, getDelimiterName } from '../../utils/csvDetector'
-import ThinkingAnimation from './ThinkingAnimation'
-import DocumentGeneratingAnimation from './DocumentGeneratingAnimation'
+import { ProgressIndicator } from './ProgressIndicator'
+import { MESSAGE_PRESETS } from '../../hooks/useProgressiveMessages'
 import { uploadHtmlAndOpenPreview } from '../../lib/storagePreview'
 import { DiscreteMenu } from './DiscreteMenu'
 import MessageContent from './MessageContent'
@@ -2310,13 +2310,39 @@ function ChatPage() {
                   />
                 )}
 
-                {/* Show ThinkingAnimation only if NOT in analytics mode with active state */}
-                {loading && !(chatMode === 'analytics' && analysisState !== 'idle') && <ThinkingAnimation />}
-                {generating && <DocumentGeneratingAnimation log={genLog} />}
+                {/* Show ProgressIndicator only if NOT in analytics mode with active state */}
+                {loading && !(chatMode === 'analytics' && analysisState !== 'idle') && (
+                  <div className="flex justify-center py-4">
+                    <ProgressIndicator
+                      messages={MESSAGE_PRESETS.thinking}
+                      icon="spinner"
+                      size="md"
+                    />
+                  </div>
+                )}
+                {generating && (
+                  <div className="flex justify-center py-4">
+                    <ProgressIndicator
+                      messages={[
+                        'Montando estrutura...',
+                        'Aplicando formatação...',
+                        'Gerando conteúdo...',
+                        'Otimizando layout...',
+                        'Finalizando documento...'
+                      ]}
+                      icon="sparkle"
+                      size="md"
+                      interval={3000}
+                    />
+                  </div>
+                )}
                 {loadingAnalyses && (
-                  <div className="flex justify-center items-center py-8">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-                    <span className="ml-3 text-gray-400">Carregando análises...</span>
+                  <div className="flex justify-center py-4">
+                    <ProgressIndicator
+                      messages={['Carregando análises...']}
+                      icon="spinner"
+                      size="md"
+                    />
                   </div>
                 )}
 
@@ -2384,9 +2410,19 @@ function ChatPage() {
 
                 {/* Professional Flow - Executing Plan Animation */}
                 {executingPlan && (
-                  <div className="mb-4 flex justify-center items-center py-8">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-                    <span className="ml-3 text-gray-400">Analisando seus dados...</span>
+                  <div className="mb-4 flex justify-center py-4">
+                    <ProgressIndicator
+                      messages={[
+                        'Analisando dados...',
+                        'Processando informações...',
+                        'Gerando insights...',
+                        'Criando visualizações...',
+                        'Finalizando análise...'
+                      ]}
+                      icon="brain"
+                      size="md"
+                      interval={4000}
+                    />
                   </div>
                 )}
 

@@ -1,6 +1,7 @@
 // web/src/components/Consultor/Entregaveis/PainelEntregaveis.tsx
 import { useEffect, useState } from 'react';
 import { FileText, Download, Eye, Search, X, ExternalLink, Zap, CheckCircle } from 'lucide-react';
+import { ProgressIndicator } from '../../Chat/ProgressIndicator';
 import { supabase } from '../../../lib/supabase';
 import type { EntregavelConsultor } from '../../../types/consultor';
 import { uploadHtmlAndOpenPreview } from '../../../lib/storagePreview';
@@ -309,11 +310,12 @@ export function PainelEntregaveis({ jornadaId, sessaoId, onRefresh }: PainelEntr
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
-          <p className="text-sm">Carregando...</p>
-        </div>
+      <div className="flex items-center justify-center h-full">
+        <ProgressIndicator
+          messages={['Carregando entregáveis...']}
+          icon="spinner"
+          size="md"
+        />
       </div>
     );
   }

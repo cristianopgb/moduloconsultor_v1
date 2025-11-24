@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, TrendingUp, CheckCircle, Clock, AlertCircle, Target } from 'lucide-react';
+import { ProgressIndicator } from '../../Chat/ProgressIndicator';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../lib/supabase';
 import type { ProjectKPIs } from '../../../types/consultor';
@@ -103,7 +104,11 @@ export function KanbanMiniDashboard({ jornadaId }: KanbanMiniDashboardProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        <ProgressIndicator
+          messages={['Carregando kanban...']}
+          icon="spinner"
+          size="md"
+        />
       </div>
     );
   }
