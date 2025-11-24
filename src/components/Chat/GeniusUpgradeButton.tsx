@@ -106,19 +106,13 @@ export function GeniusUpgradeButton({
         return
       }
 
-      // 3. Montar prompt enriquecido
+      // 3. Montar prompt enriquecido (focado em relatório executivo)
       const enrichedPrompt = `
-Análise Executiva Completa - Aprofundamento
+${userQuestion}
 
-Pergunta Original: ${userQuestion}
+Contexto: Análise aprofundada complementar solicitada pelo usuário.
 
-Contexto: Esta é uma análise aprofundada solicitada após análise inicial.
-Por favor, gere documentos executivos completos incluindo:
-- Relatório executivo detalhado (formato editável)
-- Apresentação de resultados profissional
-- Planilha de dados processados
-- Dashboard ou visualizações interativas (se aplicável)
-
+Por favor, gere um relatório executivo detalhado respondendo a pergunta acima.
 Foco em insights acionáveis e recomendações estratégicas para tomada de decisão.
       `.trim()
 
@@ -362,8 +356,8 @@ Foco em insights acionáveis e recomendações estratégicas para tomada de deci
             </div>
 
             <p className="text-gray-300 mb-4 leading-relaxed">
-              O Genius vai gerar uma análise executiva completa com documentos editáveis
-              (relatórios, apresentações, planilhas) baseados na sua pergunta original.
+              O Genius vai gerar um relatório executivo detalhado com insights acionáveis
+              e recomendações estratégicas baseadas na sua pergunta original.
             </p>
 
             <div className="bg-purple-900/30 border border-purple-500/30 rounded-lg p-4 mb-4">

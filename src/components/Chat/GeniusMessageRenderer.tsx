@@ -2,12 +2,14 @@ import React from 'react'
 import { Download, FileText, Image as ImageIcon, Table, File, Sparkles } from 'lucide-react'
 import { Message, GeniusAttachment } from '../../lib/supabase'
 import { GeniusProgressIndicator } from './GeniusProgressIndicator'
+import { GeniusDashboardButton } from './GeniusDashboardButton'
 import { formatFileSize } from '../../utils/geniusValidation'
 
 interface GeniusMessageRendererProps {
   message: Message
   onOpenAttachment: (attachment: GeniusAttachment) => void
   compact?: boolean // Modo minimalista para Analytics
+  onDashboardCreated?: (taskId: string, message: any) => void
 }
 
 // Helper para ícone por tipo MIME
@@ -18,8 +20,25 @@ function getFileIcon(mimeType: string) {
   return <File className="w-5 h-5" />
 }
 
-export function GeniusMessageRenderer({ message, onOpenAttachment, compact = false }: GeniusMessageRendererProps) {
+export function GeniusMessageRenderer({
+  message,
+  onOpenAttachment,
+  compact = false,
+  onDashboardCreated
+}: GeniusMessageRendererProps) {
   const hasAttachments = message.genius_attachments && message.genius_attachments.length > 0
+
+  // Verificar se já existe dashboard gerado para esta análise
+  const hasDashboardAttachment = hasAttachments && message.genius_attachments!.some(
+    att => att.file_name.toLowerCase().includes('dashboard') && att.mime_type.includes('html')
+  )
+
+  // Mostrar CTA de dashboard apenas se: análise completa, tem attachments, mas não tem dashboard ainda
+  const shouldShowDashboardCTA = compact &&
+    message.genius_status === 'completed' &&
+    hasAttachments &&
+    !hasDashboardAttachment &&
+    message.analysis_source_id // Só mostrar se tem analysis_source_id
 
   // Modo compact: versão visível mas minimalista para Analytics
   if (compact) {
@@ -75,6 +94,15 @@ export function GeniusMessageRenderer({ message, onOpenAttachment, compact = fal
               ))}
             </div>
           </div>
+        )}
+
+        {shouldShowDashboardCTA && (
+          <GeniusDashboardButton
+            conversationId={message.conversation_id}
+            analysisId={message.analysis_source_id!}
+            originalTaskId={message.external_task_id || ''}
+            onDashboardCreated={onDashboardCreated}
+          />
         )}
 
         {message.genius_status === 'failed' && (

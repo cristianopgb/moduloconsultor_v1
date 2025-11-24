@@ -2273,6 +2273,11 @@ function ChatPage() {
                           message={m}
                           onOpenAttachment={(att) => setSelectedGeniusAttachment(att)}
                           compact={chatMode === 'analytics'}
+                          onDashboardCreated={(taskId, message) => {
+                            console.log('[ChatPage] Dashboard Genius criado:', taskId)
+                            // Adicionar mensagem ao estado local
+                            setMessages((prev) => [...prev, message])
+                          }}
                         />
                       </div>
                     )
