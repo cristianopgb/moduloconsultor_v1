@@ -2312,7 +2312,7 @@ function ChatPage() {
 
                 {/* Show ProgressIndicator only if NOT in analytics mode with active state */}
                 {loading && !(chatMode === 'analytics' && analysisState !== 'idle') && (
-                  <div className="flex justify-center py-4">
+                  <div className="ml-10 py-2">
                     <ProgressIndicator
                       messages={MESSAGE_PRESETS.thinking}
                       icon="spinner"
@@ -2321,7 +2321,7 @@ function ChatPage() {
                   </div>
                 )}
                 {generating && (
-                  <div className="flex justify-center py-4">
+                  <div className="ml-10 py-2">
                     <ProgressIndicator
                       messages={[
                         'Montando estrutura...',
@@ -2337,7 +2337,7 @@ function ChatPage() {
                   </div>
                 )}
                 {loadingAnalyses && (
-                  <div className="flex justify-center py-4">
+                  <div className="ml-10 py-2">
                     <ProgressIndicator
                       messages={['Carregando análises...']}
                       icon="spinner"
@@ -2346,11 +2346,41 @@ function ChatPage() {
                   </div>
                 )}
 
-                {/* Analysis State Indicator - ONLY for analytics mode */}
-                {chatMode === 'analytics' && analysisState !== 'idle' && (
+                {/* Analysis State Indicator - ONLY for non-loading states */}
+                {chatMode === 'analytics' && (
+                  analysisState === 'awaiting_plan_validation' ||
+                  analysisState === 'ready_to_answer' ||
+                  analysisState === 'error'
+                ) && (
                   <div className="mb-4">
                     <AnalysisStateIndicator
                       state={analysisState}
+                    />
+                  </div>
+                )}
+
+                {/* Analytics Loading States - Use ProgressIndicator */}
+                {chatMode === 'analytics' && analysisState === 'collecting_context' && (
+                  <div className="ml-10 py-2">
+                    <ProgressIndicator
+                      messages={['Coletando contexto...']}
+                      icon="spinner"
+                      size="md"
+                    />
+                  </div>
+                )}
+                {chatMode === 'analytics' && analysisState === 'analyzing' && (
+                  <div className="ml-10 py-2">
+                    <ProgressIndicator
+                      messages={[
+                        'Analisando dados...',
+                        'Processando informações...',
+                        'Gerando insights...',
+                        'Criando visualizações...'
+                      ]}
+                      icon="brain"
+                      size="md"
+                      interval={3500}
                     />
                   </div>
                 )}
@@ -2410,7 +2440,7 @@ function ChatPage() {
 
                 {/* Professional Flow - Executing Plan Animation */}
                 {executingPlan && (
-                  <div className="mb-4 flex justify-center py-4">
+                  <div className="ml-10 py-2">
                     <ProgressIndicator
                       messages={[
                         'Analisando dados...',

@@ -1,7 +1,7 @@
 import React from 'react'
 import { Download, FileText, Image as ImageIcon, Table, File, Sparkles } from 'lucide-react'
 import { Message, GeniusAttachment } from '../../lib/supabase'
-import { TaskProgressIndicator } from './TaskProgressIndicator'
+import { GeniusProgressIndicator } from './GeniusProgressIndicator'
 import { formatFileSize } from '../../utils/geniusValidation'
 
 interface GeniusMessageRendererProps {
@@ -33,7 +33,7 @@ export function GeniusMessageRenderer({ message, onOpenAttachment }: GeniusMessa
       {/* Status Indicator */}
       {message.genius_status && (
         <div className="mb-4">
-          <TaskProgressIndicator
+          <GeniusProgressIndicator
             status={message.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
             createdAt={message.created_at}
             hasFiles={hasAttachments}
