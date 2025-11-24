@@ -41,11 +41,22 @@ export function ProgressIndicator({
     return () => clearInterval(timer);
   }, [messages.length, interval]);
 
-  const icons = {
-    spinner: <Loader2 className="animate-spin" />,
-    pulse: <Circle className="animate-pulse" />,
-    sparkle: <Sparkles className="animate-pulse" />,
-    brain: <Brain className="animate-pulse" />
+  // Icons are now functions that accept size class
+  const getIcon = (iconType: typeof icon, sizeClass: string) => {
+    const iconProps = { className: `${sizeClass} text-gray-400` };
+
+    switch (iconType) {
+      case 'spinner':
+        return <Loader2 {...iconProps} className={`${sizeClass} text-gray-400 animate-spin`} />;
+      case 'pulse':
+        return <Circle {...iconProps} className={`${sizeClass} text-gray-400 animate-pulse`} />;
+      case 'sparkle':
+        return <Sparkles {...iconProps} className={`${sizeClass} text-purple-400 animate-pulse`} />;
+      case 'brain':
+        return <Brain {...iconProps} className={`${sizeClass} text-blue-400 animate-pulse`} />;
+      default:
+        return <Loader2 {...iconProps} className={`${sizeClass} text-gray-400 animate-spin`} />;
+    }
   };
 
   const sizeClasses = {
@@ -70,10 +81,8 @@ export function ProgressIndicator({
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
-      <div className={`flex items-center ${sizeClasses[size]} text-gray-400`}>
-        <div className={iconSizes[size]}>
-          {icons[icon]}
-        </div>
+      <div className={`flex items-center ${sizeClasses[size]}`}>
+        {getIcon(icon, iconSizes[size])}
 
         <span
           className={`transition-opacity duration-150 ${

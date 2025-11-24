@@ -2251,6 +2251,7 @@ function ChatPage() {
                         <GeniusMessageRenderer
                           message={m}
                           onOpenAttachment={(att) => setSelectedGeniusAttachment(att)}
+                          compact={chatMode === 'analytics'}
                         />
                       </div>
                     )

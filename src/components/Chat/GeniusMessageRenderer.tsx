@@ -7,6 +7,7 @@ import { formatFileSize } from '../../utils/geniusValidation'
 interface GeniusMessageRendererProps {
   message: Message
   onOpenAttachment: (attachment: GeniusAttachment) => void
+  compact?: boolean // Modo minimalista para Analytics
 }
 
 // Helper para ícone por tipo MIME
@@ -17,8 +18,23 @@ function getFileIcon(mimeType: string) {
   return <File className="w-5 h-5" />
 }
 
-export function GeniusMessageRenderer({ message, onOpenAttachment }: GeniusMessageRendererProps) {
+export function GeniusMessageRenderer({ message, onOpenAttachment, compact = false }: GeniusMessageRendererProps) {
   const hasAttachments = message.genius_attachments && message.genius_attachments.length > 0
+
+  // Modo compact: apenas status indicator minimalista
+  if (compact) {
+    return (
+      <div className="ml-10 py-2">
+        {message.genius_status && (
+          <GeniusProgressIndicator
+            status={message.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
+            createdAt={message.created_at}
+            hasFiles={hasAttachments}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gradient-to-br from-gray-800 to-purple-900/20 border-l-4 border-purple-500 rounded-lg p-6 shadow-lg">
