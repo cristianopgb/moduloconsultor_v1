@@ -43,22 +43,7 @@ export function GeniusChat({
   // Local state for messages - single source of truth
   const [messages, setMessages] = useState<Message[]>(externalMessages);
 
-  // Sync with external messages on mount/conversation change
-  useEffect(() => {
-    setMessages(externalMessages);
-  }, [conversationId]);
-
-  // Notify parent of message changes
-  useEffect(() => {
-    onMessagesUpdate(messages);
-  }, [messages]);
-
-  // Sync local files with prop
-  useEffect(() => {
-    setLocalFiles(attachedFiles);
-  }, [attachedFiles]);
-
-  // Fetch initial messages
+  // Fetch initial messages - sempre recarregar ao montar ou quando conversationId mudar
   useEffect(() => {
     async function fetchInitialMessages() {
       console.log('[Genius] Fetching initial messages for conversation:', conversationId);
@@ -76,10 +61,16 @@ export function GeniusChat({
       if (data) {
         console.log('[Genius] Loaded', data.length, 'initial messages');
         setMessages(data);
+        onMessagesUpdate(data); // Notificar parent imediatamente
       }
     }
     fetchInitialMessages();
   }, [conversationId]);
+
+  // Sync local files with prop
+  useEffect(() => {
+    setLocalFiles(attachedFiles);
+  }, [attachedFiles]);
 
   // UNIFIED Realtime listener - single source of truth
   useEffect(() => {

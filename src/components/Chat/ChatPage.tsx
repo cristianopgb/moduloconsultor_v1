@@ -455,6 +455,9 @@ function ChatPage() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [pendingConsultorActions, setPendingConsultorActions] = useState<any[] | null>(null)
 
+  // Genius Task State
+  const [hasPendingGenius, setHasPendingGenius] = useState(false)
+
   // Formulário dinâmico — ADICIONADO 'atributos_processo' no union
   const [showFormModal, setShowFormModal] = useState(false)
   const [formType, setFormType] = useState<
@@ -796,6 +799,19 @@ function ChatPage() {
       if (endsLikeDraft) setReadyReason('histórico: draft')
     }
   }
+
+  // Monitor messages for pending Genius tasks
+  useEffect(() => {
+    const hasPending = messages.some(m =>
+      m.message_type === 'genius_result' &&
+      (m.genius_status === 'pending' || m.genius_status === 'running')
+    );
+    setHasPendingGenius(hasPending);
+
+    if (hasPending) {
+      console.log('[ChatPage] Genius task pendente detectado - chat desabilitado');
+    }
+  }, [messages]);
 
   // 🔥 Supabase Realtime: Atualizar mensagens Genius automaticamente quando webhook atualizar
   useEffect(() => {
@@ -2245,7 +2261,12 @@ function ChatPage() {
                   const isLastAssistant = isAssistant && messages.slice(idx+1).every(x => x.role === 'user')
 
                   // Render Genius messages differently
+                  // No Analytics, renderizar genius_result se tiver analysis_source_id
                   if (m.message_type === 'genius_result') {
+                    // Se está no Analytics e NÃO tem analysis_source_id, não renderizar
+                    if (chatMode === 'analytics' && !m.analysis_source_id) {
+                      return null;
+                    }
                     return (
                       <div key={m.id} data-message-id={m.id} className="mb-4">
                         <GeniusMessageRenderer
@@ -2311,8 +2332,8 @@ function ChatPage() {
                   />
                 )}
 
-                {/* Show ProgressIndicator only if NOT in analytics mode with active state */}
-                {loading && !(chatMode === 'analytics' && analysisState !== 'idle') && (
+                {/* Show ProgressIndicator only if NOT in analytics mode with active state OR analyzing */}
+                {loading && !(chatMode === 'analytics' && (analysisState !== 'idle' || analysisState === 'analyzing')) && (
                   <div className="ml-10 py-2">
                     <ProgressIndicator
                       messages={MESSAGE_PRESETS.thinking}
@@ -2565,7 +2586,7 @@ function ChatPage() {
                             : 'Digite sua mensagem…'
                     }
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 pr-12 pl-12 text-white placeholder-gray-400"
-                    disabled={loading || generating}
+                    disabled={loading || generating || hasPendingGenius}
                   />
 
                   {/* 🔘 Seletor de modo (só ícones), dentro da caixa, lado esquerdo (oposto ao clipe) */}
@@ -2609,7 +2630,7 @@ function ChatPage() {
                 <button
                   data-send-btn
                   onClick={() => sendMessage()}
-                  disabled={(!input.trim() && attachedRefs.length === 0) || loading || generating}
+                  disabled={(!input.trim() && attachedRefs.length === 0) || loading || generating || hasPendingGenius}
                   className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 disabled:bg-gray-600"
                   title="Enviar para o agente"
                 >

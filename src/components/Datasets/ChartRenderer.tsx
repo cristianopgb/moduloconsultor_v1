@@ -66,7 +66,7 @@ export function ChartRenderer({ chartConfig, type, data, title }: ChartRendererP
         chartInstanceRef.current.destroy()
       }
 
-      const ctx = canvasRef.current.getContext('2d')
+      const ctx = canvasRef.current?.getContext('2d')
       if (!ctx) return
 
       // Configuração padrão baseada no tipo
