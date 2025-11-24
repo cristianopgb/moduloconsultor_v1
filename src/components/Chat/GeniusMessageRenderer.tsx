@@ -29,12 +29,60 @@ export function GeniusMessageRenderer({ message, onOpenAttachment, compact = fal
           <Sparkles className="w-4 h-4 text-purple-400" />
           <span className="text-sm font-semibold text-purple-300">Análise Genius</span>
         </div>
+
         {message.genius_status && (
-          <GeniusProgressIndicator
-            status={message.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
-            createdAt={message.created_at}
-            hasFiles={hasAttachments}
-          />
+          <div className="mb-3">
+            <GeniusProgressIndicator
+              status={message.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
+              createdAt={message.created_at}
+              hasFiles={hasAttachments}
+            />
+          </div>
+        )}
+
+        {message.content && (
+          <div className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap mb-3">
+            {message.content}
+          </div>
+        )}
+
+        {hasAttachments && (
+          <div className="mt-3">
+            <h5 className="text-xs font-semibold text-purple-300 mb-2 flex items-center gap-2">
+              <Download className="w-3.5 h-3.5" />
+              Documentos Gerados ({message.genius_attachments!.length})
+            </h5>
+            <div className="grid grid-cols-1 gap-2">
+              {message.genius_attachments!.map((att, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => onOpenAttachment(att)}
+                  className="flex items-center gap-2 p-3 bg-gray-700/50 hover:bg-gray-600/50 border border-gray-600 hover:border-purple-500/50 rounded-lg transition-all group"
+                >
+                  <div className="text-purple-400 group-hover:text-purple-300 transition-colors">
+                    {getFileIcon(att.mime_type)}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-medium text-white truncate group-hover:text-purple-200 transition-colors">
+                      {att.file_name}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {formatFileSize(att.size_bytes)}
+                    </p>
+                  </div>
+                  <Download className="w-4 h-4 text-gray-400 group-hover:text-purple-300 transition-colors flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {message.genius_status === 'failed' && (
+          <div className="mt-3 p-2 bg-red-900/30 border border-red-700/50 rounded-lg">
+            <p className="text-xs text-red-300">
+              A análise Genius falhou. Tente novamente ou entre em contato com o suporte.
+            </p>
+          </div>
         )}
       </div>
     );
