@@ -2332,8 +2332,8 @@ function ChatPage() {
                   />
                 )}
 
-                {/* Show ProgressIndicator only if NOT in analytics mode with active state OR analyzing */}
-                {loading && !(chatMode === 'analytics' && (analysisState !== 'idle' || analysisState === 'analyzing')) && (
+                {/* Show ProgressIndicator only if NOT in analytics mode with active state */}
+                {loading && !(chatMode === 'analytics' && analysisState !== 'idle') && (
                   <div className="ml-10 py-2">
                     <ProgressIndicator
                       messages={MESSAGE_PRESETS.thinking}
@@ -2368,8 +2368,8 @@ function ChatPage() {
                   </div>
                 )}
 
-                {/* Analysis State Indicator - ONLY for non-loading states */}
-                {chatMode === 'analytics' && (
+                {/* Analysis State Indicator - ONLY for non-loading states and when NO Genius is pending */}
+                {chatMode === 'analytics' && !hasPendingGenius && (
                   analysisState === 'awaiting_plan_validation' ||
                   analysisState === 'ready_to_answer' ||
                   analysisState === 'error'

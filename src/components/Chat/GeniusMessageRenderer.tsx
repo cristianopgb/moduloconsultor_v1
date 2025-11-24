@@ -21,10 +21,14 @@ function getFileIcon(mimeType: string) {
 export function GeniusMessageRenderer({ message, onOpenAttachment, compact = false }: GeniusMessageRendererProps) {
   const hasAttachments = message.genius_attachments && message.genius_attachments.length > 0
 
-  // Modo compact: apenas status indicator minimalista
+  // Modo compact: versão visível mas minimalista para Analytics
   if (compact) {
     return (
-      <div className="ml-10 py-2">
+      <div className="bg-gray-800/50 border-l-4 border-purple-500 rounded-lg p-4 mb-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="w-4 h-4 text-purple-400" />
+          <span className="text-sm font-semibold text-purple-300">Análise Genius</span>
+        </div>
         {message.genius_status && (
           <GeniusProgressIndicator
             status={message.genius_status as 'pending' | 'running' | 'completed' | 'failed'}
