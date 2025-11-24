@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Clock, Sparkles, Brain, Circle } from 'lucide-react';
+import { Loader2, Sparkles, Brain } from 'lucide-react';
 
 interface ProgressIndicatorProps {
   messages: string[];
@@ -41,21 +41,30 @@ export function ProgressIndicator({
     return () => clearInterval(timer);
   }, [messages.length, interval]);
 
+  // Color schemes for coordinated icon + text colors
+  const colorSchemes = {
+    spinner: { icon: 'text-blue-400', text: 'text-blue-200' },
+    pulse: { icon: 'text-gray-300', text: 'text-gray-200' },
+    sparkle: { icon: 'text-purple-400', text: 'text-purple-200' },
+    brain: { icon: 'text-cyan-400', text: 'text-cyan-200' }
+  };
+
+  // Get color scheme for current icon type
+  const colors = colorSchemes[icon];
+
   // Icons are now functions that accept size class
   const getIcon = (iconType: typeof icon, sizeClass: string) => {
-    const iconProps = { className: `${sizeClass} text-gray-400` };
-
     switch (iconType) {
       case 'spinner':
-        return <Loader2 {...iconProps} className={`${sizeClass} text-gray-400 animate-spin`} />;
+        return <Loader2 className={`${sizeClass} ${colors.icon} animate-spin`} />;
       case 'pulse':
-        return <Circle {...iconProps} className={`${sizeClass} text-gray-400 animate-pulse`} />;
+        return <Loader2 className={`${sizeClass} ${colors.icon} animate-pulse`} />;
       case 'sparkle':
-        return <Sparkles {...iconProps} className={`${sizeClass} text-purple-400 animate-pulse`} />;
+        return <Sparkles className={`${sizeClass} ${colors.icon} animate-pulse`} />;
       case 'brain':
-        return <Brain {...iconProps} className={`${sizeClass} text-blue-400 animate-pulse`} />;
+        return <Brain className={`${sizeClass} ${colors.icon} animate-pulse`} />;
       default:
-        return <Loader2 {...iconProps} className={`${sizeClass} text-gray-400 animate-spin`} />;
+        return <Loader2 className={`${sizeClass} ${colors.icon} animate-spin`} />;
     }
   };
 
@@ -85,18 +94,18 @@ export function ProgressIndicator({
         {getIcon(icon, iconSizes[size])}
 
         <span
-          className={`transition-opacity duration-150 ${
+          className={`${colors.text} transition-opacity duration-150 ${
             isTransitioning ? 'opacity-0' : 'opacity-100'
           }`}
         >
           {showTimer && elapsedSeconds > 0 && (
-            <span className="text-gray-500 mr-1.5">
+            <span className={`${colors.text} mr-1.5`}>
               {formatTime(elapsedSeconds)} •
             </span>
           )}
           {currentMessage}
           {showProgress && progress !== undefined && (
-            <span className="ml-1.5 text-gray-500">
+            <span className={`ml-1.5 ${colors.text}`}>
               {Math.round(progress)}%
             </span>
           )}
