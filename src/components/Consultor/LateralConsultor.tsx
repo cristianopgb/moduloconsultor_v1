@@ -191,7 +191,10 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'jornadas_consultor', filter: `id=eq.${jornada.id}` },
-        () => { loadJornada(false) }
+        (payload) => {
+          console.log('[LateralConsultor] Jornada updated via realtime:', payload.new?.etapa_atual)
+          loadJornada(false)
+        }
       )
       // Áreas de trabalho alteradas
       .on(
@@ -366,7 +369,10 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
             />
           </div>
         ) : activeTab === 'jornada' ? (
-          <JornadaTimeline jornada={jornada} />
+          <JornadaTimeline
+            key={`${jornada?.id}-${jornada?.etapa_atual}-${lastUpdate.getTime()}`}
+            jornada={jornada}
+          />
         ) : activeTab === 'entregaveis' ? (
           <PainelEntregaveis jornadaId={jornada?.id} onRefresh={() => void loadJornada(false)} />
         ) : jornada?.id ? (

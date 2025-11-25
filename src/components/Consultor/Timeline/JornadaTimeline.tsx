@@ -225,6 +225,13 @@ export function JornadaTimeline({ jornada }: JornadaTimelineProps) {
     }
   }, [user?.id, jornadaId, loadAreas, loadGamificacao, setupGamificacaoRealtime, setupChecklistRealtime, setupAreasRealtime])
 
+  // ===== Debug: Log quando etapa_atual muda
+  useEffect(() => {
+    if (jornada?.etapa_atual) {
+      console.log('[JornadaTimeline] Etapa atual changed to:', jornada.etapa_atual)
+    }
+  }, [jornada?.etapa_atual])
+
   // ===== Render (sem feed de linha do tempo; apenas Jornada + Gamificação)
   return (
     <div className="p-4 space-y-4">

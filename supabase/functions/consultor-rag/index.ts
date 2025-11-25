@@ -1479,6 +1479,20 @@ Deno.serve(async (req: Request) => {
 
       console.log('[CONSULTOR] ✅ Context updated. New phase:', novaFase);
 
+      // Atualizar também a tabela jornadas_consultor para sincronizar etapa_atual
+      if (sessao.jornada_id) {
+        await supabase
+          .from('jornadas_consultor')
+          .update({
+            etapa_atual: novaFase,
+            progresso_geral: progressoAtualizado,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', sessao.jornada_id);
+
+        console.log('[CONSULTOR] ✅ Jornada etapa_atual updated to:', novaFase);
+      }
+
       if (novaFase !== faseAtual) {
         await supabase
           .from('timeline_consultor')
