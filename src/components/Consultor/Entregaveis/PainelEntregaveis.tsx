@@ -279,7 +279,7 @@ export function PainelEntregaveis({ jornadaId, sessaoId, onRefresh }: PainelEntr
     { value: 'matriz_priorizacao', label: 'Matriz de Priorização' },
     { value: 'escopo_projeto', label: 'Escopo do Projeto' },
     { value: 'bpmn', label: 'BPMN' },
-    { value: 'diagnostico', label: 'Diagnóstico' },
+    { value: 'diagnostico_exec', label: 'Diagnóstico' },
     { value: 'plano_acao', label: 'Plano de Ação' },
     // compat
     { value: 'mapa_geral', label: 'Mapa Geral' },
@@ -414,7 +414,7 @@ export function PainelEntregaveis({ jornadaId, sessaoId, onRefresh }: PainelEntr
                             </button>
                           )}
 
-                          {doc.tipo === 'diagnostico' && (
+                          {(doc.tipo === 'diagnostico_exec' || doc.tipo === 'diagnostico') && (
                             <>
                               <button
                                 onClick={() => handleAprovarDiagnostico(doc)}

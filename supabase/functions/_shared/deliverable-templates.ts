@@ -1410,7 +1410,7 @@ export function getTemplateForType(tipo: string, contexto: any): string {
     'escopo_projeto': generateEscopoHTML,
     '5w2h': generatePlanoAcaoHTML,
     'plano_acao': generatePlanoAcaoHTML,
-    'diagnostico_executivo': generateDiagnosticoExecutivoHTML,
+    'diagnostico_exec': generateDiagnosticoExecutivoHTML,
     'diagnostico': generateDiagnosticoExecutivoHTML
   };
 
