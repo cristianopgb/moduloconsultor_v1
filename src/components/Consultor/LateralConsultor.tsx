@@ -172,6 +172,26 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
     return () => window.removeEventListener('gamification:updated', onGamUpdate as any)
   }, [conversationId])
 
+  // Global event to force jornada refresh after every user interaction (fallback to Realtime)
+  useEffect(() => {
+    function onJornadaRefresh(e: any) {
+      try {
+        const cid = e?.detail?.conversationId
+        if (cid === conversationId) {
+          console.log('[LateralConsultor] jornada:refresh event received, forcing update');
+          // CRITICAL: Update lastUpdate IMMEDIATELY to force Timeline re-render
+          setLastUpdate(new Date())
+          // Then load updated data in background
+          void loadJornada(false)
+        }
+      } catch (err) {
+        console.warn('[LateralConsultor] Error handling jornada:refresh:', err)
+      }
+    }
+    window.addEventListener('jornada:refresh', onJornadaRefresh as any)
+    return () => window.removeEventListener('jornada:refresh', onJornadaRefresh as any)
+  }, [conversationId, loadJornada])
+
   // ===== Realtime: só após termos a jornada (id) =====
   useEffect(() => {
     if (!user?.id || !conversationId || !jornada?.id) return
@@ -193,20 +213,26 @@ export function LateralConsultor({ conversationId }: LateralConsultorProps) {
         { event: '*', schema: 'public', table: 'jornadas_consultor', filter: `id=eq.${jornada.id}` },
         (payload) => {
           console.log('[LateralConsultor] Jornada updated via realtime:', payload.new?.etapa_atual)
-          loadJornada(false)
+          // CRITICAL: Update lastUpdate IMMEDIATELY to force Timeline re-render
+          setLastUpdate(new Date())
+          void loadJornada(false)
         }
       )
       // Áreas de trabalho alteradas
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'areas_trabalho', filter: `jornada_id=eq.${jornada.id}` },
-        () => { loadJornada(false) }
+        () => {
+          setLastUpdate(new Date())
+          void loadJornada(false)
+        }
       )
       // Novo entregável
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'entregaveis_consultor', filter: `jornada_id=eq.${jornada.id}` },
         async () => {
+          setLastUpdate(new Date())
           await loadJornada(false)
           if (activeTab !== 'entregaveis') {
             try {

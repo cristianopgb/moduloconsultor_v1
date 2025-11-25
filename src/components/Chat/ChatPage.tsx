@@ -1424,6 +1424,12 @@ function ChatPage() {
           }
         ]);
 
+        // CRITICAL: Dispatch event to force Timeline refresh after every interaction
+        console.log('[ChatPage] Dispatching jornada:refresh event for conversationId:', current.id);
+        window.dispatchEvent(new CustomEvent('jornada:refresh', {
+          detail: { conversationId: current.id }
+        }));
+
         setLoading(false);
 
         // IMPORTANTE: No modo Consultor (RAG), NÃO detectamos formulários
