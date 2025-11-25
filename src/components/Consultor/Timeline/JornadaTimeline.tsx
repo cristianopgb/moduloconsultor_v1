@@ -12,6 +12,7 @@ const DEFAULT_ETAPAS_JORNADA: EtapaJornada[] = [
   { id: 'apresentacao', nome: 'Apresentação', cor: 'bg-fuchsia-600/30 text-fuchsia-200' },
   { id: 'anamnese', nome: 'Anamnese', cor: 'bg-amber-600/30 text-amber-200' },
   { id: 'mapeamento', nome: 'Mapeamento Geral', cor: 'bg-indigo-600/30 text-indigo-200' },
+  { id: 'investigacao', nome: 'Investigação', cor: 'bg-cyan-600/30 text-cyan-200' },
   { id: 'priorizacao', nome: 'Priorização', cor: 'bg-emerald-600/30 text-emerald-200' },
   { id: 'execucao', nome: 'Execução', cor: 'bg-blue-600/30 text-blue-200' },
 ]

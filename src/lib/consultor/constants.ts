@@ -12,8 +12,10 @@ export const AREAS_PADRAO = [
 ] as const;
 
 export const ETAPAS_JORNADA = {
+  APRESENTACAO: 'apresentacao',
   ANAMNESE: 'anamnese',
   MAPEAMENTO: 'mapeamento',
+  INVESTIGACAO: 'investigacao',
   PRIORIZACAO: 'priorizacao',
   EXECUCAO: 'execucao'
 } as const;
